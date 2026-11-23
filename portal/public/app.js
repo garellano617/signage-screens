@@ -146,6 +146,7 @@ const ICONS = {
   wizard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8l1.4 1.4M17.8 6.2l1.4-1.4M12.2 6.2l-1.4-1.4"/><path d="M15 9l-12 12"/></svg>',
   widgets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>',
   content: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>',
+  billing: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>',
   reports: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   monitoring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>',
   download: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>',
@@ -161,6 +162,7 @@ const clientRoutes = [
   [/^\/wizard$/, "wizard", renderWizard],
   [/^\/monitoring$/, "monitoring", renderMonitoring],
   [/^\/reports$/, "reports", renderReports],
+  [/^\/billing$/, "billing", renderBilling],
   [/^\/screens$/, "screens", renderScreens],
   [/^\/screens\/(\d+)$/, "screens", renderScreen],
   [/^\/screens\/(\d+)\/layers$/, "screens", renderLayers],
@@ -179,6 +181,7 @@ const staffRoutes = [
   [/^\/clients$/, "clients", renderClients],
   [/^\/monitoring$/, "monitoring", renderMonitoring],
   [/^\/reports$/, "reports", renderReports],
+  [/^\/billing$/, "billing", renderBilling],
   [/^\/download$/, "download", renderDownload],
   [/^\/(profile|settings)$/, "profile", renderProfile]
 ];
@@ -219,12 +222,13 @@ function shell(section, inClient) {
       link(base() + "/screens", "screens", "Screens"),
       link(base() + "/monitoring", "monitoring", "Screen Monitoring"),
       link(base() + "/reports", "reports", "Reports"),
+      link(base() + "/billing", "billing", "Billing"),
       isStaff() ? (isAdmin() ? link(base() + "/logins", "logins", "Logins") : null) : link("#/download", "download", "Download App"),
       isStaff() ? null : link("#/profile", "profile", "Profile & Admins")
     ];
   } else if (isStaff()) {
     links = [link("#/", "dashboard", "Dashboard"), link("#/clients", "clients", "White Label & Clients"),
-      link("#/monitoring", "monitoring", "Screen Monitoring"), link("#/reports", "reports", "Reports"), link("#/download", "download", "Download App"),
+      link("#/monitoring", "monitoring", "Screen Monitoring"), link("#/reports", "reports", "Reports"), link("#/billing", "billing", "Billing"), link("#/download", "download", "Download App"),
       link("#/profile", "profile", "Profile & Admins")];
   } else {
     // A client's login on Download App / Profile: same menu as inside their account.
@@ -1385,6 +1389,99 @@ async function renderReports(main) {
           h("tbody", {}, r.byScreen.map(s => h("tr", { class: "click", onclick: () => (location.hash = screenLink(s)) },
             h("td", {}, h("strong", {}, s.name), inClient ? null : h("div", { class: "small muted" }, s.customerName)),
             h("td", {}, s.plays.toLocaleString()), h("td", {}, hours(s.seconds)), h("td", { class: "small muted" }, ago(s.lastPlay)))))) : h("p", { class: "muted" }, "—"))));
+}
+
+// ---------- billing (from the Premier Signage Billing app) ----------
+const money = n => "$" + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const INVOICE = { paid: ["ok", "Paid"], upcoming: ["", "Upcoming"], due: ["warn", "Due"], partial: ["warn", "Partly paid"], overdue: ["danger", "Overdue"] };
+const invoicePill = b => {
+  if (!b) return h("span", { class: "muted" }, "—");
+  if (b.overdue && b.overdue.balance > 0) return h("span", { class: "pill danger" }, "Overdue " + money(b.overdue.balance));
+  if (!b.thisMonth) return h("span", { class: "pill" }, ({ pending: "Awaiting setup", paused: "Paused", cancelled: "Cancelled" })[b.status] || "Not billed");
+  const [cls, label] = INVOICE[b.thisMonth.status] || ["", b.thisMonth.status];
+  return h("span", { class: "pill " + cls }, label);
+};
+const dateText = d => d ? new Date(d + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—";
+
+async function renderBilling(main) {
+  const inClient = !isStaff() || state.cid;
+  const d = await api("GET", "/billing");
+  const head = pageHead("Billing", inClient ? clientName() : "All clients",
+    isStaff() && d.billingUrl ? h("a", { class: "btn", href: d.billingUrl, target: "_blank", rel: "noopener" }, "Open billing app ↗") : null);
+
+  if (!d.configured) {
+    main.replaceChildren(head, h("div", { class: "card" },
+      isStaff() ? [h("h2", {}, "Connect your billing app"),
+        h("p", {}, "This page shows each client's plan, monthly amount and whether they're paid up, read from your Premier Signage Billing app. It only reads; payments stay in the billing app."),
+        h("ol", { style: "padding-left:1.2rem;line-height:1.8" },
+          h("li", {}, "Make up a long random key (40+ characters)."),
+          h("li", {}, "In the billing app's host, set ", h("span", { class: "mono" }, "SIGNAGE_INTEGRATION_KEY"), " to that key."),
+          h("li", {}, "In this portal's host (Render → Environment), set ", h("span", { class: "mono" }, "BILLING_URL"), " to the billing app's address and ", h("span", { class: "mono" }, "BILLING_KEY"), " to the same key."),
+          h("li", {}, "Come back here and link each client."))]
+        : h("p", { class: "muted" }, "Billing details aren't available yet.")));
+    return;
+  }
+  const warn = !d.ok ? h("div", { class: "card", style: "border-color:var(--danger);margin-bottom:1rem" }, h("strong", { style: "color:var(--danger)" }, "⚠ "), d.error,
+    d.stale ? h("span", { class: "muted" }, " Showing the last details received " + ago(d.at) + ".") : null) : null;
+
+  if (inClient) {
+    const row = d.rows[0] || {};
+    const b = row.billing;
+    main.replaceChildren(head, warn || "",
+      !b ? h("div", { class: "card empty" }, isStaff()
+          ? [h("p", {}, row.linked ? "This client's record wasn't found in the billing app." : "This client isn't linked to the billing app yet."), linkControl(row, d.choices)]
+          : "Billing details aren't available yet.")
+        : h("div", { class: "stack" },
+          h("div", { class: "grid stats" },
+            stat(money(b.monthly), "Monthly" + (b.plan ? " · " + b.plan + " plan" : "")),
+            stat(b.screens, "Screens on plan"),
+            h("div", { class: "card stat" }, h("div", { class: "num", style: "font-size:1.3rem;padding:.35rem 0" }, invoicePill(b)), h("div", { class: "lbl" }, b.thisMonth ? "This month · due " + dateText(b.thisMonth.due) : "This month")),
+            stat(b.lastPayment ? money(b.lastPayment.amount) : "—", b.lastPayment ? "Last payment · " + dateText(b.lastPayment.date) : "Last payment")),
+          h("div", { class: "card" }, h("h2", {}, "Details"), h("dl", { class: "kv" },
+            h("dt", {}, "Pays by"), h("dd", {}, b.payMethod === "ach" ? "Bank account (ACH)" : b.payMethod === "card" ? "Card" : "Not set up yet"),
+            h("dt", {}, "Automatic payments"), h("dd", {}, b.autopay ? "On" : "Off"),
+            h("dt", {}, "Billing day"), h("dd", {}, b.billingDay ? "The " + b.billingDay + ordinal(b.billingDay) + " of each month" : "—"),
+            b.thisMonth ? [h("dt", {}, "This month"), h("dd", {}, money(b.thisMonth.amount) + (b.thisMonth.paid ? " · paid " + money(b.thisMonth.paid) : "") + (b.thisMonth.balance ? " · balance " + money(b.thisMonth.balance) : ""))] : null,
+            b.overdue && b.overdue.invoices ? [h("dt", {}, "Overdue"), h("dd", { style: "color:var(--danger)" }, money(b.overdue.balance) + " (" + b.overdue.invoices + " invoice" + (b.overdue.invoices > 1 ? "s" : "") + ", oldest due " + dateText(b.overdue.oldestDue) + ")")] : null),
+            isStaff() ? h("div", { style: "margin-top:1rem" }, linkControl(row, d.choices)) : null)));
+    return;
+  }
+
+  // Your team, all clients
+  const linked = d.rows.filter(r => r.billing);
+  const mrr = linked.filter(r => r.billing.status === "active").reduce((a, r) => a + (Number(r.billing.monthly) || 0), 0);
+  const overdue = linked.filter(r => r.billing.overdue && r.billing.overdue.balance > 0);
+  main.replaceChildren(head, warn || "",
+    h("div", { class: "grid stats", style: "margin-bottom:1rem" },
+      stat(money(mrr), "Monthly recurring"), stat(money(overdue.reduce((a, r) => a + r.billing.overdue.balance, 0)), "Overdue"),
+      stat(overdue.length, "Clients overdue"), stat(d.rows.filter(r => !r.linked).length, "Not linked yet")),
+    h("div", { class: "card table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Client"), h("th", {}, "Plan"), h("th", {}, "Status"), h("th", {}, "Last payment"), h("th", {}, "Billing app record"))),
+      h("tbody", {}, d.rows.map(r => h("tr", {},
+        h("td", {}, h("a", { href: "#/c/" + r.customerId + "/billing" }, h("strong", {}, r.name))),
+        h("td", { class: "small" }, r.billing ? [money(r.billing.monthly) + "/mo", h("div", { class: "muted" }, [r.billing.plan, r.billing.screens + " screens"].filter(Boolean).join(" · "))] : "—"),
+        h("td", {}, invoicePill(r.billing)),
+        h("td", { class: "small muted" }, r.billing && r.billing.lastPayment ? money(r.billing.lastPayment.amount) + " · " + dateText(r.billing.lastPayment.date) : "—"),
+        h("td", {}, linkControl(r, d.choices))))))),
+    d.unlinked && d.unlinked.length ? h("p", { class: "small muted", style: "margin-top:.75rem" },
+      "In the billing app but not linked to a client here: " + d.unlinked.map(u => u.name).join(", ") + ".") : null);
+}
+
+function ordinal(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return s[(v - 20) % 10] || s[v] || s[0]; }
+
+/** Pick which billing-app client this signage client is (your team's admins). */
+function linkControl(row, choices) {
+  if (!isAdmin() || !choices) return row.linked ? h("span", { class: "small muted" }, row.missing ? "⚠ Linked record not found" : "Linked") : null;
+  const save = async id => {
+    try { await api("PUT", "/customers/" + row.customerId + "/billing-link", { billingClientId: id || null }, { "X-Customer-Id": "" }); toast(id ? "Linked." : "Unlinked."); route(); }
+    catch (e) { fail(e); }
+  };
+  const sel = h("select", { class: "link-select", onchange: e => save(e.target.value) },
+    h("option", { value: "" }, row.linked ? "— unlink —" : "— not linked —"),
+    choices.map(c => h("option", { value: c.id, selected: row.billing && row.billing.id === c.id }, c.name)));
+  if (row.linked && !row.billing) sel.prepend(h("option", { value: "", selected: true, disabled: true }, "⚠ record not found"));
+  return h("div", { class: "link-cell" }, sel,
+    row.suggest ? h("button", { class: "small primary", onclick: () => save(row.suggest.id) }, "Link to “" + row.suggest.name + "”") : null);
 }
 
 // ---------- profile & admins ----------

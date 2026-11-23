@@ -100,7 +100,7 @@ function customerOut(c) {
   const screens = all("SELECT last_seen FROM screens WHERE customer_id = ? AND paired_at IS NOT NULL", c.id);
   return {
     id: c.id, name: c.name, contactName: c.contact_name, email: c.email, phone: c.phone, notes: c.notes,
-    screenLimit: c.screen_limit, active: !!c.active, createdAt: c.created_at,
+    screenLimit: c.screen_limit, active: !!c.active, createdAt: c.created_at, billingClientId: c.billing_client_id || null,
     screens: screens.length, online: screens.filter(isOnline).length,
     users: get("SELECT COUNT(*) n FROM users WHERE customer_id = ?", c.id).n,
     playlists: get("SELECT COUNT(*) n FROM playlists WHERE customer_id = ?", c.id).n,
@@ -799,6 +799,41 @@ router.delete("/playlists/:id", (req, res) => {
   const p = loadPlaylist(req, intId(req.params.id));
   run("DELETE FROM playlists WHERE id = ?", p.id);
   res.json({ ok: true });
+});
+
+// ---------- billing (read from the Premier Signage Billing app) ----------
+const billing = require("./billingLink");
+/** What a client's own login may see about their billing. */
+const clientView = b => b && ({ plan: b.plan, screens: b.screens, monthly: b.monthly, billingDay: b.billingDay, payMethod: b.payMethod, autopay: b.autopay,
+  thisMonth: b.thisMonth, overdue: b.overdue, lastPayment: b.lastPayment, status: b.status });
+
+router.get("/billing", async (req, res) => {
+  const st = await billing.billingStatus();
+  const byId = new Map(st.clients.map(b => [b.id, b]));
+  const customers = req.cid ? [get("SELECT * FROM customers WHERE id = ?", req.cid)] : all("SELECT * FROM customers ORDER BY name COLLATE NOCASE");
+  const rows = customers.map(c => {
+    const b = c.billing_client_id ? byId.get(c.billing_client_id) || null : null;
+    // Suggest a billing client with the same name when not linked yet.
+    const suggest = !c.billing_client_id && req.isStaff ? st.clients.find(x => x.name.trim().toLowerCase() === c.name.trim().toLowerCase()) : null;
+    return { customerId: c.id, name: c.name, linked: !!c.billing_client_id, missing: !!c.billing_client_id && !b && st.ok,
+      billing: req.isStaff ? b : clientView(b), suggest: suggest ? { id: suggest.id, name: suggest.name } : null };
+  });
+  const linkedIds = new Set(all("SELECT billing_client_id id FROM customers WHERE billing_client_id IS NOT NULL").map(r => r.id));
+  res.json({
+    configured: st.configured, ok: st.ok, error: req.isStaff ? st.error || null : (st.ok ? null : "Billing details aren't available right now."),
+    stale: !!st.stale, at: st.at || null,
+    billingUrl: req.isStaff ? billing.billingUrl() || null : null,
+    rows,
+    unlinked: req.isStaff && !req.cid ? st.clients.filter(b => !linkedIds.has(b.id)).map(b => ({ id: b.id, name: b.name, status: b.status })) : undefined,
+    choices: req.isStaff ? st.clients.map(b => ({ id: b.id, name: b.name })) : undefined
+  });
+});
+
+router.put("/customers/:id/billing-link", auth.requireStaff, auth.requireAdmin, (req, res) => {
+  const c = loadCustomer(intId(req.params.id));
+  const id = req.body.billingClientId ? String(req.body.billingClientId).replace(/[^\w-]/g, "").slice(0, 60) : null;
+  run("UPDATE customers SET billing_client_id = ? WHERE id = ?", id || null, c.id);
+  res.json(customerOut(loadCustomer(c.id)));
 });
 
 // ---------- white label (your team's admins) ----------

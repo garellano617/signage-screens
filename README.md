@@ -15,6 +15,21 @@ Every screen, playlist and media file belongs to a **client** (a business you pu
 - **Pausing** a client logs their users out and blocks their logins. Their TVs keep playing.
 - A client can only be deleted after their screens are removed. Deleting a client also deletes their playlists, media and logins.
 
+## Menu
+
+**Your team (main level):** Dashboard (all clients, offline screens, screen map) · White Label & Clients · Screen Monitoring · Reports · Billing · Download App · Profile & Admins.
+
+**Inside a client (and a client's own login):** Dashboard · Wizard · Content (Media library, Widgets) · Channels · Playlists · Screens · Screen Monitoring · Reports · Billing · Logins (or Download App and Profile & Admins for a client's login).
+
+- **Wizard:** step by step: add content → make a playlist → connect a TV → design layers.
+- **Widgets:** clock, weather (Open-Meteo, no key), news feed (RSS/Atom), QR code, countdown, message. Add them to playlists like images. The same drawing code runs in the portal and on the TV.
+- **Channels:** one playlist + layers design shared by many screens. Each screen's own schedule still applies.
+- **Screen map:** OpenStreetMap. Set a screen's location on its page (address search or click the map).
+- **Screen Monitoring:** online now, uptime per hour (24 hours, 7 days), screenshot wall, "screenshot all".
+- **Reports (proof of play):** the player reports every item it played. Plays and time per day, per content, per screen. CSV export. Kept 13 months.
+- **White label:** portal name, logo (PNG/JPG/WebP) and main color, shown on the login page, the menu and the browser tab.
+- **Billing:** reads each client's plan, monthly amount and paid/overdue status from the Premier Signage Billing app (read-only). Set `BILLING_URL` and `BILLING_KEY` here, and the same key as `SIGNAGE_INTEGRATION_KEY` in the billing app. Then link each client on the Billing page.
+
 ## Screen layers
 
 Each screen is designed as four layers, stacked bottom to top. Open a screen and click **Design layers**. The editor has a live preview, and the TV draws the layers with the same code (`portal/public/overlay/`, bundled into the APK at build time).

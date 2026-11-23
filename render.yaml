@@ -31,3 +31,8 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Optional: show each client's billing status from the Premier Signage Billing app.
+      - key: BILLING_URL
+        sync: false
+      - key: BILLING_KEY
+        sync: false

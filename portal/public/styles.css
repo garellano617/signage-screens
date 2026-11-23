@@ -184,6 +184,10 @@ dialog .dlg-actions { display: flex; justify-content: flex-end; gap: .5rem; marg
 .bp-nav svg { width: 24px; height: 24px; }
 .bp-body { display: flex; gap: .75rem; align-items: center; padding: 1rem; }
 
+/* billing */
+.link-cell { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.link-select { width: auto; min-width: 160px; max-width: 240px; padding: .3rem .5rem; font-size: .85rem; }
+
 /* reports */
 .day-chart { display: flex; align-items: flex-end; gap: 4px; height: 220px; padding-top: 1.2rem; overflow-x: auto; }
 .day-col { flex: 1 0 18px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; min-width: 18px; }
@@ -271,3 +275,13 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .cmds { display: flex; gap: .5rem; flex-wrap: wrap; }
 .bulkbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .6rem .75rem; background: var(--accent-soft); border-radius: 8px; margin-bottom: .75rem; }
 .bulkbar select { width: auto; flex: 1 1 180px; }
+
+/* Phone layout for parts defined above (kept last so it wins). */
+@media (max-width: 760px) {
+  .navgroup { display: contents; }
+  .navgroup-head { display: none; }
+  .submenu, .submenu.open { display: contents; }
+  .nav a.sub { padding-left: .65rem; font-size: .9rem; }
+  .map { height: 280px; }
+  .widget-dialog { grid-template-columns: 1fr; }
+}

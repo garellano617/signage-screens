@@ -172,6 +172,8 @@ CREATE INDEX IF NOT EXISTS plays_customer_time ON plays(customer_id, started_at)
 // Portal-wide settings (white label branding, billing link).
 db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
 fs.mkdirSync(path.join(DATA_DIR, "branding"), { recursive: true });
+// Link to the client's record in the Premier Signage Billing app.
+if (!hasColumn("customers", "billing_client_id")) db.exec("ALTER TABLE customers ADD COLUMN billing_client_id TEXT");
 
 // Screen map: where each screen is.
 for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"]])

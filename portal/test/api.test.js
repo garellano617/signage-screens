@@ -572,3 +572,62 @@ test("white label: public branding, staff admins only, logo types", async () => 
   cookie = "";
   assert.equal((await call("GET", "/api/branding")).body.name, "Premier Screens");
 });
+
+test("billing: reads the billing app, links clients, client logins see only their own summary", async () => {
+  const http = require("node:http");
+  const billingLink = require("../src/billingLink");
+  const KEY = "b".repeat(40);
+  const fake = http.createServer((req, res) => {
+    if (req.headers.authorization !== "Bearer " + KEY) { res.writeHead(401); return res.end("{}"); }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ clients: [
+      { id: "wendy", name: "Billing Taco", status: "active", screens: 2, plan: "Plus", monthly: 110, billingDay: 1, payMethod: "ach", autopay: true, subscription: "active",
+        thisMonth: { month: "2026-11", amount: 110, paid: 0, balance: 110, status: "overdue", due: "2026-11-01" }, overdue: { invoices: 1, balance: 110, oldestDue: "2026-11-01" }, lastPayment: { date: "2026-10-01", amount: 110 } },
+      { id: "other", name: "Somebody Else", status: "active", screens: 1, plan: "Basic", monthly: 35 }
+    ] }));
+  });
+  await new Promise(r => fake.listen(0, r));
+  t_after: {
+    cookie = ""; scopeId = null;
+    await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+
+    // Not set up yet.
+    delete process.env.BILLING_URL; delete process.env.BILLING_KEY; billingLink.resetCache();
+    assert.equal((await call("GET", "/api/billing")).body.configured, false);
+
+    // Wrong key -> clear message.
+    process.env.BILLING_URL = "http://127.0.0.1:" + fake.address().port; process.env.BILLING_KEY = "wrong"; billingLink.resetCache();
+    const bad = (await call("GET", "/api/billing")).body;
+    assert.equal(bad.ok, false);
+    assert.match(bad.error, /refused the key/);
+
+    process.env.BILLING_KEY = KEY; billingLink.resetCache();
+    const C = (await call("POST", "/api/customers", { name: "Billing Taco" })).body;
+    let all = (await call("GET", "/api/billing")).body;
+    let row = all.rows.find(r => r.customerId === C.id);
+    assert.equal(row.linked, false);
+    assert.deepEqual(row.suggest, { id: "wendy", name: "Billing Taco" }, "same name is suggested");
+
+    assert.equal((await call("PUT", "/api/customers/" + C.id + "/billing-link", { billingClientId: "wendy" })).body.billingClientId, "wendy");
+    all = (await call("GET", "/api/billing")).body;
+    row = all.rows.find(r => r.customerId === C.id);
+    assert.equal(row.billing.thisMonth.status, "overdue");
+    assert.ok(all.unlinked.some(u => u.id === "other"));
+    assert.ok(!all.unlinked.some(u => u.id === "wendy"));
+
+    // The client's own login: just their summary, no link to the billing app, no other clients.
+    scopeId = C.id;
+    await call("POST", "/api/users", { email: "owner@billingtaco.test", password: "taco-pass-12", role: "admin" });
+    cookie = ""; scopeId = null;
+    await call("POST", "/api/auth/login", { email: "owner@billingtaco.test", password: "taco-pass-12" });
+    const mine = (await call("GET", "/api/billing")).body;
+    assert.equal(mine.rows.length, 1);
+    assert.equal(mine.rows[0].billing.monthly, 110);
+    assert.equal(mine.billingUrl, null);
+    assert.equal(mine.unlinked, undefined);
+    assert.equal(mine.rows[0].billing.subscription, undefined);
+    assert.equal((await call("PUT", "/api/customers/" + C.id + "/billing-link", { billingClientId: "other" })).status, 403);
+  }
+  fake.close();
+  delete process.env.BILLING_URL; delete process.env.BILLING_KEY; billingLink.resetCache();
+});
