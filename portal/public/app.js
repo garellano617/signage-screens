@@ -125,6 +125,7 @@ const ICONS = {
   media: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>',
   clients: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/></svg>',
   logins: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M1 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 11h6M20 8v6"/></svg>',
+  channels: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M17 2l-5 5-5-5"/></svg>',
   wizard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8l1.4 1.4M17.8 6.2l1.4-1.4M12.2 6.2l-1.4-1.4"/><path d="M15 9l-12 12"/></svg>',
   widgets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>',
   content: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>',
@@ -144,6 +145,9 @@ const clientRoutes = [
   [/^\/screens$/, "screens", renderScreens],
   [/^\/screens\/(\d+)$/, "screens", renderScreen],
   [/^\/screens\/(\d+)\/layers$/, "screens", renderLayers],
+  [/^\/channels$/, "channels", renderChannels],
+  [/^\/channels\/(\d+)$/, "channels", renderChannel],
+  [/^\/channels\/(\d+)\/layers$/, "channels", (main, id) => renderLayers(main, id, "channel")],
   [/^\/playlists$/, "playlists", renderPlaylists],
   [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
   [/^\/media$/, "media", renderMedia],
@@ -190,6 +194,7 @@ function shell(section, inClient) {
       link(base() + "/", "dashboard", "Dashboard"),
       link(base() + "/wizard", "wizard", "Wizard"),
       contentGroup(),
+      link(base() + "/channels", "channels", "Channels"),
       link(base() + "/playlists", "playlists", "Playlists"),
       link(base() + "/screens", "screens", "Screens"),
       link(base() + "/monitoring", "monitoring", "Screen Monitoring"),
@@ -440,24 +445,36 @@ function deviceRows(s) {
 }
 
 async function renderScreen(main, id) {
-  const [s, playlists] = await Promise.all([api("GET", "/screens/" + id), api("GET", "/playlists")]);
+  const [s, playlists, channels] = await Promise.all([api("GET", "/screens/" + id), api("GET", "/playlists"), api("GET", "/channels")]);
 
   // settings
   const f = {
     name: h("input", { value: s.name, maxlength: 100 }),
     location: h("input", { value: s.location, maxlength: 200 }),
     playlistId: h("select", {}, playlistOptions(playlists, s.playlistId, "— none —")),
+    channelId: h("select", {}, h("option", { value: "" }, "— none (this screen's own playlist and layers) —"),
+      channels.map(c => h("option", { value: c.id, selected: c.id === s.channelId }, c.name))),
     orientation: h("select", {}, [[0, "Landscape"], [90, "Portrait (rotated right)"], [180, "Landscape, upside down"], [270, "Portrait (rotated left)"]]
       .map(([v, l]) => h("option", { value: v, selected: v === s.orientation }, l))),
     volume: h("input", { type: "range", min: 0, max: 100, value: s.volume }),
     notes: h("textarea", { rows: 2, maxlength: 2000 }, s.notes)
   };
+  // On a channel, the main playlist comes from the channel.
+  const plNote = h("div", { class: "small muted", style: "margin-top:.3rem" });
+  const plField = h("div", { class: "field" }, h("label", {}, "Main playlist"), f.playlistId, plNote);
+  const syncChannel = () => {
+    const ch = channels.find(c => c.id === Number(f.channelId.value));
+    f.playlistId.disabled = !!ch;
+    plNote.textContent = ch ? "From the channel: " + (ch.playlistName || "no playlist yet") + "." : "";
+  };
+  f.channelId.addEventListener("change", syncChannel);
+  syncChannel();
   const volLbl = h("span", { class: "muted" }, s.volume + "%");
   f.volume.addEventListener("input", () => (volLbl.textContent = f.volume.value + "%"));
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
-      await api("PATCH", "/screens/" + id, { name: f.name.value, location: f.location.value, playlistId: f.playlistId.value || null,
+      await api("PATCH", "/screens/" + id, { name: f.name.value, location: f.location.value, playlistId: f.playlistId.value || null, channelId: f.channelId.value || null,
         orientation: Number(f.orientation.value), volume: Number(f.volume.value), notes: f.notes.value });
       toast("Saved. The screen updates within 30 seconds.");
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
@@ -509,7 +526,7 @@ async function renderScreen(main, id) {
     h("div", { class: "grid two" },
       h("div", { class: "stack" },
         h("div", { class: "card" }, h("h2", {}, "Settings"),
-          field("Name", f.name), field("Location", f.location), field("Main playlist", f.playlistId),
+          field("Name", f.name), field("Location", f.location), field("Channel", f.channelId), plField,
           h("div", { class: "row" }, field("Orientation", f.orientation), h("div", { class: "field" }, h("label", {}, "Volume ", volLbl), f.volume)),
           field("Notes", f.notes), saveBtn),
         h("div", { class: "card" }, h("h2", {}, "Schedule"),
@@ -518,6 +535,9 @@ async function renderScreen(main, id) {
           h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave)),
         locationCard(s)),
       h("div", { class: "stack" },
+        s.channelId ? h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
+            h("a", { class: "btn small", href: base() + "/channels/" + s.channelId }, "Open channel")),
+          h("p", { class: "small muted", style: "margin:0" }, "This screen uses the layers of the channel “" + s.channelName + "”.")) :
         h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
             h("a", { class: "btn primary small", href: base() + "/screens/" + id + "/layers" }, "Design layers")),
           h("div", { class: "chips" }, [["video", "Video"], ["specials", "Specials"], ["text", "Text"], ["effects", "Effects"]].map(([k, l]) =>
@@ -556,14 +576,24 @@ const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sp
 const opts = (list, val) => list.map(([v, l]) => h("option", { value: v, selected: v === val }, l));
 const colorIn = (val, onchange, label) => h("label", { class: "color-in" }, h("input", { type: "color", value: val, oninput: e => onchange(e.target.value) }), label);
 
-async function renderLayers(main, id) {
-  const [s, media] = await Promise.all([api("GET", "/screens/" + id), api("GET", "/media")]);
+/** Layers editor for a screen, or for a channel (kind = "channel"). */
+async function renderLayers(main, id, kind) {
+  const isCh = kind === "channel";
+  const path = (isCh ? "/channels/" : "/screens/") + id;
+  const [s, media] = await Promise.all([api("GET", path), api("GET", "/media")]);
+  if (!isCh && s.channelId) {
+    // This screen's layers come from its channel.
+    main.replaceChildren(h("a", { href: base() + "/screens/" + id, class: "back" }, "← " + s.name),
+      h("div", { class: "card empty" }, h("p", {}, "“" + s.name + "” uses the channel “" + s.channelName + "”, so its layers are designed there."),
+        h("a", { class: "btn primary", href: base() + "/channels/" + s.channelId + "/layers" }, "Design the channel's layers")));
+    return;
+  }
   const L = JSON.parse(JSON.stringify(s.layers));
   const images = media.filter(m => m.kind === "image");
   let firstItem = null;
   if (s.playlistId) { try { firstItem = (await api("GET", "/playlists/" + s.playlistId)).items.find(i => i.kind !== "web") || null; } catch (_) {} }
   let dirty = false, overlay = null, t = 0;
-  const portrait = s.orientation === 90 || s.orientation === 270;
+  const portrait = !isCh && (s.orientation === 90 || s.orientation === 270);
 
   // ---- live preview ----
   const pvVideo = h("div", { class: "pv-video" });
@@ -597,7 +627,8 @@ async function renderLayers(main, id) {
   // video
   const videoBody = h("div", {},
     field("Area on the screen", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(); change(); } }, opts(REGION_LABELS, L.video.region))),
-    h("p", { class: "small muted" }, "Plays this screen's playlist and schedule (", s.playlistName || "no playlist yet", "). Change them on the screen page. Use a smaller area to leave room for a specials panel or a ticker."));
+    h("p", { class: "small muted" }, isCh ? ["Plays the channel's playlist (", s.playlistName || "none yet", "). Change it on the channel page. Use a smaller area to leave room for a specials panel or a ticker."]
+      : ["Plays this screen's playlist and schedule (", s.playlistName || "no playlist yet", "). Change them on the screen page. Use a smaller area to leave room for a specials panel or a ticker."]));
 
   // specials
   const spList = h("div", {});
@@ -678,17 +709,17 @@ async function renderLayers(main, id) {
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
-      const saved = await api("PUT", "/screens/" + id + "/layers", L);
+      const saved = await api("PUT", path + "/layers", L);
       // Keep what the server cleaned (e.g. empty text removed) but don't redraw the editor.
       dirty = false; saveBtn.textContent = "Saved";
-      toast("Layers saved. The screen updates within 30 seconds.");
+      toast(isCh ? "Layers saved. Every screen on this channel updates within 30 seconds." : "Layers saved. The screen updates within 30 seconds.");
       if (saved.text.blocks.length !== L.text.blocks.length || saved.specials.items.length !== L.specials.items.length) route();
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
   } }, "Save");
 
   main.replaceChildren(
-    h("a", { href: base() + "/screens/" + id, class: "back", onclick: e => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); } }, "← " + s.name),
-    pageHead("Layers", s.name + " · " + clientName(), saveBtn),
+    h("a", { href: base() + path, class: "back", onclick: e => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); } }, "← " + s.name),
+    pageHead("Layers", (isCh ? "Channel " : "") + s.name + " · " + clientName(), saveBtn),
     h("div", { class: "layers-grid" },
       h("div", { class: "preview-col" }, h("div", { class: "card preview-card" }, h("h2", {}, "Live preview"), preview,
         h("p", { class: "small muted", style: "margin:.6rem 0 0" }, "Layers stack from bottom to top: Video → Specials → Text → Effects."))),
@@ -864,6 +895,67 @@ async function renderMedia(main) {
           try { await api("DELETE", "/media/" + m.id); toast("Deleted."); route(); } catch (e) { fail(e); }
         } }, "Delete")))))
       : h("div", { class: "card empty" }, "No media yet. Upload images and videos to use in playlists."));
+}
+
+// ---------- inside a client: channels ----------
+const layerChips = on => h("div", { class: "chips" }, [["video", "Video"], ["specials", "Specials"], ["text", "Text"], ["effects", "Effects"]].map(([k, l]) =>
+  h("span", { class: "pill" + (on.includes(k) ? " ok" : "") }, (on.includes(k) ? "● " : "○ ") + l)));
+
+async function renderChannels(main) {
+  const [channels, playlists] = await Promise.all([api("GET", "/channels"), api("GET", "/playlists")]);
+  const create = async () => {
+    const r = await dialog("New channel", h("div", {},
+      h("p", { class: "muted small" }, "A channel is a design you can put on many screens: a main playlist plus specials, text and effects layers. Change the channel once and every screen on it updates."),
+      field("Name", h("input", { name: "name", required: true, maxlength: 100, placeholder: "e.g. Lunch menu boards" })),
+      field("Main playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— choose later —")))),
+    { submit: "Create channel", onSubmit: f => api("POST", "/channels", Object.fromEntries(f)) });
+    if (r) go("/channels/" + r.id);
+  };
+  main.replaceChildren(
+    pageHead("Channels", clientName() + " · one design for many screens", h("button", { class: "primary", onclick: create }, "+ New channel")),
+    channels.length ? h("div", { class: "card table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Channel"), h("th", {}, "Playlist"), h("th", {}, "Layers"), h("th", {}, "Screens"))),
+      h("tbody", {}, channels.map(c => h("tr", { class: "click", onclick: () => go("/channels/" + c.id) },
+        h("td", {}, h("strong", {}, c.name)),
+        h("td", { class: "small" }, c.playlistName || h("span", { class: "pill warn" }, "None")),
+        h("td", {}, layerChips(c.layersOn)),
+        h("td", { class: "small" }, c.screens.length ? c.screens.length + " (" + c.screens.filter(s => s.online).length + " online)" : h("span", { class: "muted" }, "—")))))))
+      : h("div", { class: "card empty" }, h("p", {}, "No channels yet. Use a channel when several screens should show the same thing, like all the menu boards in one store."),
+        h("button", { class: "primary", onclick: create }, "+ New channel")));
+}
+
+async function renderChannel(main, id) {
+  const [c, playlists, screens] = await Promise.all([api("GET", "/channels/" + id), api("GET", "/playlists"), api("GET", "/screens")]);
+  const nameIn = h("input", { value: c.name, maxlength: 100 });
+  const plSel = h("select", {}, playlistOptions(playlists, c.playlistId, "— none —"));
+  const picked = new Set(c.screens.map(s => s.id));
+  const saveBtn = h("button", { class: "primary", onclick: async () => {
+    saveBtn.disabled = true;
+    try {
+      await api("PATCH", "/channels/" + id, { name: nameIn.value, playlistId: plSel.value || null });
+      await api("PUT", "/channels/" + id + "/screens", { screenIds: [...picked] });
+      toast("Channel saved. Its screens update within 30 seconds."); route();
+    } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
+  } }, "Save");
+  main.replaceChildren(
+    h("a", { href: base() + "/channels", class: "back" }, "← All channels"),
+    pageHead(c.name, "Channel · " + clientName(), h("button", { class: "danger", onclick: async () => {
+      if (!await confirmDlg("Delete channel “" + c.name + "”?", "Its screens go back to their own playlist and layers. Playlists and media are kept.")) return;
+      try { await api("DELETE", "/channels/" + id); toast("Channel deleted."); go("/channels"); } catch (e) { fail(e); }
+    } }, "Delete"), saveBtn),
+    h("div", { class: "grid two" },
+      h("div", { class: "stack" },
+        h("div", { class: "card" }, h("h2", {}, "Content"), field("Name", nameIn), field("Main playlist", plSel),
+          h("p", { class: "small muted" }, "Each screen's own schedule still applies on top (e.g. a breakfast playlist in the morning).")),
+        h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
+          h("a", { class: "btn primary small", href: base() + "/channels/" + id + "/layers" }, "Design layers")), layerChips(c.layersOn))),
+      h("div", { class: "card" }, h("h2", {}, "Screens on this channel"),
+        screens.length ? h("div", { class: "check-list" }, screens.map(s => h("label", { class: "check-row" },
+          h("input", { type: "checkbox", checked: picked.has(s.id), onchange: e => { e.target.checked ? picked.add(s.id) : picked.delete(s.id); } }),
+          h("span", { style: "flex:1" }, h("strong", {}, s.name), h("span", { class: "small muted" }, s.channelId && s.channelId !== c.id ? " · now on “" + s.channelName + "”" : s.location ? " · " + s.location : "")),
+          statusPill(s))))
+          : h("p", { class: "muted" }, "No screens yet."),
+        h("p", { class: "small muted", style: "margin-bottom:0" }, "Ticked screens show this channel's playlist and layers. Click Save to apply."))));
 }
 
 // ---------- inside a client: widgets ----------

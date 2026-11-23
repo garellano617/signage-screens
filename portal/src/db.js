@@ -138,6 +138,20 @@ if (!/'widget'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'med
 // Screen design layers (see layers.js).
 if (!hasColumn("screens", "layers_json")) db.exec("ALTER TABLE screens ADD COLUMN layers_json TEXT");
 
+// Channels: a reusable playlist + layers design shared by many screens.
+db.exec(`
+CREATE TABLE IF NOT EXISTS channels (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  playlist_id INTEGER REFERENCES playlists(id) ON DELETE SET NULL,
+  layers_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`);
+if (!hasColumn("screens", "channel_id")) db.exec("ALTER TABLE screens ADD COLUMN channel_id INTEGER REFERENCES channels(id) ON DELETE SET NULL");
+
 // Screen map: where each screen is.
 for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"]])
   if (!hasColumn("screens", col)) db.exec(`ALTER TABLE screens ADD COLUMN ${col} ${type}`);

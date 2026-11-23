@@ -235,12 +235,14 @@ function screenSummary(s) {
     status,
     screenshot: s.screenshot_file ? "/screenshots/" + s.screenshot_file : null, screenshotAt: s.screenshot_at,
     scheduleCount: s.schedule_count || 0,
-    lat: s.lat, lng: s.lng, address: s.address || ""
+    lat: s.lat, lng: s.lng, address: s.address || "",
+    channelId: s.channel_id || null, channelName: s.channel_name || null
   };
 }
-const screenQuery = `SELECT s.*, p.name AS playlist_name, cu.name AS customer_name,
+const screenQuery = `SELECT s.*, p.name AS playlist_name, cu.name AS customer_name, ch.name AS channel_name,
   (SELECT COUNT(*) FROM schedules sc WHERE sc.screen_id = s.id) AS schedule_count
   FROM screens s LEFT JOIN playlists p ON p.id = s.playlist_id LEFT JOIN customers cu ON cu.id = s.customer_id
+  LEFT JOIN channels ch ON ch.id = s.channel_id
   WHERE s.paired_at IS NOT NULL`;
 
 router.get("/dashboard", (req, res) => {
@@ -279,6 +281,84 @@ router.get("/screens/:id", (req, res) => {
     .map(x => ({ id: x.id, playlistId: x.playlist_id, playlistName: x.playlist_name, days: x.days, start: x.start_time, end: x.end_time }));
   const pending = all("SELECT type, created_at FROM commands WHERE screen_id = ? AND delivered_at IS NULL ORDER BY id", s.id);
   res.json({ ...screenSummary(s), schedules, pendingCommands: pending, layers: layersOut(s) });
+});
+
+// ---------- channels: one playlist + layers design for many screens ----------
+function checkChannel(id, customerId) {
+  if (id === null || id === "" || id === undefined) return null;
+  const n = intId(id);
+  if (!get("SELECT id FROM channels WHERE id = ? AND customer_id = ?", n, customerId)) throw bad("That channel doesn't belong to this client.");
+  return n;
+}
+const channelQuery = `SELECT c.*, p.name AS playlist_name, cu.name AS customer_name FROM channels c
+  LEFT JOIN playlists p ON p.id = c.playlist_id LEFT JOIN customers cu ON cu.id = c.customer_id WHERE 1=1`;
+function loadChannel(req, id) {
+  const [w, p] = scope(req, "c");
+  const c = get(channelQuery + " AND c.id = ?" + w, id, ...p);
+  if (!c) throw notFound("Channel");
+  return c;
+}
+function channelOut(c, full) {
+  const layers = parseLayers(c.layers_json);
+  const out = {
+    id: c.id, name: c.name, customerId: c.customer_id, customerName: c.customer_name,
+    playlistId: c.playlist_id, playlistName: c.playlist_name || null, updatedAt: c.updated_at,
+    layersOn: ["video", "specials", "text", "effects"].filter(k => layers[k].enabled),
+    screens: all("SELECT id, name, last_seen FROM screens WHERE channel_id = ? AND paired_at IS NOT NULL ORDER BY name", c.id)
+      .map(s => ({ id: s.id, name: s.name, online: isOnline(s) }))
+  };
+  if (full) out.layers = withImages(layers, clientImage(c.customer_id));
+  return out;
+}
+
+router.get("/channels", (req, res) => {
+  const [w, p] = scope(req, "c");
+  res.json(all(channelQuery + w + " ORDER BY c.name COLLATE NOCASE", ...p).map(c => channelOut(c)));
+});
+
+router.post("/channels", (req, res) => {
+  const cid = targetCustomer(req);
+  const name = str(req.body.name, 100, "Name");
+  if (!name) throw bad("Give the channel a name.");
+  const r = run("INSERT INTO channels (customer_id, name, playlist_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    cid, name, checkPlaylist(req.body.playlistId, cid), now(), now());
+  res.status(201).json(channelOut(loadChannel({ cid: null }, r.lastInsertRowid), true));
+});
+
+router.get("/channels/:id", (req, res) => res.json(channelOut(loadChannel(req, intId(req.params.id)), true)));
+
+router.patch("/channels/:id", (req, res) => {
+  const c = loadChannel(req, intId(req.params.id));
+  const name = req.body.name !== undefined ? str(req.body.name, 100, "Name") : c.name;
+  if (!name) throw bad("Give the channel a name.");
+  const pl = req.body.playlistId !== undefined ? checkPlaylist(req.body.playlistId, c.customer_id) : c.playlist_id;
+  run("UPDATE channels SET name = ?, playlist_id = ?, updated_at = ? WHERE id = ?", name, pl, now(), c.id);
+  res.json(channelOut(loadChannel(req, c.id), true));
+});
+
+router.put("/channels/:id/layers", (req, res) => {
+  const c = loadChannel(req, intId(req.params.id));
+  const img = clientImage(c.customer_id);
+  run("UPDATE channels SET layers_json = ?, updated_at = ? WHERE id = ?", JSON.stringify(sanitizeLayers(req.body, id => !!img(id))), now(), c.id);
+  res.json(channelOut(loadChannel(req, c.id), true).layers);
+});
+
+// The screens on this channel: exactly the ones listed (others are taken off it).
+router.put("/channels/:id/screens", (req, res) => {
+  const c = loadChannel(req, intId(req.params.id));
+  const ids = (Array.isArray(req.body.screenIds) ? req.body.screenIds : []).map(intId);
+  for (const id of ids) if (!get("SELECT id FROM screens WHERE id = ? AND customer_id = ? AND paired_at IS NOT NULL", id, c.customer_id)) throw bad("A screen in that list doesn't belong to this client.");
+  tx(() => {
+    run("UPDATE screens SET channel_id = NULL WHERE channel_id = ?", c.id);
+    ids.forEach(id => run("UPDATE screens SET channel_id = ? WHERE id = ?", c.id, id));
+  });
+  res.json(channelOut(loadChannel(req, c.id)));
+});
+
+router.delete("/channels/:id", (req, res) => {
+  const c = loadChannel(req, intId(req.params.id));
+  tx(() => { run("UPDATE screens SET channel_id = NULL WHERE channel_id = ?", c.id); run("DELETE FROM channels WHERE id = ?", c.id); });
+  res.json({ ok: true });
 });
 
 // ---------- screen layers (video, specials, text, effects) ----------
@@ -343,8 +423,9 @@ router.patch("/screens/:id", (req, res) => {
     }
   }
   if (b.address !== undefined) address = str(b.address, 300, "Address");
-  run("UPDATE screens SET name=?, location=?, notes=?, playlist_id=?, orientation=?, volume=?, lat=?, lng=?, address=? WHERE id=?",
-    f.name, f.location, f.notes, f.playlist_id, f.orientation, f.volume, lat, lng, address, s.id);
+  const channelId = b.channelId !== undefined ? checkChannel(b.channelId, s.customer_id) : s.channel_id;
+  run("UPDATE screens SET name=?, location=?, notes=?, playlist_id=?, orientation=?, volume=?, lat=?, lng=?, address=?, channel_id=? WHERE id=?",
+    f.name, f.location, f.notes, f.playlist_id, f.orientation, f.volume, lat, lng, address, channelId, s.id);
   res.json(screenSummary(loadScreen(req, s.id)));
 });
 

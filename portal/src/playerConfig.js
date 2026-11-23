@@ -40,12 +40,14 @@ function buildConfig(screen) {
   const schedules = all("SELECT * FROM schedules WHERE screen_id = ? ORDER BY position, id", screen.id)
     .map(s => ({ id: s.id, days: s.days, start: s.start_time, end: s.end_time, playlist: playlistForPlayer(s.playlist_id) }))
     .filter(s => s.playlist);
+  // A screen on a channel takes the channel's main playlist and layers (its own schedule still applies).
+  const channel = screen.channel_id ? get("SELECT playlist_id, layers_json FROM channels WHERE id = ?", screen.channel_id) : null;
   const cfg = {
     paired: true,
     screen: { id: screen.id, name: screen.name, orientation: screen.orientation, volume: screen.volume },
-    defaultPlaylist: playlistForPlayer(screen.playlist_id),
+    defaultPlaylist: playlistForPlayer(channel ? channel.playlist_id : screen.playlist_id),
     schedules,
-    layers: withImages(parseLayers(screen.layers_json), imageMedia)
+    layers: withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia)
   };
   cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
   return cfg;

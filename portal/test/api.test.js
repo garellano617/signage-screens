@@ -433,3 +433,66 @@ test("widgets: create each type, cleaned settings, feed parsing, private-network
   assert.equal((await call("GET", "/api/player/widget-data/" + other.id, undefined, auth)).status, 404);
   assert.equal((await call("GET", "/api/media/" + clock.id + "/widget-data")).status, 404);
 });
+
+test("channels: one design on many screens, per client", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const A = (await call("POST", "/api/customers", { name: "Channel Cafe" })).body;
+  const B = (await call("POST", "/api/customers", { name: "Channel Other" })).body;
+  scopeId = B.id;
+  const bPl = (await call("POST", "/api/playlists", { name: "B list" })).body;
+  scopeId = A.id;
+  const own = (await call("POST", "/api/playlists", { name: "Own" })).body;
+  const menu = (await call("POST", "/api/playlists", { name: "Menu" })).body;
+  const web = (await call("POST", "/api/media/web", { url: "https://example.com/menu" })).body;
+  await call("PUT", "/api/playlists/" + menu.id, { items: [{ mediaId: web.id, duration: 20 }] });
+
+  assert.equal((await call("POST", "/api/channels", { name: "x", playlistId: bPl.id })).status, 400, "other client's playlist");
+  const ch = (await call("POST", "/api/channels", { name: "Menu boards", playlistId: menu.id })).body;
+  assert.equal(ch.playlistName, "Menu");
+  await call("PUT", "/api/channels/" + ch.id + "/layers", { text: { enabled: true, ticker: { enabled: true, text: "Fresh daily" } } });
+
+  const pair = async dev => {
+    const reg = (await call("POST", "/api/player/register", { deviceId: dev })).body;
+    const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode, playlistId: own.id })).body;
+    return { s, auth: { authorization: "Bearer " + reg.token } };
+  };
+  const one = await pair("android-channel-0001"), two = await pair("android-channel-0002");
+
+  // Put both screens on the channel.
+  const assigned = (await call("PUT", "/api/channels/" + ch.id + "/screens", { screenIds: [one.s.id, two.s.id] })).body;
+  assert.equal(assigned.screens.length, 2);
+  for (const t of [one, two]) {
+    const cfg = (await call("GET", "/api/player/config", undefined, t.auth)).body;
+    assert.equal(cfg.defaultPlaylist.name, "Menu");
+    assert.equal(cfg.layers.text.ticker.text, "Fresh daily");
+  }
+  // Changing the channel changes every screen's config.
+  const v1 = (await call("GET", "/api/player/config", undefined, one.auth)).body.version;
+  await call("PATCH", "/api/channels/" + ch.id, { playlistId: own.id });
+  const after = (await call("GET", "/api/player/config", undefined, two.auth)).body;
+  assert.equal(after.defaultPlaylist.name, "Own");
+  assert.notEqual((await call("GET", "/api/player/config", undefined, one.auth)).body.version, v1);
+
+  // Taking a screen off (via the screen page) restores its own settings.
+  assert.equal((await call("PATCH", "/api/screens/" + one.s.id, { channelId: null })).body.channelId, null);
+  assert.equal((await call("GET", "/api/player/config", undefined, one.auth)).body.layers.text.enabled, false);
+  assert.equal((await call("GET", "/api/screens/" + two.s.id)).body.channelName, "Menu boards");
+
+  // Another client can't see or use it.
+  scopeId = B.id;
+  assert.equal((await call("GET", "/api/channels/" + ch.id)).status, 404);
+  assert.deepEqual((await call("GET", "/api/channels")).body, []);
+  scopeId = A.id;
+  const bReg = (await call("POST", "/api/player/register", { deviceId: "android-channel-b001" })).body;
+  scopeId = B.id;
+  const bScr = (await call("POST", "/api/screens/pair", { code: bReg.pairingCode })).body;
+  assert.equal((await call("PATCH", "/api/screens/" + bScr.id, { channelId: ch.id })).status, 400);
+  scopeId = A.id;
+  assert.equal((await call("PUT", "/api/channels/" + ch.id + "/screens", { screenIds: [bScr.id] })).status, 400);
+
+  // Deleting the channel puts its screens back on their own settings.
+  await call("DELETE", "/api/channels/" + ch.id);
+  assert.equal((await call("GET", "/api/screens/" + two.s.id)).body.channelId, null);
+  assert.equal((await call("GET", "/api/player/config", undefined, two.auth)).body.defaultPlaylist.name, "Own");
+});
