@@ -801,6 +801,25 @@ router.delete("/playlists/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- white label (your team's admins) ----------
+const brand = require("./branding");
+router.put("/branding", auth.requireStaff, auth.requireAdmin, (req, res) => {
+  const name = str(req.body.name, 40, "Portal name");
+  if (!name) throw bad("Give the portal a name.");
+  const color = String(req.body.color || "");
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw bad("Pick a main color.");
+  brand.setSetting("brand_name", name);
+  brand.setSetting("brand_color", color.toLowerCase());
+  res.json(brand.branding());
+});
+router.post("/branding/logo", auth.requireStaff, auth.requireAdmin,
+  express.raw({ type: Object.keys(brand.LOGO_TYPES), limit: "2mb" }), (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw bad("Use a PNG, JPG or WebP image (up to 2 MB).");
+    try { brand.saveLogo(req.body, req.get("content-type").split(";")[0]); } catch (e) { throw bad(e.message); }
+    res.status(201).json(brand.branding());
+  });
+router.delete("/branding/logo", auth.requireStaff, auth.requireAdmin, (req, res) => { brand.removeLogo(); res.json(brand.branding()); });
+
 // ---------- player app download info ----------
 function latestApk() {
   const dir = path.join(DATA_DIR, "apk");

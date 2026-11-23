@@ -542,3 +542,33 @@ test("reports: proof of play from heartbeats, no double counting, per client, CS
   assert.equal(lines.length, 4);
   assert.match(lines[1], /Croissant,image,Main,android-report-a001,Report Bakery$/);
 });
+
+test("white label: public branding, staff admins only, logo types", async () => {
+  cookie = ""; scopeId = null;
+  const pub = await call("GET", "/api/branding");
+  assert.equal(pub.status, 200);
+  assert.equal(pub.body.name, "Signage");
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  assert.equal((await call("PUT", "/api/branding", { name: "", color: "#ff0000" })).status, 400);
+  assert.equal((await call("PUT", "/api/branding", { name: "Premier Screens", color: "red" })).status, 400);
+  const saved = (await call("PUT", "/api/branding", { name: "Premier Screens", color: "#1A72B4" })).body;
+  assert.deepEqual([saved.name, saved.color], ["Premier Screens", "#1a72b4"]);
+  // Logo: PNG accepted, SVG refused (could carry scripts).
+  const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+  assert.equal((await call("POST", "/api/branding/logo", Buffer.from("<svg onload=alert(1)>"), { "content-type": "image/svg+xml" })).status, 400);
+  const up = await call("POST", "/api/branding/logo", png, { "content-type": "image/png" });
+  assert.equal(up.status, 201);
+  assert.match(up.body.logo, /^\/branding\/logo\?v=/);
+  const logo = await fetch(base + "/branding/logo");
+  assert.equal(logo.headers.get("content-type"), "image/png");
+  // A client's admin can't change the portal's branding.
+  const C = (await call("POST", "/api/customers", { name: "Brand Client" })).body;
+  scopeId = C.id;
+  await call("POST", "/api/users", { email: "boss@brandclient.test", password: "client-pass-1", role: "admin" });
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "boss@brandclient.test", password: "client-pass-1" });
+  assert.equal((await call("PUT", "/api/branding", { name: "Hacked", color: "#000000" })).status, 403);
+  assert.equal((await call("DELETE", "/api/branding/logo")).status, 403);
+  cookie = "";
+  assert.equal((await call("GET", "/api/branding")).body.name, "Premier Screens");
+});

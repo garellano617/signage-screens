@@ -5,6 +5,7 @@ const express = require("express");
 const cookieParser = require("cookie-parser");
 const { DATA_DIR, get, run } = require("./db");
 const auth = require("./auth");
+const brand = require("./branding");
 const playerRoutes = require("./playerRoutes");
 const { router: adminRoutes, latestApk } = require("./adminRoutes");
 
@@ -22,6 +23,15 @@ function createApp() {
   });
 
   app.get("/healthz", (req, res) => res.json({ ok: true }));
+
+  // White label: public, so the login page can show it.
+  app.get("/api/branding", (req, res) => res.json(brand.branding()));
+  app.get("/branding/logo", (req, res) => {
+    const f = brand.logoFile();
+    if (!f) return res.status(404).end();
+    res.set("Cache-Control", "public, max-age=86400");
+    res.sendFile(f);
+  });
 
   // Player API (bearer token).
   app.use("/api/player", playerRoutes);

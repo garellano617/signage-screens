@@ -169,6 +169,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS plays_once ON plays(screen_id, started_at, med
 CREATE INDEX IF NOT EXISTS plays_customer_time ON plays(customer_id, started_at);
 `);
 
+// Portal-wide settings (white label branding, billing link).
+db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+fs.mkdirSync(path.join(DATA_DIR, "branding"), { recursive: true });
+
 // Screen map: where each screen is.
 for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"]])
   if (!hasColumn("screens", col)) db.exec(`ALTER TABLE screens ADD COLUMN ${col} ${type}`);

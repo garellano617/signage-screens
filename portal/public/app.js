@@ -102,7 +102,24 @@ function thumb(m, cls) {
 }
 
 // ---------- state ----------
-const state = { user: null, timer: null, customers: [], cid: null };
+const state = { user: null, timer: null, customers: [], cid: null, brand: { name: "Signage", color: "#2563eb", logo: null } };
+
+// ---------- white label ----------
+/** The portal's logo + name (your own branding once set under White Label & Clients). */
+function brandMark(suffix) {
+  const b = state.brand;
+  return h("div", { class: "brand" }, b.logo ? h("img", { src: b.logo, alt: "", class: "brand-logo" }) : h("span", { class: "brand-icon", html: LOGO }),
+    h("span", {}, b.name + (suffix || "")));
+}
+function applyBrand() {
+  const b = state.brand;
+  document.title = b.name;
+  document.documentElement.style.setProperty("--accent", b.color);
+}
+async function loadBrand() {
+  try { state.brand = await (await fetch("/api/branding")).json(); } catch (_) {}
+  applyBrand();
+}
 const isStaff = () => !!(state.user && state.user.isStaff);
 const isAdmin = () => !!(state.user && state.user.role === "admin");
 /** The client whose pages are open: from the address for your team, always their own for a client login. */
@@ -206,7 +223,7 @@ function shell(section, inClient) {
       isStaff() ? null : link("#/profile", "profile", "Profile & Admins")
     ];
   } else if (isStaff()) {
-    links = [link("#/", "dashboard", "Dashboard"), link("#/clients", "clients", "Clients"),
+    links = [link("#/", "dashboard", "Dashboard"), link("#/clients", "clients", "White Label & Clients"),
       link("#/monitoring", "monitoring", "Screen Monitoring"), link("#/reports", "reports", "Reports"), link("#/download", "download", "Download App"),
       link("#/profile", "profile", "Profile & Admins")];
   } else {
@@ -214,7 +231,7 @@ function shell(section, inClient) {
     return shell(section, true);
   }
   const nav = h("nav", { class: "nav" + (inClient && isStaff() ? " in-client" : "") },
-    h("div", { class: "brand", html: LOGO + "<span>Signage</span>" }), links,
+    brandMark(), links,
     h("div", { class: "spacer" }), h("div", { class: "who" }, state.user.email));
   const main = h("main", {});
   app().replaceChildren(h("div", { class: "layout" }, nav, main));
@@ -266,7 +283,7 @@ function renderLogin() {
   const err = h("div", { class: "form-error" });
   const btn = h("button", { type: "submit", class: "primary", style: "width:100%;justify-content:center" }, "Log in");
   const form = h("form", { class: "card login" },
-    h("div", { class: "brand", html: LOGO + "<span>Signage Portal</span>" }),
+    brandMark(state.brand.name === "Signage" ? " Portal" : ""),
     field("Email", h("input", { name: "email", type: "email", autocomplete: "username", required: true })),
     field("Password", h("input", { name: "password", type: "password", autocomplete: "current-password", required: true })),
     err, btn);
@@ -346,8 +363,10 @@ async function renderClients(main) {
   await loadCustomers();
   const list = state.customers;
   main.replaceChildren(
-    pageHead("Clients", "Each client has their own screens, playlists, media and logins. Open a client to manage them.",
+    pageHead("White Label & Clients", "Your branding, and the businesses you put screens in.",
       isAdmin() ? h("button", { class: "primary", onclick: () => clientDialog() }, "+ New client") : null),
+    isAdmin() ? whiteLabelCard() : null,
+    h("h2", { style: "margin:1.25rem 0 .75rem" }, "Clients"),
     list.length ? h("div", { class: "card table-wrap" }, h("table", {},
       h("thead", {}, h("tr", {}, h("th", {}, "Client"), h("th", {}, "Screens"), h("th", {}, "Logins"), h("th", {}, "Storage"), h("th", {}))),
       h("tbody", {}, list.map(c => h("tr", { class: "click", onclick: e => { if (!e.target.closest("button")) location.hash = "#/c/" + c.id; } },
@@ -363,6 +382,41 @@ async function renderClients(main) {
           isAdmin() ? h("button", { class: "small danger", onclick: () => deleteClient(c) }, "Delete") : null))))))
       : h("div", { class: "card empty" }, h("p", {}, "No clients yet. Add the businesses you put screens in."),
         isAdmin() ? h("button", { class: "primary", onclick: () => clientDialog() }, "+ New client") : null));
+}
+
+function whiteLabelCard() {
+  const b = Object.assign({}, state.brand);
+  const nameIn = h("input", { value: b.name, maxlength: 40, oninput: e => { b.name = e.target.value; preview(); } });
+  const colorIn2 = h("input", { type: "color", value: b.color, oninput: e => { b.color = e.target.value; preview(); } });
+  const pv = h("div", { class: "brand-preview" });
+  const preview = () => {
+    pv.style.setProperty("--accent", b.color);
+    pv.replaceChildren(h("div", { class: "bp-nav" }, b.logo ? h("img", { src: b.logo, alt: "", class: "brand-logo" }) : h("span", { class: "brand-icon", html: LOGO }), h("strong", {}, b.name || "…")),
+      h("div", { class: "bp-body" }, h("span", { class: "btn primary small", style: `background:${b.color};border-color:${b.color}` }, "Button"), h("span", { class: "pill", style: `color:${b.color}` }, "Link color")));
+  };
+  preview();
+  const file = h("input", { type: "file", accept: "image/png,image/jpeg,image/webp", class: "hidden", onchange: async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const res = await fetch("/api/branding/logo", { method: "POST", headers: { "Content-Type": f.type }, body: f });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Upload failed.");
+      state.brand = d; b.logo = d.logo; preview(); toast("Logo uploaded."); route();
+    } catch (ex) { fail(ex); }
+  } });
+  return h("div", { class: "card" },
+    h("div", { class: "layer-head" }, h("div", {}, h("h2", { style: "margin:0" }, "White label"),
+      h("div", { class: "small muted" }, "Your name, logo and color on the login page, the menu and the browser tab, for your team and your clients."))),
+    h("div", { class: "grid two" },
+      h("div", {},
+        h("div", { class: "row" }, field("Portal name", nameIn), h("div", { class: "field", style: "flex:0 0 auto" }, h("label", {}, "Main color"), colorIn2)),
+        h("div", { class: "field" }, h("label", {}, "Logo (PNG, JPG or WebP, up to 2 MB; square works best)"),
+          h("div", { class: "cmds" }, h("button", { type: "button", class: "small", onclick: () => file.click() }, b.logo ? "Replace logo" : "Upload logo"),
+            b.logo ? h("button", { type: "button", class: "small danger", onclick: async () => { try { state.brand = await api("DELETE", "/branding/logo"); applyBrand(); toast("Logo removed."); route(); } catch (e) { fail(e); } } }, "Remove logo") : null), file),
+        h("button", { class: "primary", onclick: async () => {
+          try { state.brand = await api("PUT", "/branding", { name: nameIn.value, color: colorIn2.value }); applyBrand(); toast("Branding saved."); route(); } catch (e) { fail(e); }
+        } }, "Save branding")),
+      pv));
 }
 
 // ---------- inside a client: overview ----------
@@ -1394,6 +1448,7 @@ async function renderDownload(main) {
 
 // ---------- start ----------
 (async () => {
+  await loadBrand();
   try { state.user = (await api("GET", "/auth/me")).user; await loadCustomers(); } catch (_) { state.user = null; }
   route();
 })();
