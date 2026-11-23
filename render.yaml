@@ -1,0 +1,33 @@
+# Render Blueprint: the signage admin portal website.
+# Render dashboard -> New -> Blueprint -> pick this repository.
+services:
+  - type: web
+    name: signage-portal
+    runtime: docker
+    dockerfilePath: ./portal/Dockerfile
+    dockerContext: ./portal
+    # Starter is the smallest plan that can have a persistent disk (needed for the database and uploads).
+    plan: starter
+    region: virginia
+    healthCheckPath: /healthz
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - portal/**
+      ignoredPaths:
+        - portal/test/**
+    disk:
+      name: signage-data
+      mountPath: /data
+      # Holds the database, uploaded images/videos, screenshots and the player APK. Can be enlarged later, not shrunk.
+      sizeGB: 10
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: TRUST_PROXY
+        value: "1"
+      # Asked for when the Blueprint is created; used once to create the first admin login.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

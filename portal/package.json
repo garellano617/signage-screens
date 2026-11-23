@@ -1,0 +1,21 @@
+{
+  "name": "signage-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Portal to manage TV signage screens running the Signage Player Android app",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning src/server.js",
+    "dev": "node --no-warnings=ExperimentalWarning --watch src/server.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "multer": "^2.0.2"
+  }
+}

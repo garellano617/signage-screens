@@ -1,0 +1,9 @@
+node_modules/
+portal/data/
+.gradle/
+build/
+local.properties
+*.keystore
+*.jks
+.idea/
+*.iml
