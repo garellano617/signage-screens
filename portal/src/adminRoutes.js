@@ -61,7 +61,8 @@ router.use((req, res, next) => {
   req.isStaff = !req.user.customer_id;
   if (!req.isStaff) req.cid = req.user.customer_id;
   else {
-    const h = req.get("x-customer-id");
+    // Download links can't send headers, so a GET may name the client in the address instead.
+    const h = req.get("x-customer-id") || (req.method === "GET" ? req.query.customerId : "");
     req.cid = h ? intId(h) : null;
     if (req.cid && !get("SELECT id FROM customers WHERE id = ?", req.cid)) req.cid = null;
   }
@@ -495,6 +496,54 @@ router.get("/monitoring", (req, res) => {
     return { ...s, uptime24h: pct(24), uptime7d: pct(24 * 7), last24 };
   });
   res.json(out);
+});
+
+// ---------- reports (proof of play) ----------
+/** from/to are YYYY-MM-DD in the viewer's time zone; tz = minutes behind UTC (JavaScript getTimezoneOffset). */
+function reportRange(req) {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const tz = Math.max(-840, Math.min(840, Math.round(Number(req.query.tz) || 0)));
+  const today = new Date(now() - tz * 60e3).toISOString().slice(0, 10);
+  const to = day.test(req.query.to || "") ? req.query.to : today;
+  const from = day.test(req.query.from || "") ? req.query.from : new Date(Date.parse(to) - 6 * 864e5).toISOString().slice(0, 10);
+  if (from > to) throw bad("The start date is after the end date.");
+  if (Date.parse(to) - Date.parse(from) > 400 * 864e5) throw bad("Pick a range of at most 13 months.");
+  const start = Date.parse(from + "T00:00:00Z") + tz * 60e3, end = Date.parse(to + "T00:00:00Z") + 864e5 + tz * 60e3;
+  const where = [" WHERE pl.started_at >= ? AND pl.started_at < ?"], params = [start, end];
+  if (req.cid) { where.push("pl.customer_id = ?"); params.push(req.cid); }
+  if (req.query.screenId) { where.push("pl.screen_id = ?"); params.push(intId(req.query.screenId)); }
+  return { from, to, tz, start, end, where: where.join(" AND "), params };
+}
+
+router.get("/reports", (req, res) => {
+  const r = reportRange(req);
+  const base = `FROM plays pl JOIN screens s ON s.id = pl.screen_id LEFT JOIN customers c ON c.id = pl.customer_id` + r.where;
+  const totals = get(`SELECT COUNT(*) plays, COALESCE(SUM(pl.seconds),0) seconds, COUNT(DISTINCT pl.screen_id) screens, COUNT(DISTINCT pl.media_id) items ${base}`, ...r.params);
+  const byDay = all(`SELECT date((pl.started_at / 1000) - ? * 60, 'unixepoch') day, COUNT(*) plays, SUM(pl.seconds) seconds ${base} GROUP BY day ORDER BY day`, r.tz, ...r.params);
+  const byMedia = all(`SELECT pl.media_id mediaId, MAX(pl.media_name) name, MAX(pl.kind) kind, COUNT(*) plays, SUM(pl.seconds) seconds, COUNT(DISTINCT pl.screen_id) screens,
+    MAX(c.name) customerName ${base} GROUP BY pl.media_id ORDER BY plays DESC LIMIT 500`, ...r.params);
+  const byScreen = all(`SELECT pl.screen_id screenId, s.name, s.customer_id customerId, c.name customerName, COUNT(*) plays, SUM(pl.seconds) seconds,
+    MAX(pl.started_at) lastPlay ${base} GROUP BY pl.screen_id ORDER BY plays DESC`, ...r.params);
+  // Fill in days with no plays so the chart has no gaps.
+  const days = [];
+  for (let t = Date.parse(r.from); t <= Date.parse(r.to); t += 864e5) {
+    const d = new Date(t).toISOString().slice(0, 10);
+    days.push(byDay.find(x => x.day === d) || { day: d, plays: 0, seconds: 0 });
+  }
+  res.json({ from: r.from, to: r.to, totals, byDay: days, byMedia, byScreen });
+});
+
+const csvCell = v => { const s = v == null ? "" : String(v); return /[",\n\r]/.test(s) || /^[=+\-@]/.test(s) ? '"' + s.replace(/"/g, '""').replace(/^([=+\-@])/, "'$1") + '"' : s; };
+router.get("/reports.csv", (req, res) => {
+  const r = reportRange(req);
+  const rows = all(`SELECT pl.started_at, pl.seconds, pl.media_name, pl.kind, pl.playlist_name, s.name screen, c.name client
+    FROM plays pl JOIN screens s ON s.id = pl.screen_id LEFT JOIN customers c ON c.id = pl.customer_id ${r.where} ORDER BY pl.started_at LIMIT 200000`, ...r.params);
+  const local = ms => new Date(ms - r.tz * 60e3).toISOString().replace("T", " ").slice(0, 19);
+  const lines = [["Played at (local)", "Seconds", "Content", "Type", "Playlist", "Screen", "Client"].join(",")]
+    .concat(rows.map(x => [local(x.started_at), x.seconds, x.media_name, x.kind, x.playlist_name, x.screen, x.client].map(csvCell).join(",")));
+  res.set("Content-Type", "text/csv; charset=utf-8");
+  res.set("Content-Disposition", `attachment; filename="proof-of-play-${r.from}-to-${r.to}.csv"`);
+  res.send("﻿" + lines.join("\r\n"));
 });
 
 // ---------- address search for the screen map (OpenStreetMap Nominatim) ----------

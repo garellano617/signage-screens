@@ -129,6 +129,7 @@ const ICONS = {
   wizard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8l1.4 1.4M17.8 6.2l1.4-1.4M12.2 6.2l-1.4-1.4"/><path d="M15 9l-12 12"/></svg>',
   widgets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>',
   content: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>',
+  reports: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   monitoring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>',
   download: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>',
   profile: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg>',
@@ -142,6 +143,7 @@ const clientRoutes = [
   [/^\/?$/, "dashboard", renderDashboard],
   [/^\/wizard$/, "wizard", renderWizard],
   [/^\/monitoring$/, "monitoring", renderMonitoring],
+  [/^\/reports$/, "reports", renderReports],
   [/^\/screens$/, "screens", renderScreens],
   [/^\/screens\/(\d+)$/, "screens", renderScreen],
   [/^\/screens\/(\d+)\/layers$/, "screens", renderLayers],
@@ -159,6 +161,7 @@ const staffRoutes = [
   [/^\/?$/, "dashboard", renderOverview],
   [/^\/clients$/, "clients", renderClients],
   [/^\/monitoring$/, "monitoring", renderMonitoring],
+  [/^\/reports$/, "reports", renderReports],
   [/^\/download$/, "download", renderDownload],
   [/^\/(profile|settings)$/, "profile", renderProfile]
 ];
@@ -198,12 +201,13 @@ function shell(section, inClient) {
       link(base() + "/playlists", "playlists", "Playlists"),
       link(base() + "/screens", "screens", "Screens"),
       link(base() + "/monitoring", "monitoring", "Screen Monitoring"),
+      link(base() + "/reports", "reports", "Reports"),
       isStaff() ? (isAdmin() ? link(base() + "/logins", "logins", "Logins") : null) : link("#/download", "download", "Download App"),
       isStaff() ? null : link("#/profile", "profile", "Profile & Admins")
     ];
   } else if (isStaff()) {
     links = [link("#/", "dashboard", "Dashboard"), link("#/clients", "clients", "Clients"),
-      link("#/monitoring", "monitoring", "Screen Monitoring"), link("#/download", "download", "Download App"),
+      link("#/monitoring", "monitoring", "Screen Monitoring"), link("#/reports", "reports", "Reports"), link("#/download", "download", "Download App"),
       link("#/profile", "profile", "Profile & Admins")];
   } else {
     // A client's login on Download App / Profile: same menu as inside their account.
@@ -1278,6 +1282,55 @@ async function renderMonitoring(main) {
       stat(list.length ? (Math.round(list.filter(s => s.uptime24h !== null).reduce((a, s) => a + s.uptime24h, 0) / Math.max(1, list.filter(s => s.uptime24h !== null).length) * 10) / 10) + "%" : "—", "Average uptime (24h)")),
     body);
   poll(async () => { try { const fresh = await api("GET", "/monitoring"); list.splice(0, list.length, ...fresh); draw(); } catch (_) {} }, 20000);
+}
+
+// ---------- reports (proof of play) ----------
+const hours = sec => sec >= 3600 ? (sec / 3600).toFixed(sec >= 36000 ? 0 : 1) + " h" : Math.round(sec / 60) + " min";
+const isoDay = d => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 10);
+const reportState = { from: null, to: null, screenId: "" };
+
+async function renderReports(main) {
+  const inClient = !isStaff() || state.cid;
+  if (!reportState.to) { const d = new Date(); reportState.to = isoDay(d); d.setDate(d.getDate() - 6); reportState.from = isoDay(d); }
+  const q = () => new URLSearchParams({ from: reportState.from, to: reportState.to, tz: new Date().getTimezoneOffset(), ...(reportState.screenId ? { screenId: reportState.screenId } : {}) });
+  const [r, screens] = await Promise.all([api("GET", "/reports?" + q()), api("GET", "/screens")]);
+  const preset = days => () => { const d = new Date(); reportState.to = isoDay(d); d.setDate(d.getDate() - days + 1); reportState.from = isoDay(d); route(); };
+  const fromIn = h("input", { type: "date", value: reportState.from, onchange: e => { reportState.from = e.target.value; route(); } });
+  const toIn = h("input", { type: "date", value: reportState.to, onchange: e => { reportState.to = e.target.value; route(); } });
+  const scrSel = h("select", { onchange: e => { reportState.screenId = e.target.value; route(); } }, h("option", { value: "" }, "All screens"),
+    screens.map(s => h("option", { value: s.id, selected: String(s.id) === String(reportState.screenId) }, (inClient ? "" : s.customerName + ": ") + s.name)));
+  const csvHref = "/api/reports.csv?" + q() + (isStaff() && state.cid ? "&customerId=" + state.cid : "");
+  const max = Math.max(1, ...r.byDay.map(d => d.plays));
+  const screenLink = s => (isStaff() ? "#/c/" + s.customerId : "#") + "/screens/" + s.screenId;
+  const kindLabel = k => ({ image: "Image", video: "Video", web: "Web page", widget: "Widget" }[k] || k || "—");
+
+  main.replaceChildren(
+    pageHead("Reports", (inClient ? clientName() : "All clients") + " · proof of play", h("a", { class: "btn", href: csvHref }, "⬇ Export CSV")),
+    h("div", { class: "card" },
+      h("div", { class: "row", style: "align-items:end" },
+        h("div", { class: "field", style: "flex:0 1 170px" }, h("label", {}, "From"), fromIn),
+        h("div", { class: "field", style: "flex:0 1 170px" }, h("label", {}, "To"), toIn),
+        h("div", { class: "field", style: "flex:1 1 200px" }, h("label", {}, "Screen"), scrSel),
+        h("div", { class: "field", style: "flex:0 0 auto" }, h("label", {}, "Quick pick"),
+          h("div", { class: "cmds" }, h("button", { class: "small", onclick: preset(1) }, "Today"), h("button", { class: "small", onclick: preset(7) }, "7 days"), h("button", { class: "small", onclick: preset(30) }, "30 days"))))),
+    h("div", { class: "grid stats", style: "margin:1rem 0" },
+      stat(r.totals.plays.toLocaleString(), "Plays"), stat(hours(r.totals.seconds), "Time on screen"),
+      stat(r.totals.screens, "Screens reporting"), stat(r.totals.items, "Different items")),
+    h("div", { class: "card" }, h("h2", {}, "Plays per day"),
+      r.totals.plays ? h("div", { class: "day-chart" }, r.byDay.map(d => h("div", { class: "day-col", title: `${d.day}: ${d.plays} plays, ${hours(d.seconds || 0)}` },
+        h("div", { class: "day-val" }, d.plays ? d.plays : ""), h("div", { class: "day-bar", style: `height:${d.plays / max * 100}%` }),
+        h("div", { class: "day-lbl" }, new Date(d.day + "T12:00").toLocaleDateString(undefined, r.byDay.length > 14 ? { day: "numeric" } : { weekday: "short", day: "numeric" })))))
+        : h("p", { class: "muted" }, "Nothing played in this period. Screens send what they played with every check-in (this needs the latest player app).")),
+    h("div", { class: "grid two", style: "margin-top:1rem" },
+      h("div", { class: "card table-wrap" }, h("h2", {}, "By content"),
+        r.byMedia.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Content"), h("th", {}, "Plays"), h("th", {}, "Time"), h("th", {}, "Screens"))),
+          h("tbody", {}, r.byMedia.map(m => h("tr", {}, h("td", {}, h("strong", {}, m.name || "(deleted)"), h("div", { class: "small muted" }, [kindLabel(m.kind), inClient ? null : m.customerName].filter(Boolean).join(" · "))),
+            h("td", {}, m.plays.toLocaleString()), h("td", {}, hours(m.seconds)), h("td", {}, m.screens))))) : h("p", { class: "muted" }, "—")),
+      h("div", { class: "card table-wrap" }, h("h2", {}, "By screen"),
+        r.byScreen.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Screen"), h("th", {}, "Plays"), h("th", {}, "Time"), h("th", {}, "Last play"))),
+          h("tbody", {}, r.byScreen.map(s => h("tr", { class: "click", onclick: () => (location.hash = screenLink(s)) },
+            h("td", {}, h("strong", {}, s.name), inClient ? null : h("div", { class: "small muted" }, s.customerName)),
+            h("td", {}, s.plays.toLocaleString()), h("td", {}, hours(s.seconds)), h("td", { class: "small muted" }, ago(s.lastPlay)))))) : h("p", { class: "muted" }, "—"))));
 }
 
 // ---------- profile & admins ----------

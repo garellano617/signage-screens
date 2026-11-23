@@ -25,6 +25,11 @@ class Prefs(context: Context) {
         get() = sp.getString("config", null)
         set(v) = sp.edit().putString("config", v).apply()
 
+    /** Plays not yet sent to the portal (JSON array), kept across restarts. */
+    var pendingPlays: String?
+        get() = sp.getString("pendingPlays", null)
+        set(v) = sp.edit().putString("pendingPlays", v).apply()
+
     var lastCrash: String?
         get() = sp.getString("lastCrash", null)
         set(v) = sp.edit().putString("lastCrash", v).commit().let { }

@@ -496,3 +496,49 @@ test("channels: one design on many screens, per client", async () => {
   assert.equal((await call("GET", "/api/screens/" + two.s.id)).body.channelId, null);
   assert.equal((await call("GET", "/api/player/config", undefined, two.auth)).body.defaultPlaylist.name, "Own");
 });
+
+test("reports: proof of play from heartbeats, no double counting, per client, CSV", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const A = (await call("POST", "/api/customers", { name: "Report Bakery" })).body;
+  const B = (await call("POST", "/api/customers", { name: "Report Other" })).body;
+  const pair = async (cid, dev) => {
+    scopeId = cid;
+    const reg = (await call("POST", "/api/player/register", { deviceId: dev })).body;
+    const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode, name: dev })).body;
+    return { s, auth: { authorization: "Bearer " + reg.token } };
+  };
+  const a = await pair(A.id, "android-report-a001"), b = await pair(B.id, "android-report-b001");
+  const t = Date.now() - 3600e3;
+  const plays = [
+    { mediaId: 501, name: "Croissant", kind: "image", playlist: "Main", at: t, sec: 10 },
+    { mediaId: 502, name: "Promo video", kind: "video", playlist: "Main", at: t + 10e3, sec: 30 },
+    { mediaId: 501, name: "Croissant", kind: "image", playlist: "Main", at: t + 40e3, sec: 10 },
+    { mediaId: 501, name: "bad", at: Date.now() + 864e5, sec: 10 },          // in the future: ignored
+    { mediaId: 501, name: "bad", at: t, sec: -5 }                             // negative: ignored
+  ];
+  await call("POST", "/api/player/heartbeat", { plays }, a.auth);
+  await call("POST", "/api/player/heartbeat", { plays }, a.auth);       // a retry of the same batch
+  await call("POST", "/api/player/heartbeat", { plays: [{ mediaId: 900, name: "Other ad", kind: "image", at: t, sec: 8 }] }, b.auth);
+
+  scopeId = A.id;
+  const rep = (await call("GET", "/api/reports?tz=0")).body;
+  assert.deepEqual([rep.totals.plays, rep.totals.seconds, rep.totals.screens], [3, 50, 1]);
+  assert.equal(rep.byDay.length, 7);
+  assert.deepEqual(rep.byMedia.map(m => [m.name, m.plays, m.seconds]), [["Croissant", 2, 20], ["Promo video", 1, 30]]);
+  assert.equal(rep.byScreen[0].name, "android-report-a001");
+
+  // Staff on "all clients" see both; a screen filter narrows it.
+  scopeId = null;
+  assert.equal((await call("GET", "/api/reports")).body.totals.plays, 4);
+  assert.equal((await call("GET", "/api/reports?screenId=" + b.s.id)).body.totals.plays, 1);
+  assert.equal((await call("GET", "/api/reports?from=2026-02-10&to=2026-01-01")).status, 400);
+
+  // CSV (client named in the address, as a download link does).
+  const csv = await fetch(base + "/api/reports.csv?tz=0&customerId=" + A.id, { headers: { cookie } });
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get("content-disposition"), /proof-of-play/);
+  const lines = (await csv.text()).trim().split("\r\n");
+  assert.equal(lines.length, 4);
+  assert.match(lines[1], /Croissant,image,Main,android-report-a001,Report Bakery$/);
+});

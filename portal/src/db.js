@@ -152,6 +152,23 @@ CREATE TABLE IF NOT EXISTS channels (
 `);
 if (!hasColumn("screens", "channel_id")) db.exec("ALTER TABLE screens ADD COLUMN channel_id INTEGER REFERENCES channels(id) ON DELETE SET NULL");
 
+// Reports (proof of play): one row per item played on a screen.
+db.exec(`
+CREATE TABLE IF NOT EXISTS plays (
+  id INTEGER PRIMARY KEY,
+  screen_id INTEGER NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
+  customer_id INTEGER NOT NULL,
+  media_id INTEGER,
+  media_name TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  playlist_name TEXT NOT NULL DEFAULT '',
+  started_at INTEGER NOT NULL,
+  seconds INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS plays_once ON plays(screen_id, started_at, media_id);
+CREATE INDEX IF NOT EXISTS plays_customer_time ON plays(customer_id, started_at);
+`);
+
 // Screen map: where each screen is.
 for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"]])
   if (!hasColumn("screens", col)) db.exec(`ALTER TABLE screens ADD COLUMN ${col} ${type}`);

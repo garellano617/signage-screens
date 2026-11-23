@@ -67,6 +67,8 @@ class MainActivity : ComponentActivity() {
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var lastNetError = ""
     private val backPresses = ArrayDeque<Long>()
+    /** Proof of play waiting to be sent with the next check-in. */
+    private val plays = ArrayDeque<JSONObject>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,6 +106,13 @@ class MainActivity : ComponentActivity() {
         api = Api(prefs.serverUrl) { prefs.token }
         if (!::engine.isInitialized) {
             engine = PlaybackEngine(this, stage, cache, lifecycleScope, { api.resolve(it) }) { item -> widgetData(item) }
+            engine.onPlayed = { item, at, sec, playlist ->
+                plays.addLast(JSONObject().put("mediaId", item.mediaId).put("name", item.name).put("kind", item.kind)
+                    .put("playlist", playlist).put("at", at).put("sec", sec))
+                while (plays.size > 5000) plays.removeFirst()
+            }
+            prefs.pendingPlays?.let { saved -> runCatching { val a = JSONArray(saved); for (i in 0 until a.length()) plays.addLast(a.getJSONObject(i)) } }
+            prefs.pendingPlays = null
         }
         // Offline first: play the last config we had right away.
         prefs.configJson?.let { json -> runCatching { Config.parse(json) }.getOrNull()?.takeIf { it.paired }?.let { applyConfig(it) } }
@@ -164,7 +173,9 @@ class MainActivity : ComponentActivity() {
             var waitMs = 30_000L
             try {
                 if (prefs.token == null) register()
-                val hb = api.heartbeat(statusJson())
+                val batch = plays.take(500)
+                val hb = api.heartbeat(statusJson().put("plays", JSONArray(batch)))
+                repeat(batch.size) { if (plays.isNotEmpty()) plays.removeFirst() }
                 lastNetError = ""
                 if (!hb.optBoolean("paired")) {
                     if (config != null) {
@@ -465,6 +476,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         wake.trySend(Unit)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Keep unsent plays if the app is closed or the TV turns off.
+        prefs.pendingPlays = if (plays.isEmpty()) null else JSONArray(plays.toList()).toString()
     }
 
     override fun onDestroy() {

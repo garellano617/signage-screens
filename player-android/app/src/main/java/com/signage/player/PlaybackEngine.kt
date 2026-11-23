@@ -65,6 +65,8 @@ class PlaybackEngine(
     var nowPlaying = ""
         private set
     var lastError = ""
+    /** Called after each item finishes: item, start time (ms), seconds shown, playlist name. For reports. */
+    var onPlayed: ((Item, Long, Int, String) -> Unit)? = null
     var volume = 1f
         set(v) { field = v; player?.volume = v }
 
@@ -121,6 +123,7 @@ class PlaybackEngine(
             for (item in items) {
                 if (!cache.isReady(item)) continue
                 nowPlaying = item.name
+                val startedAt = System.currentTimeMillis()
                 val ok = try {
                     when {
                         item.isVideo -> playVideo(cache.fileFor(item))
@@ -135,6 +138,7 @@ class PlaybackEngine(
                     lastError = "Couldn't play ${item.name}: ${e.message}"
                     false
                 }
+                if (ok) onPlayed?.invoke(item, startedAt, ((System.currentTimeMillis() - startedAt) / 1000).toInt(), playlist?.name.orEmpty())
                 // Don't spin through a playlist where everything fails.
                 if (!ok) delay(2_000)
             }

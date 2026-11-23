@@ -58,7 +58,11 @@ function createApp() {
 if (require.main === module) {
   auth.ensureAdmin();
   // Keep 35 days of uptime history.
-  const prune = () => run("DELETE FROM screen_uptime WHERE hour < ?", Math.floor(Date.now() / 3600e3) - 24 * 35);
+  // …and 13 months of play history (reports).
+  const prune = () => {
+    run("DELETE FROM screen_uptime WHERE hour < ?", Math.floor(Date.now() / 3600e3) - 24 * 35);
+    run("DELETE FROM plays WHERE started_at < ?", Date.now() - 396 * 864e5);
+  };
   prune();
   setInterval(prune, 24 * 3600e3).unref();
   // 3100 by default so it doesn't collide with other local apps on 3000. Hosts like Render set PORT themselves.

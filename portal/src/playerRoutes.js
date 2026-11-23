@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const express = require("express");
-const { get, run, all, now, DATA_DIR } = require("./db");
+const { get, run, all, tx, now, DATA_DIR } = require("./db");
 const { requirePlayer, sha256 } = require("./auth");
 const { buildConfig } = require("./playerConfig");
 const widgets = require("./widgets");
@@ -67,6 +67,19 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
     now(), req.ip || "", JSON.stringify(status), clip(b.appVersion, 40), s.id);
   let commands = [];
   if (s.paired_at) {
+    // Proof of play: items the player finished since its last check-in. A retry can't count twice.
+    if (Array.isArray(b.plays) && b.plays.length) {
+      const oldest = now() - 31 * 864e5, newest = now() + 5 * 60e3;
+      tx(() => {
+        for (const p of b.plays.slice(0, 500)) {
+          const at = Number(p && p.at), sec = Math.round(Number(p && p.sec));
+          if (!(at > oldest && at < newest) || !(sec >= 0 && sec < 86400)) continue;
+          const mediaId = Number(p.mediaId) || null;
+          run(`INSERT OR IGNORE INTO plays (screen_id, customer_id, media_id, media_name, kind, playlist_name, started_at, seconds)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, s.id, s.customer_id, mediaId, clip(p.name, 200), clip(p.kind, 20), clip(p.playlist, 200), at, sec);
+        }
+      });
+    }
     // Uptime: count each minute the screen checked in, once.
     const minute = Math.floor(now() / 60e3);
     if (s.last_minute !== minute) {
