@@ -5,6 +5,16 @@ Two parts:
 - **`portal/`**: website to manage TV screens. Pair TVs with a code, upload images, videos and web pages, build playlists, set schedules, rotate screens, take live screenshots and send remote commands.
 - **`player-android/`**: the **Signage Player** Android app for TVs, Android TV boxes and tablets (Android 5.0+). It shows a pairing code, downloads content for offline playback, follows schedules, starts on boot and restarts itself after a crash.
 
+## Customer accounts
+
+Every screen, playlist and media file belongs to a **customer** (a business you put screens in).
+
+- **Your team** logs in with a login that has no customer. They see every customer. The switcher at the top of the menu picks which customer you're working in, or **All customers** for an overview. When adding something in **All customers**, the portal asks which customer it's for.
+- **Customers page** (your team only): add, edit, pause or delete customers, set an optional screen limit, and create logins for a customer (**+ Login**).
+- **A customer's logins** only see that customer's screens, playlists, media and screenshots. Their admins can add more logins for their own business. They can't see other customers, the Customers page, or upload the player app.
+- **Pausing** a customer logs their users out and blocks their logins. Their TVs keep playing.
+- A customer can only be deleted after their screens are removed. Deleting a customer also deletes their playlists, media and logins.
+
 ## Run the portal on this PC
 
 Double-click `portal\start-portal.cmd`, then open http://localhost:3100.

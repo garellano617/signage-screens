@@ -25,7 +25,11 @@ function ensureAdmin() {
   const envEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
   const envPassword = process.env.ADMIN_PASSWORD || "";
   if (envEmail && envPassword) {
-    const u = get("SELECT id FROM users WHERE email = ?", envEmail);
+    const u = get("SELECT id, customer_id FROM users WHERE email = ?", envEmail);
+    if (u && u.customer_id) {
+      console.error(`ADMIN_EMAIL ${envEmail} belongs to a customer's login, so it was not changed. Use a different email.`);
+      return;
+    }
     if (!u) {
       // Also covers a first start where the variables were still empty and a placeholder admin was made.
       run("INSERT INTO users (email, name, password_hash, role, created_at) VALUES (?, 'Admin', ?, 'admin', ?)", envEmail, hashPassword(envPassword), now());
@@ -39,7 +43,7 @@ function ensureAdmin() {
     }
     return;
   }
-  if (get("SELECT id FROM users WHERE role = 'admin' LIMIT 1")) return;
+  if (get("SELECT id FROM users WHERE role = 'admin' AND customer_id IS NULL LIMIT 1")) return;
   const email = envEmail || "admin@example.com";
   let password = envPassword;
   const generated = !password;
@@ -66,9 +70,11 @@ function sessionCookieOptions(req) {
 
 function requireUser(req, res, next) {
   const sid = req.cookies && req.cookies.sid;
-  const user = sid && get(`SELECT u.id, u.email, u.name, u.role FROM sessions s JOIN users u ON u.id = s.user_id
+  const user = sid && get(`SELECT u.id, u.email, u.name, u.role, u.customer_id, c.name AS customer_name, c.active AS customer_active
+                            FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN customers c ON c.id = u.customer_id
                             WHERE s.id = ? AND s.expires_at > ?`, sha256(sid), now());
   if (!user) return res.status(401).json({ error: "Please log in." });
+  if (user.customer_id && !user.customer_active) return res.status(401).json({ error: "This account is paused. Please contact your provider." });
   req.user = user;
   next();
 }
@@ -77,6 +83,17 @@ function requireAdmin(req, res, next) {
   if (!req.user || req.user.role !== "admin") return res.status(403).json({ error: "Only admins can do that." });
   next();
 }
+
+/** Your own team (not a customer's user). */
+function requireStaff(req, res, next) {
+  if (!req.user || req.user.customer_id) return res.status(403).json({ error: "Only your own team can do that." });
+  next();
+}
+
+const publicUser = u => ({
+  id: u.id, email: u.email, name: u.name, role: u.role,
+  customerId: u.customer_id || null, customerName: u.customer_name || null, isStaff: !u.customer_id
+});
 
 /** Players authenticate with "Authorization: Bearer <token>" from /api/player/register. */
 function requirePlayer(req, res, next) {
@@ -89,5 +106,5 @@ function requirePlayer(req, res, next) {
 
 module.exports = {
   hashPassword, verifyPassword, sha256, ensureAdmin, createSession, destroySession,
-  sessionCookieOptions, requireUser, requireAdmin, requirePlayer
+  sessionCookieOptions, requireUser, requireAdmin, requireStaff, requirePlayer, publicUser
 };

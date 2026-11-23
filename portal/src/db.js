@@ -87,6 +87,37 @@ CREATE TABLE IF NOT EXISTS commands (
 );
 `);
 
+// ---- Customer sub-accounts ----
+// users.customer_id NULL = your own staff (see every customer). Otherwise the user belongs to that customer only.
+db.exec(`
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  contact_name TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  screen_limit INTEGER,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+`);
+const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col);
+for (const t of ["users", "media", "playlists", "screens"]) {
+  if (!hasColumn(t, "customer_id")) db.exec(`ALTER TABLE ${t} ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE`);
+  db.exec(`CREATE INDEX IF NOT EXISTS ${t}_customer ON ${t}(customer_id)`);
+}
+// Content made before sub-accounts existed moves into one customer so nothing is lost.
+{
+  const orphan = ["media", "playlists"].some(t => db.prepare(`SELECT 1 FROM ${t} WHERE customer_id IS NULL LIMIT 1`).get())
+    || db.prepare("SELECT 1 FROM screens WHERE customer_id IS NULL AND paired_at IS NOT NULL LIMIT 1").get();
+  if (orphan) {
+    const r = db.prepare("INSERT INTO customers (name, created_at) VALUES ('Premier Computer', ?)").run(Date.now());
+    for (const t of ["media", "playlists"]) db.prepare(`UPDATE ${t} SET customer_id = ? WHERE customer_id IS NULL`).run(r.lastInsertRowid);
+    db.prepare("UPDATE screens SET customer_id = ? WHERE customer_id IS NULL AND paired_at IS NOT NULL").run(r.lastInsertRowid);
+  }
+}
+
 const all = (sql, ...p) => db.prepare(sql).all(...p);
 const get = (sql, ...p) => db.prepare(sql).get(...p);
 const run = (sql, ...p) => db.prepare(sql).run(...p);

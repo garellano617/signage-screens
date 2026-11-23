@@ -19,7 +19,7 @@ const $ = s => document.querySelector(s);
 const app = () => $("#app");
 
 async function api(method, url, body) {
-  const opt = { method, headers: {} };
+  const opt = { method, headers: scopeHeaders() };
   if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
   const res = await fetch("/api" + url, opt);
   let data = null;
@@ -102,13 +102,38 @@ function thumb(m, cls) {
 }
 
 // ---------- state & routing ----------
-const state = { user: null, timer: null };
+const state = { user: null, timer: null, customers: [], cid: null };
+
+// Your staff pick which customer they're working in; a customer's users are always in their own.
+function loadCid() { try { return Number(localStorage.getItem("cid")) || null; } catch (_) { return null; } }
+function saveCid(v) { try { v ? localStorage.setItem("cid", v) : localStorage.removeItem("cid"); } catch (_) {} }
+const isStaff = () => !!(state.user && state.user.isStaff);
+const allMode = () => isStaff() && !state.cid;
+function scopeHeaders() { return isStaff() && state.cid ? { "X-Customer-Id": String(state.cid) } : {}; }
+const currentCustomer = () => state.customers.find(c => c.id === state.cid) || null;
+
+async function loadCustomers() {
+  if (!isStaff()) { state.customers = []; state.cid = null; return; }
+  state.customers = await api("GET", "/customers");
+  const saved = loadCid();
+  state.cid = state.customers.some(c => c.id === saved) ? saved : null;
+}
+
+/** In "All customers" mode, dialogs that create something ask which customer it's for. */
+function customerField(onchange) {
+  if (!allMode()) return null;
+  if (!state.customers.length) return h("p", { class: "form-error" }, "Add a customer first (Customers page).");
+  return field("Customer", h("select", { name: "customerId", required: true, onchange },
+    h("option", { value: "" }, "Choose a customer…"), state.customers.map(c => h("option", { value: c.id }, c.name))));
+}
+const custTag = item => allMode() && item.customerName ? h("div", { class: "small muted" }, item.customerName) : null;
 
 const ICONS = {
   dashboard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
   screens: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg>',
   playlists: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h13M3 18h9"/><path d="M17 15l5 3-5 3z" fill="currentColor"/></svg>',
   media: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>',
+  customers: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/></svg>',
   settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
 };
 const LOGO = '<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2" fill="#2563eb"/><path d="M10 8l5 2.5-5 2.5z" fill="#fff"/><rect x="8" y="19" width="8" height="2" rx="1" fill="#2563eb"/></svg>';
@@ -120,14 +145,27 @@ const routes = [
   [/^\/playlists$/, "playlists", renderPlaylists],
   [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
   [/^\/media$/, "media", renderMedia],
+  [/^\/customers$/, "customers", renderCustomers],
   [/^\/settings$/, "settings", renderSettings]
 ];
 
 function shell(section) {
   const link = (key, label) => h("a", { href: "#/" + (key === "dashboard" ? "" : key), class: section === key ? "active" : "", html: ICONS[key] + "<span>" + label + "</span>" });
+  let switcher = null;
+  if (isStaff()) {
+    switcher = h("select", { class: "switcher", "aria-label": "Customer", onchange: e => {
+      state.cid = Number(e.target.value) || null; saveCid(state.cid);
+      // A detail page may belong to another customer, so go back to the list.
+      const sec = (location.hash.match(/^#\/(\w+)/) || [])[1];
+      const target = "#/" + (sec && sec !== "customers" ? sec : "");
+      if (location.hash === target) route(); else location.hash = target;
+    } }, h("option", { value: "" }, "All customers"), state.customers.map(c => h("option", { value: c.id, selected: c.id === state.cid }, c.name + (c.active ? "" : " (paused)"))));
+  }
   const nav = h("nav", { class: "nav" },
     h("div", { class: "brand", html: LOGO + "<span>Signage</span>" }),
-    link("dashboard", "Dashboard"), link("screens", "Screens"), link("playlists", "Playlists"), link("media", "Media"), link("settings", "Settings"),
+    switcher || h("div", { class: "cust-name" }, state.user.customerName),
+    link("dashboard", "Dashboard"), link("screens", "Screens"), link("playlists", "Playlists"), link("media", "Media"),
+    isStaff() ? link("customers", "Customers") : null, link("settings", "Settings"),
     h("div", { class: "spacer" }),
     h("div", { class: "who" }, state.user.email));
   const main = h("main", {});
@@ -168,7 +206,7 @@ function renderLogin() {
     const f = new FormData(form);
     try {
       const r = await api("POST", "/auth/login", { email: f.get("email"), password: f.get("password") });
-      state.user = r.user; route();
+      state.user = r.user; await loadCustomers(); route();
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
   });
   app().replaceChildren(h("div", { class: "login-wrap" }, form));
@@ -181,12 +219,13 @@ async function renderDashboard(main) {
   const stat = (num, lbl, cls) => h("div", { class: "card stat" }, h("div", { class: "num " + (cls || "") }, num), h("div", { class: "lbl" }, lbl));
   const list = (title, items, empty, extra) => h("div", { class: "card" }, h("h2", {}, title),
     items.length ? h("table", {}, h("tbody", {}, items.map(s => h("tr", { class: "click", onclick: () => (location.hash = "#/screens/" + s.id) },
-      h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, s.location || "")), h("td", { class: "small muted" }, extra(s))))))
+      h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, [allMode() ? s.customerName : null, s.location].filter(Boolean).join(" · "))), h("td", { class: "small muted" }, extra(s))))))
       : h("p", { class: "muted" }, empty));
   main.replaceChildren(
-    h("div", { class: "page-head" }, h("h1", {}, "Dashboard"),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Dashboard"), scopeLine()),
       h("div", { class: "actions" }, h("button", { class: "primary", onclick: () => pairDialog() }, "+ Add screen"))),
     h("div", { class: "grid stats" },
+      d.customers !== null ? h("a", { href: "#/customers", class: "card stat", style: "text-decoration:none;color:inherit" }, h("div", { class: "num" }, d.customers), h("div", { class: "lbl" }, "Customers")) : null,
       stat(d.screens, "Screens"), stat(d.online, "Online now"), stat(d.offline.length, "Offline"),
       stat(d.playlists, "Playlists"), stat(d.media, "Media files · " + bytes(d.mediaBytes))),
     h("div", { class: "grid two", style: "margin-top:1rem" },
@@ -196,15 +235,32 @@ async function renderDashboard(main) {
 }
 
 // ---------- screens ----------
+/** Subtitle under page titles: which customer you're looking at. */
+function scopeLine() {
+  if (!isStaff()) return h("div", { class: "muted small" }, state.user.customerName);
+  const c = currentCustomer();
+  return h("div", { class: "muted small" }, c ? c.name + (c.active ? "" : " · paused") : "All customers");
+}
+
+/** Playlist <select> limited to one customer's playlists (all customers' are loaded in "All" mode). */
+function playlistOptions(playlists, customerId, selected, emptyLabel) {
+  return [h("option", { value: "" }, emptyLabel), playlists.filter(p => !customerId || p.customerId === customerId)
+    .map(p => h("option", { value: p.id, selected: p.id === selected }, p.name))];
+}
+
 async function pairDialog() {
   const playlists = await api("GET", "/playlists");
+  const plSel = h("select", { name: "playlistId" }, playlistOptions(playlists, state.cid, null, allMode() ? "— choose a customer first —" : "— none yet —"));
+  const custSel = customerField(e => plSel.replaceChildren(...playlistOptions(playlists, Number(e.target.value), null, "— none yet —")));
   const r = await dialog("Add a screen", h("div", {},
     h("p", { class: "muted small" }, "Install the Signage Player app on the TV and open it. It shows a 6-character code. Type it here."),
+    custSel,
     field("Pairing code", h("input", { name: "code", required: true, maxlength: 7, autocomplete: "off", style: "text-transform:uppercase;letter-spacing:.2em;font-size:1.3rem", placeholder: "ABC123" })),
     field("Screen name", h("input", { name: "name", placeholder: "e.g. Lobby TV", maxlength: 100 })),
     field("Location", h("input", { name: "location", placeholder: "e.g. Main St store", maxlength: 200 })),
-    field("Playlist", h("select", { name: "playlistId" }, h("option", { value: "" }, "— none yet —"), playlists.map(p => h("option", { value: p.id }, p.name))))),
+    field("Playlist", plSel)),
   { submit: "Pair screen", onSubmit: f => api("POST", "/screens/pair", Object.fromEntries(f)) });
+  if (r) loadCustomers().catch(() => {});
   if (r) { toast("Screen paired. It will start playing within a few seconds."); location.hash = "#/screens/" + r.id; }
 }
 
@@ -212,7 +268,7 @@ async function renderScreens(main) {
   const [screens, playlists] = await Promise.all([api("GET", "/screens"), api("GET", "/playlists")]);
   const selected = new Set();
   const countEl = h("strong", {}, "0");
-  const plSel = h("select", {}, h("option", { value: "" }, "— no playlist —"), playlists.map(p => h("option", { value: p.id }, p.name)));
+  const plSel = h("select", {}, h("option", { value: "" }, "— no playlist —"), playlists.map(p => h("option", { value: p.id }, (allMode() ? p.customerName + ": " : "") + p.name)));
   const bar = h("div", { class: "bulkbar hidden" }, countEl, " selected · assign", plSel,
     h("button", { class: "primary small", onclick: async () => {
       try { await api("POST", "/screens/bulk-assign", { screenIds: [...selected], playlistId: plSel.value || null }); toast("Playlist assigned."); route(); } catch (e) { fail(e); }
@@ -222,13 +278,13 @@ async function renderScreens(main) {
     main.querySelectorAll("tbody input[type=checkbox]").forEach(cb => { cb.checked = e.target.checked; cb.dispatchEvent(new Event("change")); });
   } });
   main.replaceChildren(
-    h("div", { class: "page-head" }, h("h1", {}, "Screens"),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Screens"), scopeLine()),
       h("div", { class: "actions" }, h("button", { class: "primary", onclick: () => pairDialog() }, "+ Add screen"))),
     screens.length ? h("div", { class: "card" }, bar, h("div", { class: "table-wrap" }, h("table", {},
       h("thead", {}, h("tr", {}, h("th", {}, all), h("th", {}, "Screen"), h("th", {}, "Status"), h("th", {}, "Playing"), h("th", {}, "Playlist"))),
       h("tbody", {}, screens.map(s => h("tr", { class: "click", onclick: e => { if (e.target.type !== "checkbox") location.hash = "#/screens/" + s.id; } },
         h("td", {}, h("input", { type: "checkbox", onchange: e => { e.target.checked ? selected.add(s.id) : selected.delete(s.id); sync(); } })),
-        h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, s.location)),
+        h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, [allMode() ? s.customerName : null, s.location].filter(Boolean).join(" · "))),
         h("td", {}, statusPill(s), h("div", { class: "small muted" }, s.online ? "" : ago(s.lastSeen))),
         h("td", { class: "small" }, s.online && s.status.playing ? s.status.playing : h("span", { class: "muted" }, "—")),
         h("td", { class: "small" }, s.playlistName || h("span", { class: "pill warn" }, "None"), s.scheduleCount ? h("div", { class: "muted" }, "+ " + s.scheduleCount + " scheduled") : null)))))))
@@ -252,7 +308,7 @@ function deviceRows(s) {
 
 async function renderScreen(main, id) {
   const [s, playlists] = await Promise.all([api("GET", "/screens/" + id), api("GET", "/playlists")]);
-  const plOptions = sel => [h("option", { value: "" }, "— none —"), playlists.map(p => h("option", { value: p.id, selected: p.id === sel }, p.name))];
+  const plOptions = sel => playlistOptions(playlists, s.customerId, sel, "— none —");
 
   // settings
   const f = {
@@ -314,7 +370,7 @@ async function renderScreen(main, id) {
 
   main.replaceChildren(
     h("a", { href: "#/screens", class: "back" }, "← All screens"),
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, s.name), h("div", { class: "muted" }, s.location)),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, s.name), h("div", { class: "muted" }, [isStaff() ? s.customerName : null, s.location].filter(Boolean).join(" · "))),
       h("div", { class: "actions" }, h("button", { class: "danger", onclick: async () => {
         if (!await confirmDlg("Remove this screen?", "The TV will go back to showing a pairing code. You can pair it again later.", "Remove")) return;
         try { await api("DELETE", "/screens/" + id); toast("Screen removed."); location.hash = "#/screens"; } catch (e) { fail(e); }
@@ -355,16 +411,16 @@ async function renderScreen(main, id) {
 async function renderPlaylists(main) {
   const pls = await api("GET", "/playlists");
   const create = async () => {
-    const r = await dialog("New playlist", field("Name", h("input", { name: "name", required: true, maxlength: 100, placeholder: "e.g. Lunch menu" })),
-      { submit: "Create", onSubmit: f => api("POST", "/playlists", { name: f.get("name") }) });
+    const r = await dialog("New playlist", h("div", {}, customerField(), field("Name", h("input", { name: "name", required: true, maxlength: 100, placeholder: "e.g. Lunch menu" }))),
+      { submit: "Create", onSubmit: f => api("POST", "/playlists", Object.fromEntries(f)) });
     if (r) location.hash = "#/playlists/" + r.id;
   };
   main.replaceChildren(
-    h("div", { class: "page-head" }, h("h1", {}, "Playlists"), h("div", { class: "actions" }, h("button", { class: "primary", onclick: create }, "+ New playlist"))),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Playlists"), scopeLine()), h("div", { class: "actions" }, h("button", { class: "primary", onclick: create }, "+ New playlist"))),
     pls.length ? h("div", { class: "card table-wrap" }, h("table", {},
       h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Items"), h("th", {}, "Loop length"), h("th", {}, "Used on"), h("th", {}))),
       h("tbody", {}, pls.map(p => h("tr", { class: "click", onclick: e => { if (!e.target.closest("button")) location.hash = "#/playlists/" + p.id; } },
-        h("td", {}, h("strong", {}, p.name)),
+        h("td", {}, h("strong", {}, p.name), custTag(p)),
         h("td", {}, p.itemCount),
         h("td", { class: "small" }, dur(p.loopSeconds), p.videoCount ? h("span", { class: "muted" }, " + " + p.videoCount + " video" + (p.videoCount > 1 ? "s" : "")) : null),
         h("td", { class: "small" }, p.screens.length ? p.screens.map(x => x.name).join(", ") : h("span", { class: "muted" }, "—"),
@@ -433,7 +489,7 @@ async function renderPlaylist(main, id) {
   const picker = h("div", { class: "picker" });
   const drawPicker = () => {
     const q = search.value.toLowerCase();
-    const list2 = media.filter(m => m.name.toLowerCase().includes(q));
+    const list2 = media.filter(m => m.customerId === pl.customerId && m.name.toLowerCase().includes(q));
     picker.replaceChildren(...list2.map(m => h("div", { class: "pick", title: "Add to playlist", onclick: () => {
       items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, duration: m.kind === "web" ? 30 : 10 }); mark(); draw();
       list.lastElementChild.scrollIntoView({ block: "nearest" });
@@ -468,12 +524,14 @@ async function renderMedia(main) {
 
   function upload(files) {
     if (!files.length) return;
+    if (allMode()) return fail(new Error("Choose a customer in the switcher at the top first, so the files go into their account."));
     const fd = new FormData();
     files.forEach(f => fd.append("files", f));
     const prog = h("div", {}); const label = h("div", { class: "small" }, "Uploading " + files.length + " file(s)…");
     bar.replaceChildren(label, h("div", { class: "progress" }, prog));
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/media");
+    for (const [k, v] of Object.entries(scopeHeaders())) xhr.setRequestHeader(k, v);
     xhr.upload.onprogress = e => { if (e.lengthComputable) { const p = Math.round(e.loaded / e.total * 100); prog.style.width = p + "%"; label.textContent = "Uploading… " + p + "%"; } };
     xhr.onload = () => {
       let d = null; try { d = JSON.parse(xhr.responseText); } catch (_) {}
@@ -486,18 +544,19 @@ async function renderMedia(main) {
   const addWeb = async () => {
     const r = await dialog("Add a web page", h("div", {},
       h("p", { class: "muted small" }, "Shows a live web page on the screen, for example a menu board, dashboard or news feed. The page must allow being shown full-screen."),
+      customerField(),
       field("Web address", h("input", { name: "url", type: "url", required: true, placeholder: "https://" })),
       field("Name", h("input", { name: "name", maxlength: 200, placeholder: "optional" }))),
     { submit: "Add", onSubmit: f => api("POST", "/media/web", Object.fromEntries(f)) });
     if (r) { toast("Web page added."); route(); }
   };
   main.replaceChildren(
-    h("div", { class: "page-head" }, h("h1", {}, "Media"), h("div", { class: "actions" }, h("button", { onclick: addWeb }, "+ Web page"), h("button", { class: "primary", onclick: () => input.click() }, "Upload"))),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Media"), scopeLine()), h("div", { class: "actions" }, h("button", { onclick: addWeb }, "+ Web page"), h("button", { class: "primary", onclick: () => input.click() }, "Upload"))),
     zone,
     media.length ? h("div", { class: "media-grid" }, media.map(m => h("div", { class: "media-card" },
       h("a", { href: m.src, target: "_blank", rel: "noopener" }, thumb(m)),
       h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
-        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind + " · " + bytes(m.size)),
+        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind + " · " + bytes(m.size)), custTag(m),
         h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist")),
       h("div", { class: "acts" },
         h("button", { class: "small", onclick: async () => {
@@ -513,7 +572,87 @@ async function renderMedia(main) {
       : h("div", { class: "card empty" }, "No media yet. Upload images and videos to use in playlists."));
 }
 
+// ---------- customers (your staff only) ----------
+async function renderCustomers(main) {
+  if (!isStaff()) { location.hash = "#/"; return; }
+  await loadCustomers();
+  const list = state.customers;
+  const isAdmin = state.user.role === "admin";
+  const open = c => { state.cid = c.id; saveCid(c.id); location.hash = "#/"; route(); };
+
+  const edit = async c => {
+    const r = await dialog(c ? "Edit " + c.name : "New customer", h("div", {},
+      field("Business name", h("input", { name: "name", required: true, maxlength: 120, value: c ? c.name : "", placeholder: "e.g. Wendy's Tacos" })),
+      h("div", { class: "row" },
+        field("Contact person", h("input", { name: "contactName", maxlength: 120, value: c ? c.contactName : "" })),
+        field("Phone", h("input", { name: "phone", type: "tel", maxlength: 40, value: c ? c.phone : "" }))),
+      field("Email", h("input", { name: "email", type: "email", maxlength: 200, value: c ? c.email : "" })),
+      field("Screen limit (empty = no limit)", h("input", { name: "screenLimit", type: "number", min: 0, max: 10000, value: c && c.screenLimit !== null ? c.screenLimit : "" })),
+      c ? h("label", { style: "display:flex;gap:.5rem;align-items:center;font-weight:400;margin-bottom:.9rem" },
+        h("input", { type: "checkbox", name: "active", checked: c.active }), "Active (unticked = paused: their logins stop working, TVs keep playing)") : null,
+      field("Notes", h("textarea", { name: "notes", rows: 2, maxlength: 2000 }, c ? c.notes : ""))),
+    { submit: c ? "Save" : "Add customer", onSubmit: f => {
+      const b = Object.fromEntries(f);
+      if (c) b.active = f.get("active") === "on";
+      return c ? api("PATCH", "/customers/" + c.id, b) : api("POST", "/customers", b);
+    } });
+    if (r) { toast(c ? "Saved." : "Customer added."); route(); }
+  };
+
+  const loginDlg = async c => {
+    const r = await dialog("Add a login for " + c.name, h("div", {},
+      h("p", { class: "muted small" }, "This person will only see " + c.name + "'s screens, playlists and media. Give them the portal address and this email and password."),
+      field("Email", h("input", { name: "email", type: "email", required: true })),
+      field("Name", h("input", { name: "name", maxlength: 100 })),
+      field("Role", h("select", { name: "role" },
+        h("option", { value: "admin" }, "Admin: everything in their account, including their own logins"),
+        h("option", { value: "editor" }, "Editor: screens, playlists and media"))),
+      field("Password (8+ characters)", h("input", { name: "password", type: "password", minlength: 8, required: true, autocomplete: "new-password" }))),
+    { submit: "Create login", onSubmit: f => fetch("/api/users", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Customer-Id": String(c.id) }, body: JSON.stringify(Object.fromEntries(f))
+    }).then(async res => { const d = await res.json().catch(() => ({})); if (!res.ok) throw new Error(d.error || "Failed."); return d; }) });
+    if (r) { toast("Login created for " + r.email + "."); route(); }
+  };
+
+  main.replaceChildren(
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Customers"), h("div", { class: "muted small" }, "Each customer has their own screens, playlists, media and logins.")),
+      isAdmin ? h("div", { class: "actions" }, h("button", { class: "primary", onclick: () => edit() }, "+ New customer")) : null),
+    list.length ? h("div", { class: "card table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Customer"), h("th", {}, "Screens"), h("th", {}, "Logins"), h("th", {}, "Storage"), h("th", {}))),
+      h("tbody", {}, list.map(c => h("tr", {},
+        h("td", {}, h("strong", {}, c.name), " ", c.active ? null : h("span", { class: "pill warn" }, "Paused"),
+          h("div", { class: "small muted" }, [c.contactName, c.phone, c.email].filter(Boolean).join(" · "))),
+        h("td", { class: "small" }, c.screens + (c.screenLimit !== null ? " of " + c.screenLimit : ""),
+          c.screens ? h("div", { class: "muted" }, c.online + " online") : null),
+        h("td", { class: "small" }, c.users),
+        h("td", { class: "small" }, bytes(c.mediaBytes)),
+        h("td", { style: "text-align:right;white-space:nowrap" },
+          h("button", { class: "small primary", onclick: () => open(c) }, "Open"), " ",
+          isAdmin ? h("button", { class: "small", onclick: () => loginDlg(c) }, "+ Login") : null, " ",
+          isAdmin ? h("button", { class: "small", onclick: () => edit(c) }, "Edit") : null, " ",
+          isAdmin ? h("button", { class: "small danger", onclick: async () => {
+            if (c.screens) return fail(new Error(`Remove ${c.name}'s ${c.screens} screen(s) first (open the customer, then Screens).`));
+            if (!await confirmDlg("Delete " + c.name + "?", "This permanently deletes their playlists, media and logins.")) return;
+            try {
+              await api("DELETE", "/customers/" + c.id);
+              if (state.cid === c.id) { state.cid = null; saveCid(null); }
+              toast("Customer deleted."); route();
+            } catch (e) { fail(e); }
+          } }, "Delete") : null))))))
+      : h("div", { class: "card empty" }, h("p", {}, "No customers yet. Add the businesses you put screens in."),
+        isAdmin ? h("button", { class: "primary", onclick: () => edit() }, "+ New customer") : null));
+}
+
 // ---------- settings ----------
+function usersTitle() {
+  if (!isStaff()) return "Users";
+  const c = currentCustomer();
+  return c ? "Logins for " + c.name : "Your team";
+}
+function usersHint() {
+  if (!isStaff()) return "People who can log in to your account.";
+  return currentCustomer() ? "These people only see this customer's screens and content." : "Your staff see every customer. Pick a customer at the top to manage their logins.";
+}
 async function renderSettings(main) {
   const isAdmin = state.user.role === "admin";
   const [apk, users] = await Promise.all([api("GET", "/apk"), isAdmin ? api("GET", "/users") : Promise.resolve([])]);
@@ -541,7 +680,7 @@ async function renderSettings(main) {
           ? h("div", {}, h("p", {}, h("a", { class: "btn primary", href: apk.url }, "⬇ Download player app"), " ", h("span", { class: "small muted" }, apk.file + " · " + bytes(apk.size))),
             h("p", { class: "small muted" }, "On the TV or Android box, open this address in a browser to download it: ", h("span", { class: "mono" }, portalUrl + apk.url)))
           : h("p", { class: "muted" }, "No player app uploaded yet."),
-        isAdmin ? h("div", { style: "margin-top:.5rem" },
+        isAdmin && isStaff() ? h("div", { style: "margin-top:.5rem" },
           h("input", { type: "file", accept: ".apk", class: "hidden", id: "apkFile", onchange: async e => {
             const file = e.target.files[0]; if (!file) return;
             const fd = new FormData(); fd.append("file", file);
@@ -562,7 +701,7 @@ async function renderSettings(main) {
       h("div", { class: "card" }, h("h2", {}, "My login"), h("p", { class: "muted small" }, state.user.email + " · " + state.user.role),
         field("Current password", pw.current), field("New password (8+ characters)", pw.next), pwBtn),
       isAdmin ? h("div", { class: "card", style: "grid-column: 1 / -1" },
-        h("div", { class: "page-head", style: "margin-bottom:.5rem" }, h("h2", { style: "margin:0" }, "Users"),
+        h("div", { class: "page-head", style: "margin-bottom:.5rem" }, h("div", {}, h("h2", { style: "margin:0" }, usersTitle()), h("div", { class: "small muted" }, usersHint())),
           h("button", { class: "small", onclick: async () => { if (await userDlg()) { toast("User added."); route(); } } }, "+ Add user")),
         h("div", { class: "table-wrap" }, h("table", {}, h("tbody", {}, users.map(u => h("tr", {},
           h("td", {}, h("strong", {}, u.name || u.email), h("div", { class: "small muted" }, u.email)),
@@ -577,6 +716,6 @@ async function renderSettings(main) {
 
 // ---------- start ----------
 (async () => {
-  try { state.user = (await api("GET", "/auth/me")).user; } catch (_) { state.user = null; }
+  try { state.user = (await api("GET", "/auth/me")).user; await loadCustomers(); } catch (_) { state.user = null; }
   route();
 })();

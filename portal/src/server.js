@@ -3,7 +3,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const express = require("express");
 const cookieParser = require("cookie-parser");
-const { DATA_DIR } = require("./db");
+const { DATA_DIR, get } = require("./db");
 const auth = require("./auth");
 const playerRoutes = require("./playerRoutes");
 const { router: adminRoutes, latestApk } = require("./adminRoutes");
@@ -36,8 +36,14 @@ function createApp() {
     res.download(a.path, a.file);
   });
 
-  // Screenshots are only for logged-in users.
-  app.use("/screenshots", auth.requireUser, express.static(path.join(DATA_DIR, "screenshots"), { index: false, maxAge: 0 }));
+  // Screenshots: logged-in users only, and a customer's users only see their own screens.
+  app.get("/screenshots/:file", auth.requireUser, (req, res) => {
+    const m = /^screen-(\d+)-\d+\.(jpg|png)$/.exec(req.params.file);
+    const screen = m && get("SELECT customer_id FROM screens WHERE id = ?", Number(m[1]));
+    if (!screen || (req.user.customer_id && req.user.customer_id !== screen.customer_id)) return res.status(404).end();
+    res.set("Cache-Control", "no-store");
+    res.sendFile(path.join(DATA_DIR, "screenshots", req.params.file), err => { if (err && !res.headersSent) res.status(404).end(); });
+  });
 
   app.use("/api", adminRoutes);
 

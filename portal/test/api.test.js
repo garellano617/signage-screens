@@ -12,11 +12,12 @@ process.env.ADMIN_PASSWORD = "admin-pass-123";
 const { createApp } = require("../src/server");
 const { ensureAdmin } = require("../src/auth");
 
-let base, server, cookie = "";
+let base, server, cookie = "", scopeId = null;
 
 async function call(method, url, body, headers = {}) {
   const opt = { method, headers: { ...headers } };
   if (cookie) opt.headers.cookie = cookie;
+  if (scopeId) opt.headers["x-customer-id"] = String(scopeId);
   if (body instanceof FormData || Buffer.isBuffer(body)) opt.body = body;
   else if (body !== undefined) { opt.headers["content-type"] = "application/json"; opt.body = JSON.stringify(body); }
   const res = await fetch(base + url, opt);
@@ -41,6 +42,14 @@ test("full flow: login, media, playlist, pairing, player config, commands", asyn
   const login = await call("POST", "/api/auth/login", { email: "ADMIN@test.local", password: "admin-pass-123" });
   assert.equal(login.status, 200);
   assert.equal(login.body.user.role, "admin");
+  assert.equal(login.body.user.isStaff, true);
+
+  // Work inside one customer.
+  const nofile = new FormData(); nofile.append("files", new Blob(["x"], { type: "image/png" }), "a.png");
+  assert.equal((await call("POST", "/api/media", nofile)).status, 400, "staff must pick a customer first");
+  const cust = await call("POST", "/api/customers", { name: "Taqueria Uno", screenLimit: 1 });
+  assert.equal(cust.status, 201);
+  scopeId = cust.body.id;
 
   // Upload an image.
   const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000a49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
@@ -173,6 +182,7 @@ test("admins upload the player APK and anyone can download it", async () => {
 });
 
 test("users: editors can't manage users; last admin protected", async () => {
+  scopeId = null;
   const add = await call("POST", "/api/users", { email: "ed@test.local", password: "editor-pass-1", role: "editor" });
   assert.equal(add.status, 201);
   const me = (await call("GET", "/api/auth/me")).body.user;
@@ -186,4 +196,79 @@ test("users: editors can't manage users; last admin protected", async () => {
   assert.equal((await call("POST", "/api/auth/password", { current: "editor-pass-1", next: "new-pass-456" })).status, 200);
   await call("POST", "/api/auth/logout");
   assert.equal((await call("GET", "/api/auth/me")).status, 401);
+});
+
+test("customer sub-accounts are kept apart", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const A = (await call("POST", "/api/customers", { name: "Alpha Grocery", screenLimit: 1 })).body;
+  const B = (await call("POST", "/api/customers", { name: "Beta Office" })).body;
+
+  // Staff create a user + content for each customer.
+  scopeId = A.id;
+  assert.equal((await call("POST", "/api/users", { email: "owner@alpha.test", password: "alpha-pass-1", role: "admin" })).status, 201);
+  const aPl = (await call("POST", "/api/playlists", { name: "Alpha menu" })).body;
+  const aWeb = (await call("POST", "/api/media/web", { url: "https://alpha.example/" })).body;
+  scopeId = B.id;
+  const bPl = (await call("POST", "/api/playlists", { name: "Beta lobby" })).body;
+  const bWeb = (await call("POST", "/api/media/web", { url: "https://beta.example/" })).body;
+
+  // Pair a TV to B (staff on "All customers" pick the customer in the request).
+  scopeId = null;
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-beta-0001" })).body;
+  assert.equal((await call("POST", "/api/screens/pair", { code: reg.pairingCode })).status, 400, "needs a customer");
+  assert.equal((await call("POST", "/api/screens/pair", { code: reg.pairingCode, customerId: B.id, playlistId: aPl.id })).status, 400, "A's playlist on B's screen");
+  const bScreen = (await call("POST", "/api/screens/pair", { code: reg.pairingCode, customerId: B.id, playlistId: bPl.id })).body;
+  assert.equal(bScreen.customerName, "Beta Office");
+  // Mixing customers in a playlist is refused.
+  assert.equal((await call("PUT", "/api/playlists/" + aPl.id, { items: [{ mediaId: bWeb.id }] })).status, 400);
+  // Staff on "All customers" see both.
+  assert.equal((await call("GET", "/api/playlists")).body.filter(p => [aPl.id, bPl.id].includes(p.id)).length, 2);
+
+  // Screen limit.
+  scopeId = A.id;
+  const r1 = (await call("POST", "/api/player/register", { deviceId: "android-alpha-0001" })).body;
+  const r2 = (await call("POST", "/api/player/register", { deviceId: "android-alpha-0002" })).body;
+  assert.equal((await call("POST", "/api/screens/pair", { code: r1.pairingCode })).status, 201);
+  const over = await call("POST", "/api/screens/pair", { code: r2.pairingCode });
+  assert.equal(over.status, 400);
+  assert.match(over.body.error, /1 of 1/);
+
+  // Alpha's own login only sees Alpha.
+  cookie = ""; scopeId = B.id; // a customer user can't switch customers with the header
+  const me = (await call("POST", "/api/auth/login", { email: "owner@alpha.test", password: "alpha-pass-1" })).body.user;
+  assert.equal(me.isStaff, false);
+  assert.equal(me.customerName, "Alpha Grocery");
+  assert.deepEqual((await call("GET", "/api/playlists")).body.map(p => p.name), ["Alpha menu"]);
+  assert.deepEqual((await call("GET", "/api/media")).body.map(m => m.id), [aWeb.id]);
+  assert.equal((await call("GET", "/api/screens")).body.length, 1);
+  assert.equal((await call("GET", "/api/screens/" + bScreen.id)).status, 404);
+  assert.equal((await call("PATCH", "/api/screens/" + bScreen.id, { name: "hacked" })).status, 404);
+  assert.equal((await call("POST", "/api/screens/" + bScreen.id + "/commands", { type: "restart_app" })).status, 404);
+  assert.equal((await call("DELETE", "/api/playlists/" + bPl.id)).status, 404);
+  assert.equal((await call("DELETE", "/api/media/" + bWeb.id)).status, 404);
+  assert.equal((await call("GET", "/api/customers")).status, 403);
+  assert.equal((await call("POST", "/api/apk", new FormData())).status, 403);
+  // Their admin manages only their own users.
+  const users = (await call("GET", "/api/users")).body;
+  assert.deepEqual(users.map(u => u.email), ["owner@alpha.test"]);
+  assert.equal((await call("POST", "/api/users", { email: "staff@alpha.test", password: "alpha-pass-2" })).body.customerName, "Alpha Grocery");
+  const dash = (await call("GET", "/api/dashboard")).body;
+  assert.equal(dash.screens, 1);
+  assert.equal(dash.customers, null);
+
+  // Pausing the customer logs them out and blocks login.
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  assert.equal((await call("PATCH", "/api/customers/" + A.id, { active: false })).status, 200);
+  cookie = "";
+  assert.equal((await call("POST", "/api/auth/login", { email: "owner@alpha.test", password: "alpha-pass-1" })).status, 403);
+
+  // A customer with screens can't be deleted; without screens it can (and takes its users along).
+  cookie = "";
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  assert.equal((await call("DELETE", "/api/customers/" + B.id)).status, 400);
+  await call("DELETE", "/api/screens/" + bScreen.id);
+  assert.equal((await call("DELETE", "/api/customers/" + B.id)).status, 200);
+  assert.equal((await call("GET", "/api/playlists/" + bPl.id)).status, 404);
 });
