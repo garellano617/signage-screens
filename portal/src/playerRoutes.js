@@ -66,6 +66,13 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
     now(), req.ip || "", JSON.stringify(status), clip(b.appVersion, 40), s.id);
   let commands = [];
   if (s.paired_at) {
+    // Uptime: count each minute the screen checked in, once.
+    const minute = Math.floor(now() / 60e3);
+    if (s.last_minute !== minute) {
+      run("UPDATE screens SET last_minute = ? WHERE id = ?", minute, s.id);
+      run(`INSERT INTO screen_uptime (screen_id, hour, minutes) VALUES (?, ?, 1)
+           ON CONFLICT (screen_id, hour) DO UPDATE SET minutes = MIN(60, minutes + 1)`, s.id, Math.floor(minute / 60));
+    }
     commands = all("SELECT id, type FROM commands WHERE screen_id = ? AND delivered_at IS NULL ORDER BY id", s.id);
     if (commands.length) run("UPDATE commands SET delivered_at = ? WHERE screen_id = ? AND delivered_at IS NULL", now(), s.id);
   }

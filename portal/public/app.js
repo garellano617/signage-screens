@@ -124,6 +124,11 @@ const ICONS = {
   media: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>',
   clients: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/></svg>',
   logins: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M1 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 11h6M20 8v6"/></svg>',
+  wizard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8l1.4 1.4M17.8 6.2l1.4-1.4M12.2 6.2l-1.4-1.4"/><path d="M15 9l-12 12"/></svg>',
+  content: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>',
+  monitoring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>',
+  download: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>',
+  profile: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg>',
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>',
   settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
 };
@@ -132,6 +137,8 @@ const LOGO = '<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" 
 // Pages inside one client (same for your team inside a client and for a client's own login).
 const clientRoutes = [
   [/^\/?$/, "dashboard", renderDashboard],
+  [/^\/wizard$/, "wizard", renderWizard],
+  [/^\/monitoring$/, "monitoring", renderMonitoring],
   [/^\/screens$/, "screens", renderScreens],
   [/^\/screens\/(\d+)$/, "screens", renderScreen],
   [/^\/screens\/(\d+)\/layers$/, "screens", renderLayers],
@@ -144,11 +151,31 @@ const clientRoutes = [
 const staffRoutes = [
   [/^\/?$/, "dashboard", renderOverview],
   [/^\/clients$/, "clients", renderClients],
-  [/^\/settings$/, "settings", renderSettings]
+  [/^\/monitoring$/, "monitoring", renderMonitoring],
+  [/^\/download$/, "download", renderDownload],
+  [/^\/(profile|settings)$/, "profile", renderProfile]
+];
+// Extra pages a client's own login has outside the client menu.
+const clientLoginRoutes = [
+  [/^\/download$/, "download", renderDownload],
+  [/^\/(profile|settings)$/, "profile", renderProfile]
 ];
 
+const CONTENT_SECTIONS = ["media"];
+let contentOpen = null; // null = open when a content page is shown
+
 function shell(section, inClient) {
-  const link = (href, key, label) => h("a", { href, class: section === key ? "active" : "", html: ICONS[key] + "<span>" + label + "</span>" });
+  const link = (href, key, label, cls) => h("a", { href, class: (section === key ? "active " : "") + (cls || ""), html: ICONS[key] + "<span>" + label + "</span>" });
+  const contentGroup = () => {
+    const open = contentOpen === null ? CONTENT_SECTIONS.includes(section) : contentOpen;
+    const sub = h("div", { class: "submenu" + (open ? " open" : "") },
+      link(base() + "/media", "media", "Media library", "sub"));
+    return h("div", { class: "navgroup" },
+      h("button", { type: "button", class: "navgroup-head" + (CONTENT_SECTIONS.includes(section) ? " active" : ""), "aria-expanded": String(open),
+        onclick: e => { contentOpen = !sub.classList.contains("open"); sub.classList.toggle("open", contentOpen); e.currentTarget.setAttribute("aria-expanded", String(contentOpen)); },
+        html: ICONS.content + "<span>Content</span><i class='caret'></i>" }),
+      sub);
+  };
   let links;
   if (inClient) {
     const c = isStaff() ? currentClient() : null;
@@ -156,13 +183,22 @@ function shell(section, inClient) {
       isStaff() ? link("#/clients", "back", "All clients") : null,
       h("div", { class: "client-head" }, h("div", { class: "client-label" }, isStaff() ? "Client" : "Account"), h("div", { class: "client-title" }, clientName()),
         c && !c.active ? h("span", { class: "pill warn" }, "Paused") : null),
-      link(base() + "/", "dashboard", "Overview"), link(base() + "/screens", "screens", "Screens"),
-      link(base() + "/playlists", "playlists", "Playlists"), link(base() + "/media", "media", "Media"),
-      isAdmin() ? link(base() + "/logins", "logins", "Logins") : null,
-      isStaff() ? null : link("#/settings", "settings", "Settings")
+      link(base() + "/", "dashboard", "Dashboard"),
+      link(base() + "/wizard", "wizard", "Wizard"),
+      contentGroup(),
+      link(base() + "/playlists", "playlists", "Playlists"),
+      link(base() + "/screens", "screens", "Screens"),
+      link(base() + "/monitoring", "monitoring", "Screen Monitoring"),
+      isStaff() ? (isAdmin() ? link(base() + "/logins", "logins", "Logins") : null) : link("#/download", "download", "Download App"),
+      isStaff() ? null : link("#/profile", "profile", "Profile & Admins")
     ];
+  } else if (isStaff()) {
+    links = [link("#/", "dashboard", "Dashboard"), link("#/clients", "clients", "Clients"),
+      link("#/monitoring", "monitoring", "Screen Monitoring"), link("#/download", "download", "Download App"),
+      link("#/profile", "profile", "Profile & Admins")];
   } else {
-    links = [link("#/", "dashboard", "Dashboard"), link("#/clients", "clients", "Clients"), link("#/settings", "settings", "Settings")];
+    // A client's login on Download App / Profile: same menu as inside their account.
+    return shell(section, true);
   }
   const nav = h("nav", { class: "nav" + (inClient && isStaff() ? " in-client" : "") },
     h("div", { class: "brand", html: LOGO + "<span>Signage</span>" }), links,
@@ -188,7 +224,7 @@ async function route() {
     } else { state.cid = null; table = staffRoutes; }
   } else {
     state.cid = state.user.customerId;
-    if (path === "/settings") { table = [[/^\/settings$/, "settings", renderSettings]]; }
+    if (clientLoginRoutes.some(([re]) => re.test(path))) table = clientLoginRoutes;
     else { table = clientRoutes; inClient = true; }
   }
   for (const [re, section, fn] of table) {
@@ -240,7 +276,7 @@ const pageHead = (title, sub, ...actions) => h("div", { class: "page-head" },
 
 // ---------- your team: overview of all clients ----------
 async function renderOverview(main) {
-  const [d] = await Promise.all([api("GET", "/dashboard"), loadCustomers()]);
+  const [d, allScreens] = await Promise.all([api("GET", "/dashboard"), api("GET", "/screens"), loadCustomers()]);
   const clients = state.customers;
   main.replaceChildren(
     pageHead("Dashboard", "All clients", isAdmin() ? h("button", { class: "primary", onclick: () => clientDialog() }, "+ New client") : null),
@@ -256,8 +292,9 @@ async function renderOverview(main) {
         d.offline.length ? h("table", {}, h("tbody", {}, d.offline.map(s => h("tr", { class: "click", onclick: () => (location.hash = `#/c/${s.customerId}/screens/${s.id}`) },
           h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, [s.customerName, s.location].filter(Boolean).join(" · "))),
           h("td", { class: "small muted", style: "text-align:right" }, "Last seen " + ago(s.lastSeen))))))
-          : h("p", { class: "muted" }, d.screens ? "All screens are online. 👍" : "No screens yet. Open a client to add one."))));
-  poll(() => renderOverview(main).catch(() => {}), 15000);
+          : h("p", { class: "muted" }, d.screens ? "All screens are online. 👍" : "No screens yet. Open a client to add one."))),
+    h("div", { style: "margin-top:1rem" }, mapCard(allScreens, s => `#/c/${s.customerId}/screens/${s.id}`)));
+  poll(() => renderOverview(main).catch(() => {}), 60000);
 }
 
 // ---------- your team: clients ----------
@@ -317,7 +354,7 @@ async function renderClients(main) {
 
 // ---------- inside a client: overview ----------
 async function renderDashboard(main) {
-  const d = await api("GET", "/dashboard");
+  const [d, screens] = await Promise.all([api("GET", "/dashboard"), api("GET", "/screens")]);
   const c = isStaff() ? currentClient() : null;
   const list = (title, items, empty, extra) => h("div", { class: "card" }, h("h2", {}, title),
     items.length ? h("table", {}, h("tbody", {}, items.map(s => h("tr", { class: "click", onclick: () => go("/screens/" + s.id) },
@@ -334,9 +371,10 @@ async function renderDashboard(main) {
     h("div", { class: "grid two", style: "margin-top:1rem" },
       list("Offline screens", d.offline, d.screens ? "All screens are online. 👍" : "No screens yet. Click “Add screen” to pair a TV.", s => "Last seen " + ago(s.lastSeen)),
       list("Screens with nothing to play", d.noContent, "Every screen has a playlist.", () => "No playlist")),
+    screens.length ? h("div", { style: "margin-top:1rem" }, mapCard(screens, s => base() + "/screens/" + s.id)) : null,
     c && isAdmin() ? h("div", { style: "margin-top:2rem;text-align:right" },
       h("button", { class: "small danger", onclick: () => deleteClient(c) }, "Delete this client")) : null);
-  poll(() => renderDashboard(main).catch(() => {}), 15000);
+  poll(() => renderDashboard(main).catch(() => {}), 60000);
 }
 
 // ---------- inside a client: screens ----------
@@ -473,7 +511,8 @@ async function renderScreen(main, id) {
         h("div", { class: "card" }, h("h2", {}, "Schedule"),
           h("p", { class: "muted small" }, "During these times the screen plays the chosen playlist instead of its main one. The first matching slot wins. A slot that ends before it starts (e.g. 22:00 to 06:00) runs overnight."),
           slotsBox,
-          h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave))),
+          h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave)),
+        locationCard(s)),
       h("div", { class: "stack" },
         h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
             h("a", { class: "btn primary small", href: base() + "/screens/" + id + "/layers" }, "Design layers")),
@@ -858,19 +897,214 @@ async function renderLogins(main) {
       "These people log in at " + location.origin + " and only see " + clientName() + "'s screens, playlists and media."));
 }
 
-// ---------- settings ----------
-async function renderSettings(main) {
-  const [apk, users] = await Promise.all([api("GET", "/apk"), isStaff() && isAdmin() ? api("GET", "/users") : Promise.resolve(null)]);
-  const portalUrl = location.origin;
+// ---------- screen map (OpenStreetMap via Leaflet, loaded only when a map is shown) ----------
+let leafletReady = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (leafletReady) return leafletReady;
+  leafletReady = new Promise((resolve, reject) => {
+    document.head.append(h("link", { rel: "stylesheet", href: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" }));
+    const s = h("script", { src: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" });
+    s.onload = resolve; s.onerror = () => { leafletReady = null; reject(new Error("The map couldn't load.")); };
+    document.head.append(s);
+  });
+  return leafletReady;
+}
 
+/** A map of screens: green = online, grey = offline. Returns the Leaflet map (or null if it couldn't load). */
+async function screenMap(box, screens, { link, onClick, zoom } = {}) {
+  try { await loadLeaflet(); } catch (e) { box.replaceChildren(h("p", { class: "muted small" }, e.message)); return null; }
+  const map = L.map(box, { scrollWheelZoom: false, worldCopyJump: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  const pts = [];
+  for (const s of screens) {
+    if (s.lat == null || s.lng == null) continue;
+    pts.push([s.lat, s.lng]);
+    const m = L.circleMarker([s.lat, s.lng], { radius: 8, weight: 2, color: "#fff", fillOpacity: 1, fillColor: s.online ? "#16a34a" : "#94a3b8" }).addTo(map);
+    const pop = h("div", {}, h("strong", {}, s.name), h("div", { class: "small" }, [s.customerName, s.address || s.location].filter(Boolean).join(" · ")),
+      h("div", { class: "small" }, s.online ? "Online" : "Offline · last seen " + ago(s.lastSeen)));
+    if (link) pop.append(h("a", { href: link(s) }, "Open screen →"));
+    m.bindPopup(pop);
+  }
+  if (pts.length === 1) map.setView(pts[0], zoom || 14);
+  else if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 14 });
+  else map.setView([39.5, -98.35], 3);
+  if (onClick) map.on("click", e => onClick(e.latlng));
+  setTimeout(() => map.invalidateSize(), 50);
+  return map;
+}
+
+function mapCard(screens, link) {
+  const placed = screens.filter(s => s.lat != null).length;
+  const box = h("div", { class: "map" });
+  const card = h("div", { class: "card" },
+    h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Screen map"),
+      h("div", { class: "chips" }, h("span", { class: "pill" }, placed + " on map"),
+        h("span", { class: "pill ok" }, h("span", { class: "dot" }), "Online"), h("span", { class: "pill" }, h("span", { class: "dot" }), "Offline"))),
+    box,
+    placed < screens.length ? h("p", { class: "small muted", style: "margin:.5rem 0 0" }, (screens.length - placed) + " screen(s) not on the map yet. Open a screen and set its location.") : null);
+  requestAnimationFrame(() => screenMap(box, screens, { link }));
+  return card;
+}
+
+/** Location card on a screen's page: search an address or click the map. */
+function locationCard(s) {
+  let pos = s.lat != null ? { lat: s.lat, lng: s.lng } : null, address = s.address || "", map = null, marker = null;
+  const box = h("div", { class: "map small-map" });
+  const q = h("input", { type: "search", placeholder: "Search an address…", value: address });
+  const results = h("div", { class: "geo-results" });
+  const label = h("div", { class: "small muted" });
+  const setPin = (p, addr) => {
+    pos = p; if (addr !== undefined) address = addr;
+    label.textContent = pos ? (address || pos.lat.toFixed(5) + ", " + pos.lng.toFixed(5)) : "No location set.";
+    if (!map) return;
+    if (marker) { marker.remove(); marker = null; }
+    if (pos) { marker = L.marker([pos.lat, pos.lng]).addTo(map); map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 15)); }
+  };
+  const search = async () => {
+    results.replaceChildren(h("div", { class: "small muted" }, "Searching…"));
+    try {
+      const list = await api("GET", "/geocode?q=" + encodeURIComponent(q.value));
+      results.replaceChildren(...(list.length ? list.map(r => h("button", { type: "button", class: "geo-hit", onclick: () => { setPin({ lat: r.lat, lng: r.lng }, r.label); results.replaceChildren(); } }, r.label))
+        : [h("div", { class: "small muted" }, "No match. Try a shorter address, or click the map.")]));
+    } catch (e) { results.replaceChildren(h("div", { class: "small form-error" }, e.message)); }
+  };
+  q.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); search(); } });
+  const save = async () => {
+    try {
+      await api("PATCH", "/screens/" + s.id, pos ? { lat: pos.lat, lng: pos.lng, address } : { lat: null, address: "" });
+      toast(pos ? "Location saved." : "Location removed.");
+    } catch (e) { fail(e); }
+  };
+  requestAnimationFrame(async () => {
+    map = await screenMap(box, pos ? [{ ...s, ...pos }] : [], { onClick: ll => setPin({ lat: ll.lat, lng: ll.lng }, ""), zoom: 15 });
+    if (map && pos) { map.eachLayer(l => { if (l instanceof L.CircleMarker) l.remove(); }); setPin(pos); }
+  });
+  setPin(pos);
+  return h("div", { class: "card" }, h("h2", {}, "Location"),
+    h("div", { class: "row", style: "align-items:center;margin-bottom:.5rem" }, h("div", { style: "flex:1;min-width:180px" }, q), h("button", { type: "button", onclick: search }, "Find")),
+    results, box, h("div", { class: "row", style: "align-items:center;margin-top:.6rem;justify-content:space-between" }, label,
+      h("div", {}, h("button", { type: "button", class: "small", onclick: () => setPin(null, "") }, "Clear"), " ", h("button", { type: "button", class: "small primary", onclick: save }, "Save location"))),
+    h("p", { class: "small muted", style: "margin:.4rem 0 0" }, "Search an address or click the map to place the pin. Shown on the dashboard's screen map."));
+}
+
+// ---------- wizard (inside a client) ----------
+async function renderWizard(main) {
+  const [media, playlists, screens] = await Promise.all([api("GET", "/media"), api("GET", "/playlists"), api("GET", "/screens")]);
+  const filled = playlists.filter(p => p.itemCount > 0);
+  let layered = false;
+  if (screens.length) { try { const d = await api("GET", "/screens/" + screens[0].id); layered = ["specials", "text", "effects"].some(k => d.layers[k].enabled); } catch (_) {} }
+  const steps = [
+    { title: "Add your content", done: media.length > 0, text: media.length ? `${media.length} file(s) and web page(s) in the media library.` : "Upload the images and videos you want on the screens, or add a web page.",
+      action: () => { const inp = h("input", { type: "file", multiple: true, accept: "image/*,video/*", class: "hidden" });
+        inp.onchange = () => wizardUpload([...inp.files]); document.body.append(inp); inp.click(); }, label: "Upload files", alt: [base() + "/media", "Open media library"] },
+    { title: "Make a playlist", done: filled.length > 0, text: filled.length ? `${filled.length} playlist(s) with content.` : "A playlist is the order your content plays in, looping all day.",
+      action: async () => {
+        if (!media.length) return fail(new Error("Add some content first (step 1)."));
+        const r = await dialog("Make a playlist", h("div", {}, h("p", { class: "muted small" }, "All " + media.length + " items in your media library will be added. You can change the order and timing afterwards."),
+          field("Name", h("input", { name: "name", required: true, value: "Main playlist", maxlength: 100 }))),
+          { submit: "Create playlist", onSubmit: async f => {
+            const p = await api("POST", "/playlists", { name: f.get("name") });
+            await api("PUT", "/playlists/" + p.id, { items: media.map(m => ({ mediaId: m.id, duration: m.kind === "web" ? 30 : 10 })) });
+            return p;
+          } });
+        if (r) { toast("Playlist created."); route(); }
+      }, label: "Create from all my media", alt: [base() + "/playlists", "Open playlists"] },
+    { title: "Connect a TV", done: screens.length > 0, text: screens.length ? `${screens.length} screen(s) connected.` : "Install the player app on the TV, open it, and type the code it shows.",
+      action: () => pairDialog(), label: "Add screen", alt: [isStaff() ? "#/download" : "#/download", "Get the app"] },
+    { title: "Design the screen", done: layered, text: layered ? "Your first screen has extra layers (specials, text or effects)." : "Add specials with prices, a scrolling ticker, text or effects on top of your playlist.",
+      action: () => screens.length ? go("/screens/" + screens[0].id + "/layers") : fail(new Error("Connect a TV first (step 3).")), label: "Design layers", optional: true }
+  ];
+  const doneCount = steps.filter(s => s.done).length;
+  main.replaceChildren(
+    pageHead("Setup wizard", clientName() + " · " + doneCount + " of " + steps.length + " done"),
+    h("div", { class: "progress", style: "margin:0 0 1.25rem;height:8px" }, h("div", { style: `width:${doneCount / steps.length * 100}%` })),
+    h("div", { class: "stack" }, steps.map((st, i) => h("div", { class: "card wizard-step" + (st.done ? " done" : "") },
+      h("div", { class: "step-num" }, st.done ? "✓" : String(i + 1)),
+      h("div", { style: "flex:1;min-width:0" }, h("h2", { style: "margin:0 0 .25rem" }, st.title, st.optional ? h("span", { class: "pill", style: "margin-left:.5rem" }, "optional") : null),
+        h("p", { class: "muted", style: "margin:0" }, st.text)),
+      h("div", { class: "actions" }, st.alt ? h("a", { class: "btn small", href: st.alt[0] }, st.alt[1]) : null,
+        h("button", { class: st.done ? "small" : "small primary", onclick: st.action }, st.label))))),
+    doneCount === steps.length ? h("div", { class: "card", style: "margin-top:1rem;text-align:center" }, h("h2", {}, "🎉 All set!"), h("p", { class: "muted" }, "Your screen is playing. Changes you make reach it within 30 seconds.")) : null);
+
+  function wizardUpload(files) {
+    if (!files.length) return;
+    const fd = new FormData(); files.forEach(f => fd.append("files", f));
+    toast("Uploading " + files.length + " file(s)…");
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/media");
+    for (const [k, v] of Object.entries(scopeHeaders())) xhr.setRequestHeader(k, v);
+    xhr.onload = () => { let d = null; try { d = JSON.parse(xhr.responseText); } catch (_) {} if (xhr.status === 201) { toast("Uploaded."); route(); } else fail(new Error((d && d.error) || "Upload failed.")); };
+    xhr.onerror = () => fail(new Error("Upload failed: network error."));
+    xhr.send(fd);
+  }
+}
+
+// ---------- screen monitoring ----------
+async function renderMonitoring(main) {
+  const list = await api("GET", "/monitoring");
+  const inClient = !isStaff() || state.cid;
+  const screenLink = s => (isStaff() ? "#/c/" + s.customerId : "#") + "/screens/" + s.id;
+  const pctPill = v => v === null ? h("span", { class: "muted" }, "—") : h("span", { class: "pill " + (v >= 99 ? "ok" : v >= 90 ? "warn" : "danger") }, v + "%");
+  const bars = s => h("div", { class: "uptime-bars", title: "Last 24 hours, one bar per hour" }, s.last24.map(m =>
+    h("span", { class: m === null ? "na" : m >= 55 ? "up" : m > 0 ? "part" : "down", style: m ? `height:${Math.max(15, m / 60 * 100)}%` : "" })));
+  let wall = false;
+  const body = h("div", {});
+  const draw = () => body.replaceChildren(!list.length ? h("div", { class: "card empty" }, "No screens yet.")
+    : wall ? h("div", { class: "shot-wall" }, list.map(s => h("a", { class: "shot-tile", href: screenLink(s) },
+        s.screenshot ? h("img", { src: s.screenshot, alt: "", loading: "lazy" }) : h("div", { class: "noshot" }, "No screenshot yet"),
+        h("div", { class: "shot-meta" }, statusPill(s), h("strong", {}, s.name), h("span", { class: "small muted" }, [inClient ? null : s.customerName, s.screenshotAt ? ago(s.screenshotAt) : null].filter(Boolean).join(" · "))))))
+    : h("div", { class: "card table-wrap" }, h("table", {},
+        h("thead", {}, h("tr", {}, h("th", {}, "Screen"), h("th", {}, "Status"), h("th", {}, "Last 24 hours"), h("th", {}, "Uptime 24h"), h("th", {}, "7 days"), h("th", {}, "Device"))),
+        h("tbody", {}, list.map(s => h("tr", { class: "click", onclick: () => (location.hash = screenLink(s)) },
+          h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, [inClient ? null : s.customerName, s.location].filter(Boolean).join(" · "))),
+          h("td", {}, statusPill(s), h("div", { class: "small muted" }, s.online ? "" : ago(s.lastSeen)), s.status.error ? h("div", { class: "small", style: "color:var(--danger)" }, "⚠ " + s.status.error) : null),
+          h("td", {}, bars(s)),
+          h("td", {}, pctPill(s.uptime24h)), h("td", {}, pctPill(s.uptime7d)),
+          h("td", { class: "small muted" }, [s.appVersion && "v" + s.appVersion, s.status.freeBytes ? bytes(s.status.freeBytes) + " free" : null].filter(Boolean).join(" · ") || "—")))))));
+  draw();
+  const online = list.filter(s => s.online).length;
+  const toggle = h("button", { onclick: () => { wall = !wall; toggle.textContent = wall ? "Table view" : "Screenshot wall"; draw(); } }, "Screenshot wall");
+  main.replaceChildren(
+    pageHead("Screen Monitoring", inClient ? clientName() : "All clients",
+      toggle,
+      h("button", { class: "primary", onclick: async () => {
+        try { const r = await api("POST", "/screens-commands", { type: "screenshot" }); toast(`Screenshots requested from ${r.screens} screen(s). They arrive within about 30 seconds.`); } catch (e) { fail(e); }
+      } }, "📷 Screenshot all")),
+    h("div", { class: "grid stats", style: "margin-bottom:1rem" },
+      stat(list.length, "Screens"), stat(online, "Online now"), stat(list.length - online, "Offline"),
+      stat(list.length ? (Math.round(list.filter(s => s.uptime24h !== null).reduce((a, s) => a + s.uptime24h, 0) / Math.max(1, list.filter(s => s.uptime24h !== null).length) * 10) / 10) + "%" : "—", "Average uptime (24h)")),
+    body);
+  poll(async () => { try { const fresh = await api("GET", "/monitoring"); list.splice(0, list.length, ...fresh); draw(); } catch (_) {} }, 20000);
+}
+
+// ---------- profile & admins ----------
+async function renderProfile(main) {
+  const users = isAdmin() ? await api("GET", "/users") : null;
   const pw = { current: h("input", { type: "password", autocomplete: "current-password" }), next: h("input", { type: "password", autocomplete: "new-password", minlength: 8 }) };
   const pwBtn = h("button", { class: "primary", onclick: async () => {
     try { await api("POST", "/auth/password", { current: pw.current.value, next: pw.next.value }); pw.current.value = pw.next.value = ""; toast("Password changed."); } catch (e) { fail(e); }
   } }, "Change password");
-
   main.replaceChildren(
-    pageHead("Settings", isStaff() ? null : clientName(),
+    pageHead("Profile & Admins", isStaff() ? "Your team" : clientName(),
       h("button", { onclick: async () => { await api("POST", "/auth/logout"); state.user = null; location.hash = "#/"; renderLogin(); } }, "Log out")),
+    h("div", { class: "grid two" },
+      h("div", { class: "card" }, h("h2", {}, "My profile"),
+        h("dl", { class: "kv", style: "margin-bottom:1rem" }, h("dt", {}, "Email"), h("dd", {}, state.user.email), h("dt", {}, "Name"), h("dd", {}, state.user.name || "—"),
+          h("dt", {}, "Role"), h("dd", {}, state.user.role), h("dt", {}, "Account"), h("dd", {}, isStaff() ? "Your team (all clients)" : clientName())),
+        h("h3", {}, "Change password"), field("Current password", pw.current), field("New password (8+ characters)", pw.next), pwBtn),
+      users ? usersCard(users, isStaff() ? "Admins (your team)" : "Admins & logins",
+        isStaff() ? "Your staff see every client. A client's own logins are under that client → Logins." : "People who can log in to " + clientName() + ".") : null));
+}
+
+// ---------- download app ----------
+async function renderDownload(main) {
+  const apk = await api("GET", "/apk");
+  const portalUrl = location.origin;
+  main.replaceChildren(
+    pageHead("Download App", "The Signage Player app for Android TVs, TV boxes and tablets"),
     h("div", { class: "grid two" },
       h("div", { class: "card" }, h("h2", {}, "Player app (Android)"),
         apk.available
@@ -896,10 +1130,13 @@ async function renderSettings(main) {
           h("li", {}, "Open it and enter this portal's address: ", h("span", { class: "mono" }, portalUrl)),
           h("li", {}, isStaff() ? "The TV shows a 6-character code. Open the client, go to Screens → Add screen and type it in."
             : "The TV shows a 6-character code. Go to Screens → Add screen and type it in."))),
-      h("div", { class: "card" }, h("h2", {}, "My login"), h("p", { class: "muted small" }, state.user.email + " · " + state.user.role),
-        field("Current password", pw.current), field("New password (8+ characters)", pw.next), pwBtn)),
-    users ? h("div", { style: "margin-top:1rem" }, usersCard(users, "Your team",
-      "Your staff see every client. A client's own logins are under that client → Logins.")) : null);
+      h("div", { class: "card" }, h("h2", {}, "Tips for TVs on a wall"),
+        h("ul", { class: "small", style: "padding-left:1.2rem;margin:0;line-height:1.7" },
+          h("li", {}, "The app starts by itself when the TV or box powers on."),
+          h("li", {}, "Press BACK three times on the remote for the player menu (portal address, kiosk mode, exit)."),
+          h("li", {}, "Kiosk mode makes the player the home screen, so it can't be closed by accident."),
+          h("li", {}, "Content is saved on the device and keeps playing if the internet drops."),
+          h("li", {}, "Wired internet is more reliable than Wi-Fi for screens.")))));
 }
 
 // ---------- start ----------

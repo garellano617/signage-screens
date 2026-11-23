@@ -233,7 +233,8 @@ function screenSummary(s) {
     online: isOnline(s), lastSeen: s.last_seen, pairedAt: s.paired_at,
     status,
     screenshot: s.screenshot_file ? "/screenshots/" + s.screenshot_file : null, screenshotAt: s.screenshot_at,
-    scheduleCount: s.schedule_count || 0
+    scheduleCount: s.schedule_count || 0,
+    lat: s.lat, lng: s.lng, address: s.address || ""
   };
 }
 const screenQuery = `SELECT s.*, p.name AS playlist_name, cu.name AS customer_name,
@@ -331,8 +332,18 @@ router.patch("/screens/:id", (req, res) => {
   };
   if (![0, 90, 180, 270].includes(f.orientation)) throw bad("Orientation must be 0, 90, 180 or 270.");
   if (!(f.volume >= 0 && f.volume <= 100)) throw bad("Volume must be 0 to 100.");
-  run("UPDATE screens SET name=?, location=?, notes=?, playlist_id=?, orientation=?, volume=? WHERE id=?",
-    f.name, f.location, f.notes, f.playlist_id, f.orientation, f.volume, s.id);
+  // Map position: both numbers, or both empty to remove the pin.
+  let lat = s.lat, lng = s.lng, address = s.address || "";
+  if (b.lat !== undefined || b.lng !== undefined) {
+    if (b.lat === null || b.lat === "") { lat = null; lng = null; }
+    else {
+      lat = Number(b.lat); lng = Number(b.lng);
+      if (!(lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180)) throw bad("That map position isn't valid.");
+    }
+  }
+  if (b.address !== undefined) address = str(b.address, 300, "Address");
+  run("UPDATE screens SET name=?, location=?, notes=?, playlist_id=?, orientation=?, volume=?, lat=?, lng=?, address=? WHERE id=?",
+    f.name, f.location, f.notes, f.playlist_id, f.orientation, f.volume, lat, lng, address, s.id);
   res.json(screenSummary(loadScreen(req, s.id)));
 });
 
@@ -363,6 +374,72 @@ router.post("/screens/:id/commands", (req, res) => {
   if (!get("SELECT id FROM commands WHERE screen_id = ? AND type = ? AND delivered_at IS NULL", s.id, type))
     run("INSERT INTO commands (screen_id, type, created_at) VALUES (?, ?, ?)", s.id, type, now());
   res.status(202).json({ ok: true, online: isOnline(s) });
+});
+
+// The same command for every screen in view (e.g. "take screenshots of all").
+router.post("/screens-commands", (req, res) => {
+  const type = String(req.body.type || "");
+  if (!["screenshot", "reload", "identify"].includes(type)) throw bad("Unknown command.");
+  const [w, p] = scope(req, "s");
+  const ids = all("SELECT s.id FROM screens s WHERE s.paired_at IS NOT NULL" + w, ...p).map(r => r.id);
+  tx(() => ids.forEach(id => {
+    if (!get("SELECT id FROM commands WHERE screen_id = ? AND type = ? AND delivered_at IS NULL", id, type))
+      run("INSERT INTO commands (screen_id, type, created_at) VALUES (?, ?, ?)", id, type, now());
+  }));
+  res.status(202).json({ ok: true, screens: ids.length });
+});
+
+// ---------- screen monitoring ----------
+router.get("/monitoring", (req, res) => {
+  const [w, p] = scope(req, "s");
+  const screens = all(screenQuery + w + " ORDER BY cu.name, s.name", ...p).map(screenSummary);
+  const nowHour = Math.floor(now() / 3600e3);
+  const out = screens.map(s => {
+    const rows = all("SELECT hour, minutes FROM screen_uptime WHERE screen_id = ? AND hour > ?", s.id, nowHour - 24 * 7);
+    const byHour = new Map(rows.map(r => [r.hour, r.minutes]));
+    // Only count time since the screen was paired, so a new screen isn't "90% down".
+    const since = Math.floor((s.pairedAt || now()) / 3600e3);
+    const pct = hours => {
+      let have = 0, possible = 0;
+      for (let hr = nowHour - hours + 1; hr <= nowHour; hr++) {
+        if (hr < since) continue;
+        possible += hr === nowHour ? Math.max(1, new Date(now()).getUTCMinutes()) : 60;
+        have += byHour.get(hr) || 0;
+      }
+      return possible ? Math.min(100, Math.round(have / possible * 1000) / 10) : null;
+    };
+    const last24 = [];
+    for (let hr = nowHour - 23; hr <= nowHour; hr++) last24.push(hr < since ? null : (byHour.get(hr) || 0));
+    return { ...s, uptime24h: pct(24), uptime7d: pct(24 * 7), last24 };
+  });
+  res.json(out);
+});
+
+// ---------- address search for the screen map (OpenStreetMap Nominatim) ----------
+// Their rules: identify the app, at most 1 request per second, cache results.
+const geoCache = new Map();
+let geoLast = 0;
+router.get("/geocode", async (req, res) => {
+  const q = str(req.query.q, 200, "Address");
+  if (q.length < 3) throw bad("Type an address first.");
+  if (geoCache.has(q)) return res.json(geoCache.get(q));
+  const wait = geoLast + 1100 - Date.now();
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  geoLast = Date.now();
+  let list;
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=" + encodeURIComponent(q), {
+      headers: { "User-Agent": "SignagePortal/1.0 (self-hosted digital signage portal)", "Accept-Language": "en" },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    list = (await r.json()).map(x => ({ label: x.display_name, lat: Number(x.lat), lng: Number(x.lon) }));
+  } catch (e) {
+    throw new HttpError(502, "Address search isn't available right now. You can click the map instead.");
+  }
+  if (geoCache.size > 500) geoCache.clear();
+  geoCache.set(q, list);
+  res.json(list);
 });
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -604,7 +681,7 @@ router.use((err, req, res, next) => {
   if (status >= 500) console.error(err);
   // Clean up half-finished uploads.
   for (const f of [].concat(req.files || [], req.file || [])) fs.rm(f.path, { force: true }, () => {});
-  res.status(status).json({ error: status >= 500 ? "Something went wrong on the server." : err.message });
+  res.status(status).json({ error: status >= 500 && !(err instanceof HttpError) ? "Something went wrong on the server." : err.message });
 });
 
 module.exports = { router, latestApk };

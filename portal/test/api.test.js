@@ -338,3 +338,38 @@ test("screen layers: saved, cleaned, kept per client, sent to the player", async
   assert.equal(after.specials.items[0].title, "Taco plate");
   assert.equal(after.specials.items[0].image, null);
 });
+
+test("screen map location, monitoring uptime, screenshot all", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const C = (await call("POST", "/api/customers", { name: "Monitor Mart" })).body;
+  scopeId = C.id;
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-monitor-0001" })).body;
+  const scr = (await call("POST", "/api/screens/pair", { code: reg.pairingCode, name: "Door" })).body;
+
+  // Location
+  assert.equal((await call("PATCH", "/api/screens/" + scr.id, { lat: 95, lng: 10 })).status, 400);
+  const loc = (await call("PATCH", "/api/screens/" + scr.id, { lat: 42.3601, lng: -71.0589, address: "Boston, MA" })).body;
+  assert.deepEqual([loc.lat, loc.lng, loc.address], [42.3601, -71.0589, "Boston, MA"]);
+  assert.equal((await call("PATCH", "/api/screens/" + scr.id, { lat: null })).body.lat, null);
+  assert.equal((await call("GET", "/api/geocode?q=ab")).status, 400);
+
+  // Uptime: two heartbeats in the same minute count once.
+  const auth = { authorization: "Bearer " + reg.token };
+  await call("POST", "/api/player/heartbeat", {}, auth);
+  await call("POST", "/api/player/heartbeat", {}, auth);
+  const mon = (await call("GET", "/api/monitoring")).body;
+  assert.equal(mon.length, 1);
+  assert.equal(mon[0].online, true);
+  assert.equal(mon[0].last24.length, 24);
+  assert.equal(mon[0].last24[23], 1);
+  assert.ok(mon[0].uptime24h > 0 && mon[0].uptime24h <= 100, "uptime " + mon[0].uptime24h);
+
+  // Screenshot all: one pending command per screen, only this client's screens.
+  const r = (await call("POST", "/api/screens-commands", { type: "screenshot" })).body;
+  assert.equal(r.screens, 1);
+  await call("POST", "/api/screens-commands", { type: "screenshot" });
+  const hb = (await call("POST", "/api/player/heartbeat", {}, auth)).body;
+  assert.deepEqual(hb.commands.map(c => c.type), ["screenshot"]);
+  assert.equal((await call("POST", "/api/screens-commands", { type: "restart_app" })).status, 400);
+});

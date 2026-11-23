@@ -110,6 +110,20 @@ for (const t of ["users", "media", "playlists", "screens"]) {
 // Screen design layers (see layers.js).
 if (!hasColumn("screens", "layers_json")) db.exec("ALTER TABLE screens ADD COLUMN layers_json TEXT");
 
+// Screen map: where each screen is.
+for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"]])
+  if (!hasColumn("screens", col)) db.exec(`ALTER TABLE screens ADD COLUMN ${col} ${type}`);
+
+// Screen monitoring: minutes online per screen per hour (hour = Unix time / 3600000).
+db.exec(`
+CREATE TABLE IF NOT EXISTS screen_uptime (
+  screen_id INTEGER NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
+  hour INTEGER NOT NULL,
+  minutes INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (screen_id, hour)
+);
+`);
+
 // Content made before sub-accounts existed moves into one customer so nothing is lost.
 {
   const orphan = ["media", "playlists"].some(t => db.prepare(`SELECT 1 FROM ${t} WHERE customer_id IS NULL LIMIT 1`).get())
