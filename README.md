@@ -16,6 +16,18 @@ Double-click `portal\start-portal.cmd`, then open http://localhost:3000.
 
 Tests: `cd portal` then `npm test`.
 
+## Put the portal online (Render)
+
+The repository includes a Render Blueprint (`render.yaml`). It runs the portal on the **Starter** plan (about $7/month) with a **10 GB disk** (about $2.50/month) at `/data`, which holds the database, uploads, screenshots and the APK.
+
+1. Push this repository to GitHub. A private repository is fine.
+2. In Render, go to **New → Blueprint**, connect GitHub, and pick the repository.
+3. Enter `ADMIN_EMAIL` and `ADMIN_PASSWORD` for the first admin login, then click **Apply**.
+4. Add your own domain: open the service, go to **Settings → Custom Domains** and add e.g. `signage.yourdomain.com`. Then, at your DNS provider, add a **CNAME** record pointing to `signage-portal.onrender.com`. Render sets up HTTPS automatically.
+5. Log in, open **Settings**, and upload the player APK.
+
+Every push to `main` that changes `portal/` redeploys automatically. The disk keeps your data across deploys.
+
 ## Build the player app
 
 Double-click `player-android\build-apk.cmd`.
