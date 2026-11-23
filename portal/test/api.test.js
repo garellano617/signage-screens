@@ -151,6 +151,12 @@ test("full flow: login, media, playlist, pairing, player config, commands", asyn
   assert.equal(reg3.body.paired, false);
 });
 
+test("browser script has no syntax errors", () => {
+  const vm = require("node:vm");
+  const src = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  assert.doesNotThrow(() => new vm.Script(src, { filename: "app.js" }));
+});
+
 test("admins upload the player APK and anyone can download it", async () => {
   assert.equal((await call("GET", "/api/apk")).body.available, false);
   const notApk = new FormData();
