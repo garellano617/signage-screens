@@ -22,7 +22,7 @@ if not exist "%ANDROID_HOME%\platforms\android-35" (
 echo.
 echo === Building the player app ===
 rem Optional: pass your portal address so TVs skip the setup screen, e.g.
-rem   build-apk.cmd http://192.168.1.81:3000
+rem   build-apk.cmd http://192.168.1.81:3100
 set "EXTRA="
 if not "%~1"=="" set "EXTRA=-PsignageServerUrl=%~1"
 call gradlew.bat --no-daemon testReleaseUnitTest assembleRelease %EXTRA%

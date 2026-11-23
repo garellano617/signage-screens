@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Optional portal address baked into the app: ./gradlew assembleRelease -PsignageServerUrl=http://host:3000
+// Optional portal address baked into the app: ./gradlew assembleRelease -PsignageServerUrl=http://host:3100
 val serverUrl = (project.findProperty("signageServerUrl") as String?)?.trim().orEmpty()
 
 // Optional release key: create keystore.properties next to settings.gradle.kts with

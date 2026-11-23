@@ -7,12 +7,12 @@ Two parts:
 
 ## Run the portal on this PC
 
-Double-click `portal\start-portal.cmd`, then open http://localhost:3000.
+Double-click `portal\start-portal.cmd`, then open http://localhost:3100.
 
 - On first start it creates the login `admin@example.com` and prints a random password in the window. Change it in **Settings**.
 - To set your own login on first start, set the `ADMIN_EMAIL` and `ADMIN_PASSWORD` environment variables before starting.
 - All data (database, uploads, screenshots, the APK) is stored in `portal\data\`. Back up that folder.
-- TVs on your network connect to `http://<this PC's IP>:3000`. If Windows Firewall asks, allow Node.js on **private networks**.
+- TVs on your network connect to `http://<this PC's IP>:3100`. If Windows Firewall asks, allow Node.js on **private networks**.
 
 Tests: `cd portal` then `npm test`.
 
@@ -26,6 +26,8 @@ The repository includes a Render Blueprint (`render.yaml`). It runs the portal o
 4. Add your own domain: open the service, go to **Settings → Custom Domains** and add e.g. `signage.yourdomain.com`. Then, at your DNS provider, add a **CNAME** record pointing to `signage-portal.onrender.com`. Render sets up HTTPS automatically.
 5. Log in, open **Settings**, and upload the player APK.
 
+**Can't log in?** In Render, go to **Environment** and check `ADMIN_EMAIL` and `ADMIN_PASSWORD`. To reset the password to `ADMIN_PASSWORD`, add `ADMIN_RESET_PASSWORD` = `true`, save (the service restarts), log in, then delete `ADMIN_RESET_PASSWORD`.
+
 Every push to `main` that changes `portal/` redeploys automatically. The disk keeps your data across deploys.
 
 ## Build the player app
@@ -35,7 +37,7 @@ Double-click `player-android\build-apk.cmd`.
 - The first run asks you to accept Google's Android SDK license, then installs the SDK pieces.
 - Java and the Android SDK live in `C:\Users\servi\android-build`. Nothing is installed system-wide.
 - The finished APK is copied into the portal, so **Settings → Download player app** serves it.
-- Optional: `build-apk.cmd http://192.168.1.81:3000` builds the portal address into the app, so TVs skip the address screen.
+- Optional: `build-apk.cmd http://192.168.1.81:3100` builds the portal address into the app, so TVs skip the address screen.
 - To sign with your own key instead of the debug key, create `player-android\keystore.properties` with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`.
 
 ## Set up a TV

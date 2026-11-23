@@ -51,9 +51,16 @@ function createApp() {
 
 if (require.main === module) {
   auth.ensureAdmin();
-  const port = Number(process.env.PORT) || 3000;
-  const host = process.env.HOST || "0.0.0.0";
-  createApp().listen(port, host, () => {
+  // 3100 by default so it doesn't collide with other local apps on 3000. Hosts like Render set PORT themselves.
+  const port = Number(process.env.PORT) || 3100;
+  // No host = listen on IPv4 and IPv6 together, so a port clash is an error instead of two apps silently sharing it.
+  const server = process.env.HOST ? createApp().listen(port, process.env.HOST) : createApp().listen(port);
+  server.on("error", err => {
+    if (err.code === "EADDRINUSE") console.error(`Port ${port} is already used by another program. Close it, or start with a different PORT.`);
+    else console.error(err);
+    process.exit(1);
+  });
+  server.on("listening", () => {
     console.log(`Signage portal running at http://localhost:${port}`);
     console.log(`Data folder: ${DATA_DIR}`);
     if (!fs.readdirSync(path.join(DATA_DIR, "apk")).some(f => f.endsWith(".apk")))

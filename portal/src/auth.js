@@ -22,9 +22,26 @@ const sha256 = s => crypto.createHash("sha256").update(s).digest("hex");
 
 /** Makes sure at least one admin exists. Uses ADMIN_EMAIL / ADMIN_PASSWORD, or prints a generated password. */
 function ensureAdmin() {
+  const envEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const envPassword = process.env.ADMIN_PASSWORD || "";
+  if (envEmail && envPassword) {
+    const u = get("SELECT id FROM users WHERE email = ?", envEmail);
+    if (!u) {
+      // Also covers a first start where the variables were still empty and a placeholder admin was made.
+      run("INSERT INTO users (email, name, password_hash, role, created_at) VALUES (?, 'Admin', ?, 'admin', ?)", envEmail, hashPassword(envPassword), now());
+      console.log(`Created admin login: ${envEmail}`);
+      return;
+    }
+    if (process.env.ADMIN_RESET_PASSWORD === "true") {
+      run("UPDATE users SET password_hash = ?, role = 'admin' WHERE id = ?", hashPassword(envPassword), u.id);
+      run("DELETE FROM sessions WHERE user_id = ?", u.id);
+      console.log(`Password for ${envEmail} reset from ADMIN_PASSWORD. Remove ADMIN_RESET_PASSWORD now.`);
+    }
+    return;
+  }
   if (get("SELECT id FROM users WHERE role = 'admin' LIMIT 1")) return;
-  const email = process.env.ADMIN_EMAIL || "admin@example.com";
-  let password = process.env.ADMIN_PASSWORD;
+  const email = envEmail || "admin@example.com";
+  let password = envPassword;
   const generated = !password;
   if (generated) password = crypto.randomBytes(9).toString("base64url");
   run("INSERT INTO users (email, name, password_hash, role, created_at) VALUES (?, ?, ?, 'admin', ?)",

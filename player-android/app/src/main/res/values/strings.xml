@@ -7,7 +7,7 @@
     <string name="pair_hint">In the portal (%1$s), go to Screens → Add screen and enter this code.\nPress BACK three times for the menu.</string>
     <string name="setup_title">Signage Player setup</string>
     <string name="setup_hint">Enter the address of your signage portal.</string>
-    <string name="setup_example">http://192.168.1.10:3000</string>
+    <string name="setup_example">http://192.168.1.10:3100</string>
     <string name="setup_save">Connect</string>
     <string name="checking">Checking…</string>
     <string name="cant_reach">Can\'t reach the portal at %1$s.\nCheck the address and that this device is on the same network.</string>
