@@ -21,7 +21,7 @@ class MediaCache(context: Context) {
     fun fileFor(item: Item) = File(dir, key(item))
 
     fun isReady(item: Item): Boolean {
-        if (item.isWeb) return true
+        if (item.isWeb || item.isWidget) return true
         val f = fileFor(item)
         return f.exists() && (item.size <= 0 || f.length() == item.size)
     }
@@ -60,7 +60,7 @@ class MediaCache(context: Context) {
 
     /** Deletes cached files that no playlist uses any more. */
     fun prune(keep: Collection<Item>) {
-        val names = keep.filter { !it.isWeb }.map { key(it) }.toSet()
+        val names = keep.filter { !it.isWeb && !it.isWidget }.map { key(it) }.toSet()
         dir.listFiles()?.forEach { f ->
             if (f.name !in names && !f.name.endsWith(".part")) {
                 if (!f.delete()) Log.w("MediaCache", "Couldn't delete ${f.name}")

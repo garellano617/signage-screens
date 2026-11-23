@@ -8,6 +8,7 @@ const { all, get, run, tx, now, DATA_DIR } = require("./db");
 const auth = require("./auth");
 const { isOnline } = require("./playerConfig");
 const { sanitizeLayers, parseLayers, withImages } = require("./layers");
+const widgets = require("./widgets");
 
 const router = express.Router();
 router.use(express.json({ limit: "1mb" }));
@@ -485,9 +486,11 @@ function hashFile(file) {
   });
 }
 
-const mediaQuery = `SELECT m.id, m.name, m.kind, m.file, m.url, m.mime, m.size, m.sha256, m.created_at, m.customer_id, c.name AS customer_name
+const mediaQuery = `SELECT m.id, m.name, m.kind, m.file, m.url, m.mime, m.size, m.sha256, m.created_at, m.customer_id, m.widget_json, c.name AS customer_name
   FROM media m LEFT JOIN customers c ON c.id = m.customer_id WHERE 1=1`;
-const mediaOut = m => ({ ...m, customerId: m.customer_id, customerName: m.customer_name, src: m.kind === "web" ? m.url : "/media/" + m.file,
+const parseWidget = m => { try { return JSON.parse(m.widget_json || "null"); } catch (_) { return null; } };
+const mediaOut = m => ({ ...m, widget_json: undefined, widget: m.kind === "widget" ? parseWidget(m) : undefined,
+  customerId: m.customer_id, customerName: m.customer_name, src: m.kind === "web" ? m.url : m.kind === "widget" ? "widget:" + m.id : "/media/" + m.file,
   usedIn: all("SELECT DISTINCT p.id, p.name FROM playlist_items pi JOIN playlists p ON p.id = pi.playlist_id WHERE pi.media_id = ?", m.id) });
 
 function loadMedia(req, id) {
@@ -533,8 +536,45 @@ router.post("/media/web", (req, res) => {
   res.status(201).json(mediaOut(loadMedia({ cid: null }, r.lastInsertRowid)));
 });
 
-router.patch("/media/:id", (req, res) => {
+router.post("/media/widget", async (req, res) => {
+  const cid = targetCustomer(req);
+  const type = String(req.body.type || "");
+  const config = await cleanWidget(type, req.body.config);
+  const name = str(req.body.name, 200, "Name") || type[0].toUpperCase() + type.slice(1);
+  const r = run("INSERT INTO media (name, kind, widget_json, customer_id, created_at) VALUES (?, 'widget', ?, ?, ?)", name, JSON.stringify({ type, config }), cid, now());
+  res.status(201).json(mediaOut(loadMedia({ cid: null }, r.lastInsertRowid)));
+});
+
+async function cleanWidget(type, config) {
+  try { return await widgets.sanitizeWidget(type, config); }
+  catch (e) { if (e instanceof widgets.WidgetError) throw bad(e.message); throw e; }
+}
+async function liveData(type, config) {
+  try { return await widgets.widgetData(type, config); }
+  catch (e) { throw new HttpError(502, e instanceof widgets.WidgetError ? e.message : "Couldn't get live data right now. Try again in a minute."); }
+}
+
+// Live data for a saved widget (preview in the portal).
+router.get("/media/:id/widget-data", async (req, res) => {
   const m = loadMedia(req, intId(req.params.id));
+  const w = m.kind === "widget" && parseWidget(m);
+  if (!w) throw notFound("Widget");
+  res.json({ data: await liveData(w.type, w.config) });
+});
+
+// Live data while designing a widget that isn't saved yet.
+router.post("/widget-preview", async (req, res) => {
+  const type = String(req.body.type || "");
+  const config = await cleanWidget(type, req.body.config);
+  res.json({ config, data: await liveData(type, config) });
+});
+
+router.patch("/media/:id", async (req, res) => {
+  const m = loadMedia(req, intId(req.params.id));
+  if (req.body.config !== undefined && m.kind === "widget") {
+    const w = parseWidget(m);
+    run("UPDATE media SET widget_json = ? WHERE id = ?", JSON.stringify({ type: w.type, config: await cleanWidget(w.type, req.body.config) }), m.id);
+  }
   if (req.body.name !== undefined) run("UPDATE media SET name = ? WHERE id = ?", str(req.body.name, 200, "Name") || m.name, m.id);
   if (req.body.url !== undefined && m.kind === "web") run("UPDATE media SET url = ? WHERE id = ?", checkUrl(req.body.url), m.id);
   res.json(mediaOut(loadMedia(req, m.id)));
@@ -549,7 +589,7 @@ router.delete("/media/:id", (req, res) => {
 
 // ---------- playlists ----------
 function playlistOut(p, withItems) {
-  const items = all(`SELECT pi.id, pi.media_id, pi.duration, m.name, m.kind, m.file, m.url, m.size
+  const items = all(`SELECT pi.id, pi.media_id, pi.duration, m.name, m.kind, m.file, m.url, m.size, m.widget_json
                      FROM playlist_items pi JOIN media m ON m.id = pi.media_id
                      WHERE pi.playlist_id = ? ORDER BY pi.position, pi.id`, p.id);
   const out = {
@@ -563,7 +603,8 @@ function playlistOut(p, withItems) {
     scheduledOn: get("SELECT COUNT(DISTINCT screen_id) n FROM schedules WHERE playlist_id = ?", p.id).n
   };
   if (withItems) out.items = items.map(i => ({ id: i.id, mediaId: i.media_id, duration: i.duration, name: i.name, kind: i.kind,
-    src: i.kind === "web" ? i.url : "/media/" + i.file, size: i.size }));
+    src: i.kind === "web" ? i.url : i.kind === "widget" ? "widget:" + i.media_id : "/media/" + i.file, size: i.size,
+    widget: i.kind === "widget" ? parseWidget(i) : undefined }));
   return out;
 }
 const playlistQuery = "SELECT p.*, c.name AS customer_name FROM playlists p LEFT JOIN customers c ON c.id = p.customer_id WHERE 1=1";

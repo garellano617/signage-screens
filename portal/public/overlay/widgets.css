@@ -1,0 +1,57 @@
+/* Widgets. 1em = 1% of the widget's width (at 16:9), so they scale from a thumbnail to a TV. */
+.sw-root { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  overflow: hidden; padding: 4em; text-align: center; font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.15; box-sizing: border-box; }
+.sw-root * { box-sizing: border-box; }
+.sw-label { font-size: 3.4em; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .5em; }
+.sw-wait { font-size: 2.4em; opacity: .7; }
+
+/* clock */
+.sw-time { font-size: 17em; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.sw-sec { font-size: .45em; opacity: .7; }
+.sw-ampm { font-size: .3em; margin-left: .25em; font-weight: 700; }
+.sw-date { font-size: 3.6em; opacity: .85; margin-top: .4em; }
+.sw-analog { position: relative; width: 34em; height: 34em; border-radius: 50%; border: .6em solid currentColor; }
+.sw-tick { position: absolute; left: 50%; top: 0; width: .5em; height: 2.4em; margin-left: -.25em; background: currentColor; transform-origin: .25em 16.4em; }
+.sw-hand { position: absolute; left: 50%; bottom: 50%; background: currentColor; border-radius: 1em; transform-origin: 50% 100%; }
+.sw-h { width: 1.2em; height: 9em; margin-left: -.6em; }
+.sw-m { width: .8em; height: 13em; margin-left: -.4em; }
+.sw-s { width: .3em; height: 14em; margin-left: -.15em; }
+
+/* weather */
+.sw-now { display: flex; align-items: center; }
+.sw-now > * + * { margin-left: 3em; }
+.sw-icon { font-size: 16em; line-height: 1; }
+.sw-temp { font-size: 13em; font-weight: 800; text-align: left; }
+.sw-cond { font-size: 4em; text-align: left; }
+.sw-extra { font-size: 2.2em; opacity: .75; text-align: left; margin-top: .4em; }
+.sw-forecast { display: flex; margin-top: 3em; }
+.sw-forecast > * + * { margin-left: 4em; }
+.sw-day { min-width: 12em; }
+.sw-dname { font-size: 2.8em; font-weight: 700; }
+.sw-dicon { font-size: 5em; }
+.sw-drange { font-size: 2.6em; opacity: .85; }
+
+/* news feed */
+.sw-headline { font-size: 5.4em; font-weight: 700; max-width: 90%; min-height: 3.6em; display: flex; align-items: center; justify-content: center; }
+.sw-line { opacity: 0; transform: translateY(.3em); transition: opacity .6s, transform .6s; }
+.sw-line.in { opacity: 1; transform: none; }
+.sw-count { font-size: 2.2em; opacity: .6; margin-top: 1em; }
+
+/* qr */
+.sw-qrwrap { display: flex; flex-direction: column; align-items: center; }
+.sw-qr { width: 30em; height: 30em; background: #fff; padding: 1.2em; border-radius: 1.2em; }
+.sw-qr svg { width: 100%; height: 100%; display: block; }
+.sw-caption { font-size: 3.2em; margin-top: .7em; max-width: 80%; }
+
+/* countdown */
+.sw-count-row { display: flex; }
+.sw-count-row > * + * { margin-left: 3em; }
+.sw-unit { min-width: 14em; }
+.sw-n { font-size: 11em; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sw-u { font-size: 2.8em; text-transform: uppercase; letter-spacing: .1em; opacity: .75; }
+.sw-done { font-size: 8em; font-weight: 800; }
+
+/* message */
+.sw-t-message { padding: 6em 8em; }
+.sw-mtitle { font-size: 8em; font-weight: 800; margin-bottom: .3em; }
+.sw-body { font-size: 4em; white-space: pre-wrap; max-width: 100%; }

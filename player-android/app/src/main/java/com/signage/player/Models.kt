@@ -11,10 +11,13 @@ data class Item(
     val src: String,
     val sha256: String?,
     val size: Long,
-    /** Seconds. Used for images and web pages; videos play to their end. */
+    /** Seconds. Used for images, web pages and widgets; videos play to their end. */
     val duration: Int,
+    /** For widgets: { type, config } as JSON for the bundled widget page. */
+    val widgetJson: String? = null,
 ) {
     val isWeb get() = kind == "web"
+    val isWidget get() = kind == "widget"
     val isVideo get() = kind == "video"
 }
 
@@ -109,6 +112,7 @@ data class Config(
                     sha256 = i.str("sha256").ifEmpty { null },
                     size = i.optLong("size", 0),
                     duration = i.optInt("duration", 10).coerceAtLeast(1),
+                    widgetJson = i.optJSONObject("widget")?.toString(),
                 )
             }
             return Playlist(p.optLong("id"), p.str("name"), items)

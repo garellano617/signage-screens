@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
         setup.visibility = View.GONE
         api = Api(prefs.serverUrl) { prefs.token }
         if (!::engine.isInitialized) {
-            engine = PlaybackEngine(this, stage, cache, lifecycleScope) { api.resolve(it) }
+            engine = PlaybackEngine(this, stage, cache, lifecycleScope, { api.resolve(it) }) { item -> widgetData(item) }
         }
         // Offline first: play the last config we had right away.
         prefs.configJson?.let { json -> runCatching { Config.parse(json) }.getOrNull()?.takeIf { it.paired }?.let { applyConfig(it) } }
@@ -202,6 +202,19 @@ class MainActivity : ComponentActivity() {
         val r = api.register(prefs.deviceId, "${Build.MANUFACTURER} ${Build.MODEL}".trim(), BuildConfig.VERSION_NAME)
         prefs.token = r.getString("token")
         if (!r.optBoolean("paired")) showPairing(r.str("pairingCode"))
+    }
+
+    /** Weather/news for a widget. The last good copy is kept on the device for when the internet is down. */
+    private suspend fun widgetData(item: Item): String? {
+        if (item.widgetJson?.contains("\"type\":\"weather\"") != true && item.widgetJson?.contains("\"type\":\"rss\"") != true) return null
+        val file = java.io.File(filesDir, "widget-data-${item.mediaId}.json")
+        return try {
+            api.widgetData(item.mediaId).also { data -> withContext(Dispatchers.IO) { file.writeText(data) } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            withContext(Dispatchers.IO) { if (file.exists()) file.readText() else null }
+        }
     }
 
     private fun showPairing(code: String) {

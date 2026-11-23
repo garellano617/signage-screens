@@ -13,7 +13,7 @@ function playlistForPlayer(playlistId) {
   if (!playlistId) return null;
   const pl = get("SELECT id, name FROM playlists WHERE id = ?", playlistId);
   if (!pl) return null;
-  const items = all(`SELECT pi.id, pi.duration, m.id AS media_id, m.name, m.kind, m.file, m.url, m.sha256, m.size
+  const items = all(`SELECT pi.id, pi.duration, m.id AS media_id, m.name, m.kind, m.file, m.url, m.sha256, m.size, m.widget_json
                      FROM playlist_items pi JOIN media m ON m.id = pi.media_id
                      WHERE pi.playlist_id = ? ORDER BY pi.position, pi.id`, playlistId);
   return {
@@ -24,7 +24,8 @@ function playlistForPlayer(playlistId) {
       mediaId: i.media_id,
       name: i.name,
       kind: i.kind,
-      src: i.kind === "web" ? i.url : "/media/" + i.file,
+      src: i.kind === "web" ? i.url : i.kind === "widget" ? "widget:" + i.media_id : "/media/" + i.file,
+      widget: i.kind === "widget" ? JSON.parse(i.widget_json || "null") : undefined,
       sha256: i.sha256 || null,
       size: i.size || 0,
       // Videos play to their end; duration is used for images and web pages.

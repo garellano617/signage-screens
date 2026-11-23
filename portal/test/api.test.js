@@ -373,3 +373,63 @@ test("screen map location, monitoring uptime, screenshot all", async () => {
   assert.deepEqual(hb.commands.map(c => c.type), ["screenshot"]);
   assert.equal((await call("POST", "/api/screens-commands", { type: "restart_app" })).status, 400);
 });
+
+test("widgets: create each type, cleaned settings, feed parsing, private-network block, player config", async () => {
+  const widgets = require("../src/widgets");
+  // Feed parsing (RSS + Atom, CDATA, entities)
+  const rss = `<rss><channel><title>Site</title><item><title><![CDATA[Big <b>sale</b> today]]></title></item><item><title>Caf&eacute; &amp; more &#8212; open</title></item></channel></rss>`;
+  assert.deepEqual(widgets.parseFeed(rss).map(i => i.title), ["Big sale today", "Café & more — open"]);
+  assert.deepEqual(widgets.parseFeed(`<feed><entry><title type="html">Atom one</title></entry></feed>`).map(i => i.title), ["Atom one"]);
+  // Feeds on private networks are refused (protects the server's own network).
+  for (const host of ["127.0.0.1", "10.1.2.3", "192.168.1.5", "169.254.169.254", "::1"]) {
+    await assert.rejects(widgets.assertPublicHost(host), /isn't allowed/, host);
+  }
+
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const C = (await call("POST", "/api/customers", { name: "Widget Diner" })).body;
+  const D = (await call("POST", "/api/customers", { name: "Other Diner" })).body;
+  scopeId = C.id;
+  const mk = (type, config, name) => call("POST", "/api/media/widget", { type, config, name });
+
+  assert.equal((await mk("bogus", {})).status, 400);
+  assert.equal((await mk("weather", { place: "Nowhere" })).status, 400, "weather needs a location");
+  assert.equal((await mk("rss", { url: "ftp://x" })).status, 400);
+  assert.equal((await mk("countdown", { target: "soon" })).status, 400);
+  assert.equal((await mk("qr", { text: "" })).status, 400);
+
+  const clock = (await mk("clock", { style: "analog", hours: "99", bg: "red", label: "Front desk" })).body;
+  assert.equal(clock.kind, "widget");
+  assert.deepEqual([clock.widget.type, clock.widget.config.style, clock.widget.config.hours, clock.widget.config.bg], ["clock", "analog", "12", "#0f172a"]);
+  const qr = (await mk("qr", { text: "https://example.com/menu", caption: "Menu" })).body;
+  assert.match(qr.widget.config.svg, /^<svg/);
+  const weather = (await mk("weather", { lat: 42.36, lng: -71.06, place: "Boston", units: "c" })).body;
+  assert.equal(weather.widget.config.units, "c");
+  const cd = (await mk("countdown", { target: "2030-01-01T09:00", title: "Opening" })).body;
+  const msg = (await mk("message", { title: "Now hiring", body: "Ask inside", align: "left" })).body;
+  assert.equal(msg.widget.config.align, "left");
+
+  // Edit keeps the type, re-cleans settings.
+  const ed = (await call("PATCH", "/api/media/" + clock.id, { config: { style: "digital", hours: "24" } })).body;
+  assert.deepEqual([ed.widget.type, ed.widget.config.style, ed.widget.config.hours], ["clock", "digital", "24"]);
+  assert.equal((await call("PATCH", "/api/media/" + cd.id, { config: { target: "bad" } })).status, 400);
+
+  // In a playlist the player gets the widget settings; nothing to download.
+  const pl = (await call("POST", "/api/playlists", { name: "Widgets" })).body;
+  await call("PUT", "/api/playlists/" + pl.id, { items: [clock, qr, weather, cd, msg].map(m => ({ mediaId: m.id, duration: 15 })) });
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-widget-0001" })).body;
+  await call("POST", "/api/screens/pair", { code: reg.pairingCode, playlistId: pl.id });
+  const auth = { authorization: "Bearer " + reg.token };
+  const cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
+  const items = cfg.defaultPlaylist.items;
+  assert.deepEqual(items.map(i => i.kind), ["widget", "widget", "widget", "widget", "widget"]);
+  assert.equal(items[0].src, "widget:" + clock.id);
+  assert.equal(items[0].widget.type, "clock");
+
+  // Widgets without live data return null; other clients' widgets are hidden from this screen.
+  assert.deepEqual((await call("GET", "/api/player/widget-data/" + clock.id, undefined, auth)).body, { data: null });
+  scopeId = D.id;
+  const other = (await mk("clock", {})).body;
+  assert.equal((await call("GET", "/api/player/widget-data/" + other.id, undefined, auth)).status, 404);
+  assert.equal((await call("GET", "/api/media/" + clock.id + "/widget-data")).status, 404);
+});

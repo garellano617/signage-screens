@@ -58,6 +58,9 @@ class Api(baseUrl: String, private val token: () -> String?) {
 
     suspend fun heartbeat(status: JSONObject): JSONObject = postJson("/api/player/heartbeat", status)
 
+    /** Live data (weather, news) for a widget, as the JSON text of "data". */
+    suspend fun widgetData(mediaId: Long): String = JSONObject(request("/api/player/widget-data/$mediaId", "GET", null, null)).opt("data").toString()
+
     suspend fun screenshot(jpeg: ByteArray) {
         request("/api/player/screenshot", "POST", jpeg, "image/jpeg")
     }

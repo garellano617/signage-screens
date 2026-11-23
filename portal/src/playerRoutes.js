@@ -6,6 +6,7 @@ const express = require("express");
 const { get, run, all, now, DATA_DIR } = require("./db");
 const { requirePlayer, sha256 } = require("./auth");
 const { buildConfig } = require("./playerConfig");
+const widgets = require("./widgets");
 
 const router = express.Router();
 router.use(express.json({ limit: "64kb" }));
@@ -78,6 +79,15 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
   }
   const cfg = buildConfig(s);
   res.json({ paired: !!s.paired_at, pairingCode: s.paired_at ? null : s.pairing_code, configVersion: cfg.version, commands });
+});
+
+// Live data (weather, news) for a widget on this screen's client.
+router.get("/widget-data/:mediaId", requirePlayer, async (req, res) => {
+  const m = get("SELECT kind, widget_json, customer_id FROM media WHERE id = ?", Number(req.params.mediaId) || 0);
+  if (!m || m.kind !== "widget" || m.customer_id !== req.screen.customer_id) return res.status(404).json({ error: "not_found" });
+  const w = JSON.parse(m.widget_json);
+  try { res.json({ data: await widgets.widgetData(w.type, w.config) }); }
+  catch (e) { res.status(502).json({ error: e instanceof widgets.WidgetError ? e.message : "unavailable" }); }
 });
 
 router.post("/screenshot", requirePlayer,

@@ -39,7 +39,11 @@ class PlaybackEngine(
     private val cache: MediaCache,
     private val scope: CoroutineScope,
     private val resolve: (String) -> String,
+    /** Live data for a widget (JSON text), or null. */
+    private val widgetData: suspend (Item) -> String?,
 ) {
+    private var widgetWeb: WebView? = null
+    private var widgetReady = false
     private val image = ImageView(activity).apply {
         scaleType = ImageView.ScaleType.FIT_CENTER
         setBackgroundColor(Color.BLACK)
@@ -99,6 +103,8 @@ class PlaybackEngine(
         player = null
         web?.destroy()
         web = null
+        widgetWeb?.destroy()
+        widgetWeb = null
     }
 
     private suspend fun loop(playlist: Playlist?) {
@@ -119,6 +125,7 @@ class PlaybackEngine(
                     when {
                         item.isVideo -> playVideo(cache.fileFor(item))
                         item.isWeb -> playWeb(item)
+                        item.isWidget -> playWidget(item)
                         else -> playImage(cache.fileFor(item), item.duration)
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -221,8 +228,36 @@ class PlaybackEngine(
         return true
     }
 
+    /** Widgets are drawn by the bundled widget page (assets/widget.html), the same code as the portal preview. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private suspend fun playWidget(item: Item): Boolean {
+        val json = item.widgetJson ?: return false
+        val wv = widgetWeb ?: WebView(activity).also { w ->
+            w.setBackgroundColor(Color.BLACK)
+            w.isFocusable = false
+            w.settings.javaScriptEnabled = true
+            w.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, url: String) { widgetReady = true }
+            }
+            w.visibility = View.GONE
+            stage.addView(w, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            w.loadUrl("file:///android_asset/widget.html")
+            widgetWeb = w
+        }
+        val data = widgetData(item) ?: "null"
+        // Wait (briefly) for the page to load the first time.
+        var waited = 0
+        while (!widgetReady && waited < 5000) { delay(100); waited += 100 }
+        val js = "window.showWidget($json, $data)".replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+        wv.evaluateJavascript(js, null)
+        show(wv)
+        player?.stop()
+        delay(item.duration * 1000L)
+        return true
+    }
+
     private fun show(v: View) {
-        for (child in listOf(image, playerView, idle, web)) {
+        for (child in listOf(image, playerView, idle, web, widgetWeb)) {
             child?.visibility = if (child === v) View.VISIBLE else View.GONE
         }
     }

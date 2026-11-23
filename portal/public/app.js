@@ -96,6 +96,7 @@ function thumb(m, cls) {
   const box = h("div", { class: cls || "thumb" });
   if (m.kind === "image") box.append(h("img", { src: m.src, alt: "", loading: "lazy" }));
   else if (m.kind === "video") box.append(h("video", { src: m.src + "#t=1", muted: true, preload: "metadata" }));
+  else if (m.kind === "widget" && m.widget) { box.classList.add("widget-thumb"); const w = h("div", {}); box.append(w); requestAnimationFrame(() => SignageWidgets.render(w, m.widget, null, { still: true })); }
   else box.append(h("span", {}, "🌐 Web page"));
   return box;
 }
@@ -125,6 +126,7 @@ const ICONS = {
   clients: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/></svg>',
   logins: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M1 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 11h6M20 8v6"/></svg>',
   wizard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8l1.4 1.4M17.8 6.2l1.4-1.4M12.2 6.2l-1.4-1.4"/><path d="M15 9l-12 12"/></svg>',
+  widgets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>',
   content: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>',
   monitoring: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>',
   download: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>',
@@ -145,6 +147,7 @@ const clientRoutes = [
   [/^\/playlists$/, "playlists", renderPlaylists],
   [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
   [/^\/media$/, "media", renderMedia],
+  [/^\/widgets$/, "widgets", renderWidgets],
   [/^\/logins$/, "logins", renderLogins]
 ];
 // Your team's main level.
@@ -161,7 +164,7 @@ const clientLoginRoutes = [
   [/^\/(profile|settings)$/, "profile", renderProfile]
 ];
 
-const CONTENT_SECTIONS = ["media"];
+const CONTENT_SECTIONS = ["media", "widgets"];
 let contentOpen = null; // null = open when a content page is shown
 
 function shell(section, inClient) {
@@ -169,7 +172,8 @@ function shell(section, inClient) {
   const contentGroup = () => {
     const open = contentOpen === null ? CONTENT_SECTIONS.includes(section) : contentOpen;
     const sub = h("div", { class: "submenu" + (open ? " open" : "") },
-      link(base() + "/media", "media", "Media library", "sub"));
+      link(base() + "/media", "media", "Media library", "sub"),
+      link(base() + "/widgets", "widgets", "Widgets", "sub"));
     return h("div", { class: "navgroup" },
       h("button", { type: "button", class: "navgroup-head" + (CONTENT_SECTIONS.includes(section) ? " active" : ""), "aria-expanded": String(open),
         onclick: e => { contentOpen = !sub.classList.contains("open"); sub.classList.toggle("open", contentOpen); e.currentTarget.setAttribute("aria-expanded", String(contentOpen)); },
@@ -748,7 +752,7 @@ async function renderPlaylist(main, id) {
       const li = h("li", { class: "pl-item", draggable: true },
         h("span", { class: "handle", title: "Drag to reorder" }, "⠿"),
         thumb(it, "mini"),
-        h("div", { class: "info" }, h("div", { class: "name" }, it.name), h("div", { class: "small muted" }, it.kind === "web" ? "Web page" : it.kind === "video" ? "Video" : "Image")),
+        h("div", { class: "info" }, h("div", { class: "name" }, it.name), h("div", { class: "small muted" }, it.kind === "web" ? "Web page" : it.kind === "video" ? "Video" : it.kind === "widget" ? "Widget" : "Image")),
         it.kind === "video" ? h("div", { class: "dur" }, "full length")
           : h("div", { class: "dur" }, h("input", { type: "number", min: 1, max: 86400, value: it.duration, "aria-label": "Seconds",
             oninput: e => { it.duration = Number(e.target.value); mark(); total(); } }), "sec"),
@@ -783,7 +787,7 @@ async function renderPlaylist(main, id) {
   const drawPicker = () => {
     const q = search.value.toLowerCase();
     picker.replaceChildren(...media.filter(m => m.name.toLowerCase().includes(q)).map(m => h("div", { class: "pick", title: "Add to playlist", onclick: () => {
-      items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, duration: m.kind === "web" ? 30 : 10 }); mark(); draw();
+      items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, widget: m.widget, duration: m.kind === "web" ? 30 : m.kind === "widget" ? 15 : 10 }); mark(); draw();
       list.lastElementChild.scrollIntoView({ block: "nearest" });
     } }, thumb(m, "mini"), h("div", { class: "info", style: "flex:1;min-width:0" }, h("div", { class: "small", style: "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, m.name),
       h("div", { class: "small muted" }, m.kind)), h("span", { class: "btn small" }, "+ Add"))));
@@ -844,9 +848,9 @@ async function renderMedia(main) {
     pageHead("Media", clientName(), h("button", { onclick: addWeb }, "+ Web page"), h("button", { class: "primary", onclick: () => input.click() }, "Upload")),
     zone,
     media.length ? h("div", { class: "media-grid" }, media.map(m => h("div", { class: "media-card" },
-      h("a", { href: m.src, target: "_blank", rel: "noopener" }, thumb(m)),
+      m.kind === "widget" ? h("a", { href: "#", onclick: e => { e.preventDefault(); widgetDialog(m.widget.type, m); } }, thumb(m)) : h("a", { href: m.src, target: "_blank", rel: "noopener" }, thumb(m)),
       h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
-        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind + " · " + bytes(m.size)),
+        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind === "widget" ? "Widget · " + (WIDGET_TYPES[m.widget && m.widget.type] || {}).name : m.kind + " · " + bytes(m.size)),
         h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist")),
       h("div", { class: "acts" },
         h("button", { class: "small", onclick: async () => {
@@ -860,6 +864,110 @@ async function renderMedia(main) {
           try { await api("DELETE", "/media/" + m.id); toast("Deleted."); route(); } catch (e) { fail(e); }
         } }, "Delete")))))
       : h("div", { class: "card empty" }, "No media yet. Upload images and videos to use in playlists."));
+}
+
+// ---------- inside a client: widgets ----------
+const WIDGET_TYPES = {
+  clock: { name: "Clock", icon: "🕒", desc: "Digital or analog clock with the date.", config: { style: "digital", hours: "12", showDate: true, showSeconds: false, label: "", bg: "#0f172a", fg: "#ffffff", accent: "#f59e0b" } },
+  weather: { name: "Weather", icon: "⛅", desc: "Current weather and a 3-day forecast for any place.", config: { place: "", lat: "", lng: "", units: "f", forecast: true, bg: "#0b3b66", fg: "#ffffff", accent: "#fbbf24" } },
+  rss: { name: "News feed", icon: "📰", desc: "Rotating headlines from an RSS or Atom feed.", config: { url: "", title: "News", seconds: 8, bg: "#111827", fg: "#ffffff", accent: "#60a5fa" } },
+  qr: { name: "QR code", icon: "🔳", desc: "A scannable code for your website, menu, Wi-Fi or reviews.", config: { text: "", title: "Scan me", caption: "", bg: "#ffffff", fg: "#111827", accent: "#2563eb" } },
+  countdown: { name: "Countdown", icon: "⏳", desc: "Days, hours, minutes and seconds to an opening, sale or event.", config: { title: "Grand opening", target: "", done: "We're open!", bg: "#7c2d12", fg: "#ffffff", accent: "#fde68a" } },
+  message: { name: "Message", icon: "💬", desc: "A full-screen announcement with a title and text.", config: { title: "", body: "", align: "center", bg: "#1e3a8a", fg: "#ffffff", accent: "#fbbf24" } }
+};
+
+async function widgetDialog(type, existing) {
+  const T = WIDGET_TYPES[type];
+  const c = Object.assign({}, T.config, existing ? existing.widget.config : {});
+  let data = null, live = null, loadT = 0;
+  const pv = h("div", {});
+  const pvBox = h("div", { class: "widget-preview" }, pv);
+  const status = h("div", { class: "small muted", style: "min-height:1.2em" });
+  const draw = () => { if (live) live.destroy(); live = SignageWidgets.render(pv, { type, config: c }, data); };
+  const needsData = type === "weather" || type === "rss";
+  // QR codes are drawn by the server; weather/news are fetched by it.
+  const refreshFromServer = () => {
+    clearTimeout(loadT);
+    loadT = setTimeout(async () => {
+      if (type === "weather" && c.lat === "") { status.textContent = "Pick a place to see the weather."; return; }
+      if (type === "rss" && !c.url) { status.textContent = "Enter a feed address to see headlines."; return; }
+      if (type === "qr" && !c.text) { c.svg = ""; draw(); return; }
+      if (type === "countdown" || type === "clock" || type === "message") return;
+      status.textContent = "Loading preview…";
+      try { const r = await api("POST", "/widget-preview", { type, config: c }); if (r.config.svg) c.svg = r.config.svg; data = r.data; status.textContent = ""; draw(); }
+      catch (e) { status.textContent = e.message; }
+    }, 500);
+  };
+  const set = (k, v, server) => { c[k] = v; draw(); if (server) refreshFromServer(); };
+  const inp = (k, label, attrs, server) => field(label, h("input", Object.assign({ value: c[k] == null ? "" : c[k], oninput: e => set(k, e.target.value, server) }, attrs || {})));
+  const sel = (k, label, list) => field(label, h("select", { onchange: e => set(k, e.target.value) }, opts(list, c[k])));
+  const chk = (k, label) => h("label", { class: "color-in" }, h("input", { type: "checkbox", checked: !!c[k], onchange: e => set(k, e.target.checked) }), label);
+  const colors = h("div", { class: "colors" }, colorIn(c.bg, v => set("bg", v), "Background"), colorIn(c.fg, v => set("fg", v), "Text"), colorIn(c.accent, v => set("accent", v), "Accent"));
+
+  let fields;
+  if (type === "clock") fields = [h("div", { class: "row" }, sel("style", "Style", [["digital", "Digital"], ["analog", "Analog"]]), sel("hours", "Hours", [["12", "12-hour"], ["24", "24-hour"]])),
+    inp("label", "Label (optional)", { maxlength: 60, placeholder: "e.g. Boston" }), h("div", { class: "colors" }, chk("showDate", "Show date"), chk("showSeconds", "Show seconds"))];
+  else if (type === "weather") {
+    const q = h("input", { type: "search", placeholder: "City or address…", value: c.place });
+    const hits = h("div", { class: "geo-results" });
+    const find = async () => {
+      hits.replaceChildren(h("div", { class: "small muted" }, "Searching…"));
+      try {
+        const list = await api("GET", "/geocode?q=" + encodeURIComponent(q.value));
+        hits.replaceChildren(...(list.length ? list.map(r => h("button", { type: "button", class: "geo-hit", onclick: () => {
+          c.lat = r.lat; c.lng = r.lng; c.place = r.label.split(",")[0]; placeIn.value = c.place; hits.replaceChildren(); draw(); refreshFromServer();
+        } }, r.label)) : [h("div", { class: "small muted" }, "No match.")]));
+      } catch (e) { hits.replaceChildren(h("div", { class: "small form-error" }, e.message)); }
+    };
+    q.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); find(); } });
+    const placeIn = h("input", { value: c.place, maxlength: 80, oninput: e => set("place", e.target.value) });
+    fields = [field("Location", h("div", { class: "row", style: "align-items:center" }, h("div", { style: "flex:1" }, q), h("button", { type: "button", onclick: find }, "Find"))), hits,
+      h("div", { class: "row" }, field("Name shown", placeIn), sel("units", "Units", [["f", "°F, mph"], ["c", "°C, km/h"]])), h("div", { class: "colors" }, chk("forecast", "Show 3-day forecast"))];
+    // units change needs new data
+    fields[2].querySelector("select").addEventListener("change", refreshFromServer);
+  }
+  else if (type === "rss") fields = [inp("url", "Feed address (RSS or Atom)", { type: "url", placeholder: "https://…/rss", required: true }, true),
+    h("div", { class: "row" }, inp("title", "Heading", { maxlength: 60 }), inp("seconds", "Seconds per headline", { type: "number", min: 4, max: 60 }))];
+  else if (type === "qr") fields = [inp("text", "Web address or text", { maxlength: 600, placeholder: "https://example.com/menu", required: true }, true),
+    inp("title", "Title", { maxlength: 80 }), inp("caption", "Caption under the code", { maxlength: 160, placeholder: "e.g. See our full menu" })];
+  else if (type === "countdown") fields = [inp("title", "Title", { maxlength: 80 }), inp("target", "Count down to", { type: "datetime-local", required: true }), inp("done", "Text when it's done", { maxlength: 80 })];
+  else fields = [inp("title", "Title", { maxlength: 120, placeholder: "e.g. Now hiring!" }),
+    field("Text", h("textarea", { rows: 3, maxlength: 600, oninput: e => set("body", e.target.value) }, c.body)), sel("align", "Alignment", [["center", "Centered"], ["left", "Left"]])];
+
+  if (existing && needsData) { try { data = (await api("GET", "/media/" + existing.id + "/widget-data")).data; } catch (e) { status.textContent = e.message; } }
+  const pending = dialog((existing ? "Edit " : "New ") + T.name.toLowerCase() + " widget", h("div", { class: "widget-dialog" },
+    h("div", {}, pvBox, status),
+    h("div", {}, field("Name", h("input", { name: "name", value: existing ? existing.name : T.name, maxlength: 200, required: true })), fields, colors)),
+  { submit: existing ? "Save" : "Add widget", onSubmit: f => existing
+      ? api("PATCH", "/media/" + existing.id, { name: f.get("name"), config: c })
+      : api("POST", "/media/widget", { type, name: f.get("name"), config: c }) });
+  // The dialog is on the page now: draw the first preview (QR codes need the server).
+  requestAnimationFrame(() => { draw(); if (type === "qr" && c.text && !c.svg) refreshFromServer(); else if (needsData && !data) refreshFromServer(); });
+  const r = await pending;
+  if (live) live.destroy();
+  if (r) { toast(existing ? "Widget saved." : "Widget added. Add it to a playlist to show it on screens."); route(); }
+  return r;
+}
+
+async function renderWidgets(main) {
+  const media = (await api("GET", "/media")).filter(m => m.kind === "widget");
+  main.replaceChildren(
+    pageHead("Widgets", clientName() + " · ready-made slides for your playlists"),
+    h("div", { class: "widget-gallery" }, Object.entries(WIDGET_TYPES).map(([type, T]) => h("button", { type: "button", class: "widget-type", onclick: () => widgetDialog(type) },
+      h("div", { class: "wt-icon" }, T.icon), h("div", { class: "wt-name" }, T.name), h("div", { class: "small muted" }, T.desc), h("span", { class: "btn small primary" }, "+ Add")))),
+    h("h2", { style: "margin:1.5rem 0 .75rem" }, "Your widgets"),
+    media.length ? h("div", { class: "media-grid" }, media.map(m => h("div", { class: "media-card" },
+      h("a", { href: "#", onclick: e => { e.preventDefault(); widgetDialog(m.widget.type, m); } }, thumb(m)),
+      h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
+        h("div", { class: "small muted" }, (WIDGET_TYPES[m.widget.type] || {}).name),
+        h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist")),
+      h("div", { class: "acts" },
+        h("button", { class: "small", onclick: () => widgetDialog(m.widget.type, m) }, "Edit"),
+        h("button", { class: "small danger", onclick: async () => {
+          if (!await confirmDlg("Delete “" + m.name + "”?", "It will be removed from any playlists.")) return;
+          try { await api("DELETE", "/media/" + m.id); toast("Deleted."); route(); } catch (e) { fail(e); }
+        } }, "Delete")))))
+      : h("div", { class: "card empty" }, "No widgets yet. Pick one above, then add it to a playlist like any image or video."));
 }
 
 // ---------- logins (a client's logins inside the client; your team's in Settings) ----------

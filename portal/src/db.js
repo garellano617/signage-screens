@@ -107,6 +107,34 @@ for (const t of ["users", "media", "playlists", "screens"]) {
   if (!hasColumn(t, "customer_id")) db.exec(`ALTER TABLE ${t} ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE`);
   db.exec(`CREATE INDEX IF NOT EXISTS ${t}_customer ON ${t}(customer_id)`);
 }
+// Widgets (clock, weather, …) are media too: kind 'widget' with their settings in widget_json.
+// SQLite can't change a CHECK rule in place, so the media table is rebuilt once (playlist items are kept).
+if (!/'widget'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'media'").get().sql)) {
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    const cols = db.prepare("PRAGMA table_info(media)").all().map(c => c.name);
+    db.exec(`CREATE TABLE media_new (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('image','video','web','widget')),
+      file TEXT, url TEXT, mime TEXT,
+      size INTEGER NOT NULL DEFAULT 0,
+      sha256 TEXT,
+      created_at INTEGER NOT NULL,
+      customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+      widget_json TEXT
+    )`);
+    const keep = cols.filter(c => c !== "widget_json").join(", ");
+    db.exec(`INSERT INTO media_new (${keep}) SELECT ${keep} FROM media`);
+    db.exec("DROP TABLE media");
+    db.exec("ALTER TABLE media_new RENAME TO media");
+    db.exec("CREATE INDEX IF NOT EXISTS media_customer ON media(customer_id)");
+    db.exec("COMMIT");
+  } catch (e) { db.exec("ROLLBACK"); throw e; }
+  finally { db.exec("PRAGMA foreign_keys = ON"); }
+}
+
 // Screen design layers (see layers.js).
 if (!hasColumn("screens", "layers_json")) db.exec("ALTER TABLE screens ADD COLUMN layers_json TEXT");
 
