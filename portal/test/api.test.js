@@ -162,8 +162,10 @@ test("full flow: login, media, playlist, pairing, player config, commands", asyn
 
 test("browser script has no syntax errors", () => {
   const vm = require("node:vm");
-  const src = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
-  assert.doesNotThrow(() => new vm.Script(src, { filename: "app.js" }));
+  for (const f of ["app.js", "overlay/overlay.js"]) {
+    const src = fs.readFileSync(path.join(__dirname, "..", "public", f), "utf8");
+    assert.doesNotThrow(() => new vm.Script(src, { filename: f }), f);
+  }
 });
 
 test("admins upload the player APK and anyone can download it", async () => {
@@ -271,4 +273,68 @@ test("customer sub-accounts are kept apart", async () => {
   await call("DELETE", "/api/screens/" + bScreen.id);
   assert.equal((await call("DELETE", "/api/customers/" + B.id)).status, 200);
   assert.equal((await call("GET", "/api/playlists/" + bPl.id)).status, 404);
+});
+
+test("screen layers: saved, cleaned, kept per client, sent to the player", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const A = (await call("POST", "/api/customers", { name: "Layer Cafe" })).body;
+  const B = (await call("POST", "/api/customers", { name: "Other Client" })).body;
+  const png = Buffer.from("89504e470d0a1a0a", "hex");
+  const up = async cid => { scopeId = cid; const fd = new FormData(); fd.append("files", new Blob([png], { type: "image/png" }), "special.png"); return (await call("POST", "/api/media", fd)).body[0]; };
+  const imgA = await up(A.id), imgB = await up(B.id);
+
+  scopeId = A.id;
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-layers-0001" })).body;
+  const scr = (await call("POST", "/api/screens/pair", { code: reg.pairingCode })).body;
+  const auth = { authorization: "Bearer " + reg.token };
+
+  // New screens start with the video layer only.
+  const d = (await call("GET", "/api/screens/" + scr.id)).body.layers;
+  assert.equal(d.video.enabled, true);
+  assert.equal(d.specials.enabled || d.text.enabled || d.effects.enabled, false);
+  const v1 = (await call("GET", "/api/player/config", undefined, auth)).body.version;
+
+  const put = await call("PUT", "/api/screens/" + scr.id + "/layers", {
+    video: { enabled: true, region: "left70" },
+    specials: { enabled: true, heading: "Lunch", position: "right", seconds: 1, accent: "red", items: [
+      { title: "Taco plate", price: "$8.99", mediaId: imgA.id, days: 31, start: "11:00", end: "14:00" },
+      { title: "Stolen photo", mediaId: imgB.id },
+      { title: "", price: "", description: "" }
+    ] },
+    text: { enabled: true, blocks: [{ text: "Open late", position: "nowhere", size: "huge", color: "#00ff00", bgOpacity: 500 }, { text: "   " }],
+      ticker: { enabled: true, text: "Free Wi-Fi\nCatering available", speed: "warp" } },
+    effects: { enabled: true, type: "lava", intensity: "heavy" },
+    extra: "<script>"
+  });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  const L = put.body;
+  assert.equal(L.video.region, "left70");
+  assert.equal(L.specials.seconds, 3, "clamped");
+  assert.equal(L.specials.accent, "#f59e0b", "bad color -> default");
+  assert.equal(L.specials.items.length, 2, "empty special dropped");
+  assert.equal(L.specials.items[0].image.src, imgA.src);
+  assert.equal(L.specials.items[1].mediaId, null, "another client's photo is refused");
+  assert.deepEqual([L.text.blocks.length, L.text.blocks[0].position, L.text.blocks[0].size, L.text.blocks[0].bgOpacity], [1, "top", "m", 100]);
+  assert.equal(L.text.ticker.speed, "normal");
+  assert.equal(L.effects.type, "snow");
+  assert.equal(L.extra, undefined);
+
+  // The player gets the layers, with the photo's checksum so it can download it for offline use.
+  const cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
+  assert.notEqual(cfg.version, v1);
+  assert.equal(cfg.layers.video.region, "left70");
+  assert.equal(cfg.layers.specials.items[0].image.sha256, imgA.sha256);
+
+  // Another client's login can't read or change these layers.
+  scopeId = B.id;
+  assert.equal((await call("GET", "/api/screens/" + scr.id + "/layers")).status, 404);
+  assert.equal((await call("PUT", "/api/screens/" + scr.id + "/layers", {})).status, 404);
+
+  // Deleting the photo leaves the special, without the photo.
+  scopeId = A.id;
+  await call("DELETE", "/api/media/" + imgA.id);
+  const after = (await call("GET", "/api/screens/" + scr.id + "/layers")).body;
+  assert.equal(after.specials.items[0].title, "Taco plate");
+  assert.equal(after.specials.items[0].image, null);
 });

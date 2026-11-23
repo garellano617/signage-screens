@@ -31,8 +31,15 @@ data class Config(
     val defaultPlaylist: Playlist?,
     val slots: List<Slot>,
     val version: String,
+    /** Specials / text / effects layers as JSON for the overlay page (null = none). */
+    val layersJson: String? = null,
+    /** Video layer area ("full", "left70", …) or "off" when the video layer is turned off. */
+    val videoRegion: String = "full",
+    /** Photos used by specials, cached like playlist media. */
+    val specialImages: List<Item> = emptyList(),
 ) {
-    val allItems: List<Item> get() = (listOfNotNull(defaultPlaylist) + slots.map { it.playlist }).flatMap { it.items }
+    val allItems: List<Item>
+        get() = (listOfNotNull(defaultPlaylist) + slots.map { it.playlist }).flatMap { it.items } + specialImages
 
     companion object {
         fun parse(json: String): Config {
@@ -47,14 +54,48 @@ data class Config(
                 val end = parseHm(s.str("end")) ?: return@forEachObject
                 slots += Slot(s.optInt("days", 127), start, end, pl)
             }
+            val layers = o.optJSONObject("layers")
+            val video = layers?.optJSONObject("video")
+            val specialImages = mutableListOf<Item>()
+            layers?.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { sp ->
+                sp.optJSONObject("image")?.let { specialImages += imageItem(it) }
+            }
             return Config(
                 paired = o.optBoolean("paired", false),
                 screen = screen,
                 defaultPlaylist = o.optJSONObject("defaultPlaylist")?.let(::parsePlaylist),
                 slots = slots,
                 version = o.str("version"),
+                layersJson = layers?.toString(),
+                videoRegion = when {
+                    video == null -> "full"
+                    !video.optBoolean("enabled", true) -> "off"
+                    else -> video.str("region").ifEmpty { "full" }
+                },
+                specialImages = specialImages.distinctBy { it.src },
             )
         }
+
+        /** A special's photo ({ mediaId, src, sha256, size, name }) as a cacheable item. */
+        fun imageItem(img: JSONObject) = Item(
+            id = 0,
+            mediaId = img.optLong("mediaId"),
+            name = img.str("name").ifEmpty { "special photo" },
+            kind = "image",
+            src = img.str("src"),
+            sha256 = img.str("sha256").ifEmpty { null },
+            size = img.optLong("size", 0),
+            duration = 0,
+        )
+
+        /** Video layer areas in % of the screen: left, top, width, height. Same numbers as overlay.js. */
+        val REGIONS = mapOf(
+            "full" to floatArrayOf(0f, 0f, 100f, 100f),
+            "left70" to floatArrayOf(0f, 0f, 70f, 100f),
+            "right70" to floatArrayOf(30f, 0f, 70f, 100f),
+            "top85" to floatArrayOf(0f, 0f, 100f, 85f),
+            "left70top85" to floatArrayOf(0f, 0f, 70f, 85f),
+        )
 
         private fun parsePlaylist(p: JSONObject): Playlist {
             val items = mutableListOf<Item>()

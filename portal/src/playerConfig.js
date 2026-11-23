@@ -1,6 +1,9 @@
 "use strict";
 const crypto = require("node:crypto");
 const { all, get, now } = require("./db");
+const { parseLayers, withImages } = require("./layers");
+
+const imageMedia = id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image'", id);
 
 const ONLINE_WINDOW_MS = 90e3;
 
@@ -40,10 +43,11 @@ function buildConfig(screen) {
     paired: true,
     screen: { id: screen.id, name: screen.name, orientation: screen.orientation, volume: screen.volume },
     defaultPlaylist: playlistForPlayer(screen.playlist_id),
-    schedules
+    schedules,
+    layers: withImages(parseLayers(screen.layers_json), imageMedia)
   };
   cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
   return cfg;
 }
 
-module.exports = { buildConfig, isOnline, ONLINE_WINDOW_MS };
+module.exports = { buildConfig, isOnline, ONLINE_WINDOW_MS, imageMedia };

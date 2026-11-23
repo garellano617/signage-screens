@@ -6,13 +6,27 @@
     android:background="#000000"
     android:keepScreenOn="true">
 
-    <!-- Media views are added here by PlaybackEngine. Rotated in software for portrait screens. -->
+    <!-- Everything the viewer sees. Rotated in software for portrait screens. -->
     <FrameLayout
-        android:id="@+id/stage"
+        android:id="@+id/content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_gravity="center"
-        android:background="#000000" />
+        android:background="#000000">
+
+        <!-- Layer 1, video: the playlist. PlaybackEngine adds its views here; sized to the chosen area. -->
+        <FrameLayout
+            android:id="@+id/stage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#000000" />
+
+        <!-- Layers 2-4, specials / text / effects: a transparent web page on top (see Overlay.kt). -->
+        <FrameLayout
+            android:id="@+id/overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/pairing"

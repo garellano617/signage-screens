@@ -7,6 +7,7 @@ const multer = require("multer");
 const { all, get, run, tx, now, DATA_DIR } = require("./db");
 const auth = require("./auth");
 const { isOnline } = require("./playerConfig");
+const { sanitizeLayers, parseLayers, withImages } = require("./layers");
 
 const router = express.Router();
 router.use(express.json({ limit: "1mb" }));
@@ -275,7 +276,21 @@ router.get("/screens/:id", (req, res) => {
                          WHERE sc.screen_id = ? ORDER BY sc.position, sc.id`, s.id)
     .map(x => ({ id: x.id, playlistId: x.playlist_id, playlistName: x.playlist_name, days: x.days, start: x.start_time, end: x.end_time }));
   const pending = all("SELECT type, created_at FROM commands WHERE screen_id = ? AND delivered_at IS NULL ORDER BY id", s.id);
-  res.json({ ...screenSummary(s), schedules, pendingCommands: pending });
+  res.json({ ...screenSummary(s), schedules, pendingCommands: pending, layers: layersOut(s) });
+});
+
+// ---------- screen layers (video, specials, text, effects) ----------
+const clientImage = customerId => id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image' AND customer_id = ?", id, customerId);
+const layersOut = s => withImages(parseLayers(s.layers_json), clientImage(s.customer_id));
+
+router.get("/screens/:id/layers", (req, res) => res.json(layersOut(loadScreen(req, intId(req.params.id)))));
+
+router.put("/screens/:id/layers", (req, res) => {
+  const s = loadScreen(req, intId(req.params.id));
+  const img = clientImage(s.customer_id);
+  const clean = sanitizeLayers(req.body, id => !!img(id));
+  run("UPDATE screens SET layers_json = ? WHERE id = ?", JSON.stringify(clean), s.id);
+  res.json(layersOut(loadScreen(req, s.id)));
 });
 
 /** A playlist id (or empty) that must belong to the given customer. */

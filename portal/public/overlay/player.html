@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Loaded by the Android player (bundled in the APK). Transparent page: the video layer shows through. -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="overlay.css">
+  <style>html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; } #o { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }</style>
+</head>
+<body>
+  <div id="o"></div>
+  <script src="overlay.js"></script>
+  <script>
+    var current = null;
+    // Called by the player: layers JSON, with each special's image as a local file URL in image.localSrc.
+    window.showLayers = function (layers) {
+      if (current) current.destroy();
+      current = SignageOverlay.render(document.getElementById("o"), layers, {
+        resolveImage: function (sp) { return sp.image && sp.image.localSrc; }
+      });
+    };
+  </script>
+</body>
+</html>

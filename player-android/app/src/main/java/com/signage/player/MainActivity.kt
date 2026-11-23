@@ -49,7 +49,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var engine: PlaybackEngine
 
     private lateinit var root: FrameLayout
+    private lateinit var content: FrameLayout
     private lateinit var stage: FrameLayout
+    private lateinit var overlay: Overlay
+    private var videoRegion = "full"
     private lateinit var pairing: View
     private lateinit var pairCode: TextView
     private lateinit var pairHint: TextView
@@ -74,7 +77,13 @@ class MainActivity : ComponentActivity() {
         prefs = Prefs(this)
         cache = MediaCache(this)
         root = findViewById(R.id.root)
+        content = findViewById(R.id.content)
         stage = findViewById(R.id.stage)
+        overlay = Overlay(this, findViewById(R.id.overlay), cache)
+        // Keep the video layer in its area when the size changes (first layout, rotation).
+        content.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) content.post { applyRegion() }
+        }
         pairing = findViewById(R.id.pairing)
         pairCode = findViewById(R.id.pairCode)
         pairHint = findViewById(R.id.pairHint)
@@ -163,6 +172,7 @@ class MainActivity : ComponentActivity() {
                         config = null
                         prefs.configJson = null
                         engine.stop()
+                        overlay.hide()
                     }
                     showPairing(hb.str("pairingCode"))
                     waitMs = 5_000
@@ -228,11 +238,31 @@ class MainActivity : ComponentActivity() {
         val s = c.screen
         engine.volume = (s?.volume ?: 100) / 100f
         applyOrientation(s?.orientation ?: 0)
+        videoRegion = c.videoRegion
+        applyRegion()
+        overlay.show(c)
         refreshSchedule()
+    }
+
+    /** Sizes the video layer to its area (e.g. left 70%) inside the content, which may be rotated. */
+    private fun applyRegion() {
+        stage.visibility = if (videoRegion == "off") View.GONE else View.VISIBLE
+        val r = Config.REGIONS[videoRegion] ?: Config.REGIONS.getValue("full")
+        val w = content.width
+        val h = content.height
+        if (w == 0 || h == 0) return
+        val lp = stage.layoutParams as FrameLayout.LayoutParams
+        lp.gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        lp.leftMargin = Math.round(w * r[0] / 100f)
+        lp.topMargin = Math.round(h * r[1] / 100f)
+        lp.width = Math.round(w * r[2] / 100f)
+        lp.height = Math.round(h * r[3] / 100f)
+        stage.layoutParams = lp
     }
 
     private fun refreshSchedule() {
         val c = config ?: return
+        if (c.videoRegion == "off") { engine.stop(); return }
         val (day, minute) = Schedule.now()
         engine.play(Schedule.pick(c, day, minute))
     }
@@ -242,7 +272,7 @@ class MainActivity : ComponentActivity() {
         if (deg == appliedOrientation && root.width > 0) return
         appliedOrientation = deg
         root.post {
-            val lp = stage.layoutParams as FrameLayout.LayoutParams
+            val lp = content.layoutParams as FrameLayout.LayoutParams
             if (deg == 90 || deg == 270) {
                 lp.width = root.height
                 lp.height = root.width
@@ -250,8 +280,8 @@ class MainActivity : ComponentActivity() {
                 lp.width = FrameLayout.LayoutParams.MATCH_PARENT
                 lp.height = FrameLayout.LayoutParams.MATCH_PARENT
             }
-            stage.layoutParams = lp
-            stage.rotation = deg.toFloat()
+            content.layoutParams = lp
+            content.rotation = deg.toFloat()
         }
     }
 
@@ -279,6 +309,7 @@ class MainActivity : ComponentActivity() {
                 "reload" -> { fetchConfig(); engine.restart() }
                 "clear_cache" -> {
                     engine.stop()
+                    overlay.hide()
                     cache.clear()
                     config = null
                     fetchConfig()
@@ -425,6 +456,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (::engine.isInitialized) engine.release()
+        if (::overlay.isInitialized) overlay.hide()
         super.onDestroy()
     }
 

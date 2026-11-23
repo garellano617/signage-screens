@@ -1,0 +1,45 @@
+/* Overlay layers (specials, text, effects). Sizes use em: 1em = 1% of the screen width. */
+.so-root { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; pointer-events: none; font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.2; }
+.so-root * { box-sizing: border-box; }
+
+/* text blocks */
+.so-text { position: absolute; max-width: 90%; padding: .25em .5em; border-radius: .15em; white-space: pre-wrap; }
+.so-pos-top-left { top: 4%; left: 3%; }
+.so-pos-top { top: 4%; left: 50%; transform: translateX(-50%); text-align: center; }
+.so-pos-top-right { top: 4%; right: 3%; text-align: right; }
+.so-pos-left { top: 50%; left: 3%; transform: translateY(-50%); }
+.so-pos-center { top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+.so-pos-right { top: 50%; right: 3%; transform: translateY(-50%); text-align: right; }
+.so-pos-bottom-left { bottom: 6%; left: 3%; }
+.so-pos-bottom { bottom: 6%; left: 50%; transform: translateX(-50%); text-align: center; }
+.so-pos-bottom-right { bottom: 6%; right: 3%; text-align: right; }
+
+/* ticker */
+.so-ticker { position: absolute; left: 0; right: 0; height: 1.9em; overflow: hidden; display: flex; align-items: center; z-index: 2; }
+.so-ticker-bottom { bottom: 0; }
+.so-ticker-top { top: 0; }
+.so-ticker-inner { white-space: pre; font-weight: 600; will-change: transform; }
+
+/* specials */
+.so-specials { position: absolute; display: flex; flex-direction: column; padding: 1.4em; z-index: 1; }
+.so-sp-right { top: 0; right: 0; bottom: 0; width: 30%; }
+.so-sp-left { top: 0; left: 0; bottom: 0; width: 30%; }
+.so-sp-bottom-right { right: 2.5%; bottom: 5%; width: 28%; border-radius: 1em; box-shadow: 0 .5em 2em rgba(0,0,0,.4); }
+.so-sp-bottom-left { left: 2.5%; bottom: 5%; width: 28%; border-radius: 1em; box-shadow: 0 .5em 2em rgba(0,0,0,.4); }
+.so-sp-top-right { right: 2.5%; top: 5%; width: 28%; border-radius: 1em; box-shadow: 0 .5em 2em rgba(0,0,0,.4); }
+.so-sp-center { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 46%; border-radius: 1em; box-shadow: 0 .5em 3em rgba(0,0,0,.5); }
+.so-sp-heading { font-size: 1.9em; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .5em; }
+.so-sp-card { position: relative; flex: 1; min-height: 12em; }
+.so-sp-right .so-sp-card, .so-sp-left .so-sp-card { display: flex; flex-direction: column; justify-content: center; }
+.so-sp-item { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; justify-content: center; opacity: 0; transition: opacity .6s ease; }
+.so-sp-item.in { opacity: 1; }
+.so-sp-img { width: 100%; height: 13em; background: center / cover no-repeat; border-radius: .6em; margin-bottom: .8em; flex: none; }
+.so-sp-center .so-sp-img { height: 18em; }
+.so-sp-title { font-size: 2.4em; font-weight: 800; }
+.so-sp-price { font-size: 3.4em; font-weight: 900; margin-top: .1em; }
+.so-sp-desc { font-size: 1.45em; opacity: .85; margin-top: .4em; }
+.so-sp-dots { display: flex; justify-content: center; margin-top: .8em; min-height: .6em; }
+.so-sp-dots span { width: .6em; height: .6em; margin: 0 .25em; border-radius: 50%; background: rgba(255,255,255,.3); }
+
+/* effects */
+.so-effects { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; z-index: 3; }

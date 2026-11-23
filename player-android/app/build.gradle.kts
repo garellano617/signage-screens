@@ -51,6 +51,9 @@ android {
 
     buildFeatures { buildConfig = true }
 
+    // The overlay layers (specials, text, effects) use the same files as the portal's live preview.
+    sourceSets["main"].assets.srcDir("../../portal/public/overlay")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

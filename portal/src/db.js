@@ -107,6 +107,9 @@ for (const t of ["users", "media", "playlists", "screens"]) {
   if (!hasColumn(t, "customer_id")) db.exec(`ALTER TABLE ${t} ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE`);
   db.exec(`CREATE INDEX IF NOT EXISTS ${t}_customer ON ${t}(customer_id)`);
 }
+// Screen design layers (see layers.js).
+if (!hasColumn("screens", "layers_json")) db.exec("ALTER TABLE screens ADD COLUMN layers_json TEXT");
+
 // Content made before sub-accounts existed moves into one customer so nothing is lost.
 {
   const orphan = ["media", "playlists"].some(t => db.prepare(`SELECT 1 FROM ${t} WHERE customer_id IS NULL LIMIT 1`).get())

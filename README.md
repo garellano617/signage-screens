@@ -15,6 +15,17 @@ Every screen, playlist and media file belongs to a **client** (a business you pu
 - **Pausing** a client logs their users out and blocks their logins. Their TVs keep playing.
 - A client can only be deleted after their screens are removed. Deleting a client also deletes their playlists, media and logins.
 
+## Screen layers
+
+Each screen is designed as four layers, stacked bottom to top. Open a screen and click **Design layers**. The editor has a live preview, and the TV draws the layers with the same code (`portal/public/overlay/`, bundled into the APK at build time).
+
+1. **Video:** the screen's playlist and schedule. It can fill the screen or a smaller area (left 70%, top 85%, …) to leave room for the other layers.
+2. **Specials:** offers with title, price, description and an optional photo, taking turns every few seconds. Each one can be limited to certain days and times. Shown as a side panel or a card.
+3. **Text:** text blocks in any of 9 positions (size, colors, box), plus a scrolling ticker at the top or bottom. When a ticker is on, other layers move out of its way.
+4. **Effects:** an animated overlay: snow, confetti, sparkles, bubbles, hearts, falling leaves or twinkling stars.
+
+Each layer has an on/off switch. Specials photos are downloaded to the TV with the rest of the media, so layers work offline.
+
 ## Run the portal on this PC
 
 Double-click `portal\start-portal.cmd`, then open http://localhost:3100.

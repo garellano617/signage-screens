@@ -134,6 +134,7 @@ const clientRoutes = [
   [/^\/?$/, "dashboard", renderDashboard],
   [/^\/screens$/, "screens", renderScreens],
   [/^\/screens\/(\d+)$/, "screens", renderScreen],
+  [/^\/screens\/(\d+)\/layers$/, "screens", renderLayers],
   [/^\/playlists$/, "playlists", renderPlaylists],
   [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
   [/^\/media$/, "media", renderMedia],
@@ -474,6 +475,10 @@ async function renderScreen(main, id) {
           slotsBox,
           h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave))),
       h("div", { class: "stack" },
+        h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
+            h("a", { class: "btn primary small", href: base() + "/screens/" + id + "/layers" }, "Design layers")),
+          h("div", { class: "chips" }, [["video", "Video"], ["specials", "Specials"], ["text", "Text"], ["effects", "Effects"]].map(([k, l]) =>
+            h("span", { class: "pill" + (s.layers[k].enabled ? " ok" : "") }, (s.layers[k].enabled ? "● " : "○ ") + l)))),
         h("div", { class: "card" }, h("h2", {}, "Live view"), shotBox,
           h("div", { class: "cmds", style: "margin-top:.75rem" }, cmd("screenshot", "📷 Take screenshot", "Screenshot requested. It appears here within about 30 seconds."))),
         h("div", { class: "card" }, h("h2", {}, "Remote control"),
@@ -492,6 +497,168 @@ async function renderScreen(main, id) {
       if (x.screenshotAt !== lastShot) { lastShot = x.screenshotAt; drawShot(x); }
     } catch (_) {}
   }, 5000);
+}
+
+// ---------- inside a client: screen layers ----------
+const REGION_LABELS = [["full", "Full screen"], ["left70", "Left 70% (room on the right)"], ["right70", "Right 70% (room on the left)"],
+  ["top85", "Top 85% (room for a ticker)"], ["left70top85", "Left 70% + top 85%"]];
+const POSITION_LABELS = [["top-left", "Top left"], ["top", "Top"], ["top-right", "Top right"], ["left", "Left"], ["center", "Center"],
+  ["right", "Right"], ["bottom-left", "Bottom left"], ["bottom", "Bottom"], ["bottom-right", "Bottom right"]];
+const SPECIAL_POSITIONS = [["right", "Right panel"], ["left", "Left panel"], ["bottom-right", "Card, bottom right"], ["bottom-left", "Card, bottom left"],
+  ["top-right", "Card, top right"], ["center", "Big card, center"]];
+const SIZE_LABELS = [["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Extra large"]];
+const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
+  ["leaves", "🍂 Falling leaves"], ["stars", "★ Twinkling stars"]];
+
+const opts = (list, val) => list.map(([v, l]) => h("option", { value: v, selected: v === val }, l));
+const colorIn = (val, onchange, label) => h("label", { class: "color-in" }, h("input", { type: "color", value: val, oninput: e => onchange(e.target.value) }), label);
+
+async function renderLayers(main, id) {
+  const [s, media] = await Promise.all([api("GET", "/screens/" + id), api("GET", "/media")]);
+  const L = JSON.parse(JSON.stringify(s.layers));
+  const images = media.filter(m => m.kind === "image");
+  let firstItem = null;
+  if (s.playlistId) { try { firstItem = (await api("GET", "/playlists/" + s.playlistId)).items.find(i => i.kind !== "web") || null; } catch (_) {} }
+  let dirty = false, overlay = null, t = 0;
+  const portrait = s.orientation === 90 || s.orientation === 270;
+
+  // ---- live preview ----
+  const pvVideo = h("div", { class: "pv-video" });
+  const pvOverlay = h("div", { class: "pv-overlay" });
+  const preview = h("div", { class: "preview" + (portrait ? " portrait" : "") }, h("div", { class: "pv-bg" }), pvVideo, pvOverlay);
+  function drawVideo() {
+    const r = SignageOverlay.REGIONS[L.video.region] || SignageOverlay.REGIONS.full;
+    Object.assign(pvVideo.style, { left: r[0] + "%", top: r[1] + "%", width: r[2] + "%", height: r[3] + "%", display: L.video.enabled ? "" : "none" });
+    pvVideo.replaceChildren(firstItem
+      ? (firstItem.kind === "video" ? h("video", { src: firstItem.src, muted: true, autoplay: true, loop: true, playsInline: true }) : h("img", { src: firstItem.src, alt: "" }))
+      : h("div", { class: "pv-placeholder" }, "Video layer", h("small", {}, s.playlistName ? "Playlist: " + s.playlistName : "No playlist yet")));
+  }
+  function refresh() {
+    clearTimeout(t);
+    t = setTimeout(() => { if (overlay) overlay.destroy(); overlay = SignageOverlay.render(pvOverlay, L); }, 120);
+  }
+  const change = () => { dirty = true; saveBtn.textContent = "Save changes"; refresh(); };
+
+  // ---- layer cards ----
+  const layerCard = (key, title, desc, body) => {
+    const bodyBox = h("div", { class: "layer-body" + (L[key].enabled ? "" : " off") }, body);
+    return h("div", { class: "card layer" },
+      h("div", { class: "layer-head" },
+        h("div", {}, h("h2", {}, title), h("div", { class: "small muted" }, desc)),
+        h("label", { class: "switch" }, h("input", { type: "checkbox", checked: L[key].enabled, onchange: e => {
+          L[key].enabled = e.target.checked; bodyBox.classList.toggle("off", !e.target.checked); if (key === "video") drawVideo(); change();
+        } }), h("span", {}))),
+      bodyBox);
+  };
+
+  // video
+  const videoBody = h("div", {},
+    field("Area on the screen", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(); change(); } }, opts(REGION_LABELS, L.video.region))),
+    h("p", { class: "small muted" }, "Plays this screen's playlist and schedule (", s.playlistName || "no playlist yet", "). Change them on the screen page. Use a smaller area to leave room for a specials panel or a ticker."));
+
+  // specials
+  const spList = h("div", {});
+  function drawSpecials() {
+    spList.replaceChildren(...L.specials.items.map((it, i) => h("div", { class: "sub-item" },
+      h("div", { class: "row" },
+        field("Title", h("input", { value: it.title, maxlength: 80, placeholder: "e.g. Taco Tuesday", oninput: e => { it.title = e.target.value; change(); } })),
+        h("div", { class: "field", style: "flex:0 1 120px" }, h("label", {}, "Price"), h("input", { value: it.price, maxlength: 20, placeholder: "$2.99", oninput: e => { it.price = e.target.value; change(); } }))),
+      field("Description", h("input", { value: it.description, maxlength: 200, placeholder: "optional", oninput: e => { it.description = e.target.value; change(); } })),
+      field("Photo", h("select", { onchange: e => {
+        const m = images.find(x => x.id === Number(e.target.value));
+        it.mediaId = m ? m.id : null; it.image = m ? { src: m.src } : null; change();
+      } }, h("option", { value: "" }, images.length ? "— no photo —" : "— upload images in Media first —"),
+        images.map(m => h("option", { value: m.id, selected: m.id === it.mediaId }, m.name)))),
+      h("div", { class: "row", style: "align-items:center" },
+        h("div", { class: "days" }, DAYS.map((d, b) => h("button", { type: "button", class: it.days & (1 << b) ? "on" : "",
+          onclick: e => { const n = it.days ^ (1 << b); if (!n) return; it.days = n; e.target.classList.toggle("on"); change(); } }, d))),
+        h("div", { class: "times" },
+          h("input", { type: "time", value: it.start, "aria-label": "From", onchange: e => { it.start = e.target.value; change(); } }), "to",
+          h("input", { type: "time", value: it.end, "aria-label": "Until", onchange: e => { it.end = e.target.value; change(); } })),
+        h("button", { type: "button", class: "small danger", onclick: () => { L.specials.items.splice(i, 1); drawSpecials(); change(); } }, "Remove")))));
+    if (!L.specials.items.length) spList.append(h("p", { class: "small muted" }, "No specials yet."));
+  }
+  drawSpecials();
+  const specialsBody = h("div", {},
+    h("div", { class: "row" },
+      field("Heading", h("input", { value: L.specials.heading, maxlength: 60, oninput: e => { L.specials.heading = e.target.value; change(); } })),
+      field("Where", h("select", { onchange: e => { L.specials.position = e.target.value; change(); } }, opts(SPECIAL_POSITIONS, L.specials.position))),
+      h("div", { class: "field", style: "flex:0 1 130px" }, h("label", {}, "Seconds each"),
+        h("input", { type: "number", min: 3, max: 120, value: L.specials.seconds, oninput: e => { L.specials.seconds = Number(e.target.value) || 8; change(); } }))),
+    h("div", { class: "colors" },
+      colorIn(L.specials.bg, v => { L.specials.bg = v; change(); }, "Background"),
+      colorIn(L.specials.color, v => { L.specials.color = v; change(); }, "Text"),
+      colorIn(L.specials.accent, v => { L.specials.accent = v; change(); }, "Price & heading")),
+    h("p", { class: "small muted" }, "Specials take turns. Leave the times empty to show a special all day, or set days and times (e.g. lunch 11:00 to 14:00)."),
+    spList,
+    h("button", { type: "button", onclick: () => { L.specials.items.push({ title: "", price: "", description: "", mediaId: null, image: null, days: 127, start: "", end: "" }); drawSpecials(); change(); } }, "+ Add special"));
+
+  // text
+  const blockList = h("div", {});
+  function drawBlocks() {
+    blockList.replaceChildren(...L.text.blocks.map((b, i) => h("div", { class: "sub-item" },
+      field("Text", h("textarea", { rows: 2, maxlength: 300, placeholder: "e.g. Open 7 days · 8am–10pm", oninput: e => { b.text = e.target.value; change(); } }, b.text)),
+      h("div", { class: "row" },
+        field("Where", h("select", { onchange: e => { b.position = e.target.value; change(); } }, opts(POSITION_LABELS, b.position))),
+        field("Size", h("select", { onchange: e => { b.size = e.target.value; change(); } }, opts(SIZE_LABELS, b.size)))),
+      h("div", { class: "colors" },
+        h("label", { class: "color-in" }, h("input", { type: "checkbox", checked: b.bold, onchange: e => { b.bold = e.target.checked; change(); } }), "Bold"),
+        colorIn(b.color, v => { b.color = v; change(); }, "Text"),
+        colorIn(b.bg, v => { b.bg = v; change(); }, "Box"),
+        h("label", { class: "color-in" }, "Box opacity", h("input", { type: "range", min: 0, max: 100, value: b.bgOpacity, style: "width:100px", oninput: e => { b.bgOpacity = Number(e.target.value); change(); } })),
+        h("button", { type: "button", class: "small danger", onclick: () => { L.text.blocks.splice(i, 1); drawBlocks(); change(); } }, "Remove")))));
+    if (!L.text.blocks.length) blockList.append(h("p", { class: "small muted" }, "No text blocks yet."));
+  }
+  drawBlocks();
+  const tk = L.text.ticker;
+  const tickerBody = h("div", { class: "layer-body" + (tk.enabled ? "" : " off") },
+    field("Messages (one per line)", h("textarea", { rows: 3, maxlength: 1000, placeholder: "Free Wi-Fi\nAsk about catering!", oninput: e => { tk.text = e.target.value; change(); } }, tk.text)),
+    h("div", { class: "row" },
+      field("Where", h("select", { onchange: e => { tk.position = e.target.value; change(); } }, opts([["bottom", "Bottom"], ["top", "Top"]], tk.position))),
+      field("Speed", h("select", { onchange: e => { tk.speed = e.target.value; change(); } }, opts([["slow", "Slow"], ["normal", "Normal"], ["fast", "Fast"]], tk.speed))),
+      field("Size", h("select", { onchange: e => { tk.size = e.target.value; change(); } }, opts(SIZE_LABELS, tk.size)))),
+    h("div", { class: "colors" }, colorIn(tk.color, v => { tk.color = v; change(); }, "Text"), colorIn(tk.bg, v => { tk.bg = v; change(); }, "Bar")));
+  const textBody = h("div", {},
+    blockList,
+    h("button", { type: "button", onclick: () => { L.text.blocks.push({ text: "", position: "top", size: "m", bold: true, color: "#ffffff", bg: "#000000", bgOpacity: 50 }); drawBlocks(); change(); } }, "+ Add text"),
+    h("div", { class: "layer-head", style: "margin-top:1.25rem" }, h("h3", { style: "margin:0" }, "Scrolling ticker"),
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: tk.enabled, onchange: e => { tk.enabled = e.target.checked; tickerBody.classList.toggle("off", !tk.enabled); change(); } }), h("span", {}))),
+    tickerBody);
+
+  // effects
+  const effectsBody = h("div", {},
+    h("div", { class: "row" },
+      field("Effect", h("select", { onchange: e => { L.effects.type = e.target.value; change(); } }, opts(EFFECT_LABELS, L.effects.type))),
+      field("Amount", h("select", { onchange: e => { L.effects.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], L.effects.intensity)))),
+    h("div", { class: "colors" }, colorIn(L.effects.color, v => { L.effects.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")));
+
+  const saveBtn = h("button", { class: "primary", onclick: async () => {
+    saveBtn.disabled = true;
+    try {
+      const saved = await api("PUT", "/screens/" + id + "/layers", L);
+      // Keep what the server cleaned (e.g. empty text removed) but don't redraw the editor.
+      dirty = false; saveBtn.textContent = "Saved";
+      toast("Layers saved. The screen updates within 30 seconds.");
+      if (saved.text.blocks.length !== L.text.blocks.length || saved.specials.items.length !== L.specials.items.length) route();
+    } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
+  } }, "Save");
+
+  main.replaceChildren(
+    h("a", { href: base() + "/screens/" + id, class: "back", onclick: e => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); } }, "← " + s.name),
+    pageHead("Layers", s.name + " · " + clientName(), saveBtn),
+    h("div", { class: "layers-grid" },
+      h("div", { class: "preview-col" }, h("div", { class: "card preview-card" }, h("h2", {}, "Live preview"), preview,
+        h("p", { class: "small muted", style: "margin:.6rem 0 0" }, "Layers stack from bottom to top: Video → Specials → Text → Effects."))),
+      h("div", { class: "stack" },
+        layerCard("video", "1 · Video", "The playlist (images, videos, web pages)", videoBody),
+        layerCard("specials", "2 · Specials", "Rotating offers with price and photo", specialsBody),
+        layerCard("text", "3 · Text", "Text blocks anywhere, plus a scrolling ticker", textBody),
+        layerCard("effects", "4 · Effects", "Animated overlay on top of everything", effectsBody))));
+  drawVideo(); refresh();
+  window.onbeforeunload = () => (dirty ? true : undefined);
+  // Stop the preview animations when leaving the page.
+  const stop = () => { if (overlay) overlay.destroy(); window.removeEventListener("hashchange", stop); };
+  window.addEventListener("hashchange", stop);
 }
 
 // ---------- inside a client: playlists ----------
