@@ -310,7 +310,7 @@ const pageHead = (title, sub, ...actions) => h("div", { class: "page-head" },
 
 // ---------- your team: overview of all clients ----------
 async function renderOverview(main) {
-  const [d, allScreens] = await Promise.all([api("GET", "/dashboard"), api("GET", "/screens"), loadCustomers()]);
+  const [d] = await Promise.all([api("GET", "/dashboard"), loadCustomers()]);
   const clients = state.customers;
   main.replaceChildren(
     pageHead("Dashboard", "All clients", isAdmin() ? h("button", { class: "primary", onclick: () => clientDialog() }, "+ New client") : null),
@@ -326,8 +326,7 @@ async function renderOverview(main) {
         d.offline.length ? h("table", {}, h("tbody", {}, d.offline.map(s => h("tr", { class: "click", onclick: () => (location.hash = `#/c/${s.customerId}/screens/${s.id}`) },
           h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, [s.customerName, s.location].filter(Boolean).join(" · "))),
           h("td", { class: "small muted", style: "text-align:right" }, "Last seen " + ago(s.lastSeen))))))
-          : h("p", { class: "muted" }, d.screens ? "All screens are online. 👍" : "No screens yet. Open a client to add one."))),
-    h("div", { style: "margin-top:1rem" }, mapCard(allScreens, s => `#/c/${s.customerId}/screens/${s.id}`)));
+          : h("p", { class: "muted" }, d.screens ? "All screens are online. 👍" : "No screens yet. Open a client to add one."))));
   poll(() => renderOverview(main).catch(() => {}), 60000);
 }
 
@@ -425,7 +424,7 @@ function whiteLabelCard() {
 
 // ---------- inside a client: overview ----------
 async function renderDashboard(main) {
-  const [d, screens] = await Promise.all([api("GET", "/dashboard"), api("GET", "/screens")]);
+  const d = await api("GET", "/dashboard");
   const c = isStaff() ? currentClient() : null;
   const list = (title, items, empty, extra) => h("div", { class: "card" }, h("h2", {}, title),
     items.length ? h("table", {}, h("tbody", {}, items.map(s => h("tr", { class: "click", onclick: () => go("/screens/" + s.id) },
@@ -442,7 +441,6 @@ async function renderDashboard(main) {
     h("div", { class: "grid two", style: "margin-top:1rem" },
       list("Offline screens", d.offline, d.screens ? "All screens are online. 👍" : "No screens yet. Click “Add screen” to pair a TV.", s => "Last seen " + ago(s.lastSeen)),
       list("Screens with nothing to play", d.noContent, "Every screen has a playlist.", () => "No playlist")),
-    screens.length ? h("div", { style: "margin-top:1rem" }, mapCard(screens, s => base() + "/screens/" + s.id)) : null,
     c && isAdmin() ? h("div", { style: "margin-top:2rem;text-align:right" },
       h("button", { class: "small danger", onclick: () => deleteClient(c) }, "Delete this client")) : null);
   poll(() => renderDashboard(main).catch(() => {}), 60000);
@@ -594,8 +592,7 @@ async function renderScreen(main, id) {
         h("div", { class: "card" }, h("h2", {}, "Schedule"),
           h("p", { class: "muted small" }, "During these times the screen plays the chosen playlist instead of its main one. The first matching slot wins. A slot that ends before it starts (e.g. 22:00 to 06:00) runs overnight."),
           slotsBox,
-          h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave)),
-        locationCard(s)),
+          h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave))),
       h("div", { class: "stack" },
         s.channelId ? h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
             h("a", { class: "btn small", href: base() + "/channels/" + s.channelId }, "Open channel")),
@@ -1157,99 +1154,6 @@ async function renderLogins(main) {
     pageHead("Logins", clientName()),
     usersCard(users, "Logins for " + clientName(),
       "These people log in at " + location.origin + " and only see " + clientName() + "'s screens, playlists and media."));
-}
-
-// ---------- screen map (OpenStreetMap via Leaflet, loaded only when a map is shown) ----------
-let leafletReady = null;
-function loadLeaflet() {
-  if (window.L) return Promise.resolve();
-  if (leafletReady) return leafletReady;
-  leafletReady = new Promise((resolve, reject) => {
-    document.head.append(h("link", { rel: "stylesheet", href: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" }));
-    const s = h("script", { src: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" });
-    s.onload = resolve; s.onerror = () => { leafletReady = null; reject(new Error("The map couldn't load.")); };
-    document.head.append(s);
-  });
-  return leafletReady;
-}
-
-/** A map of screens: green = online, grey = offline. Returns the Leaflet map (or null if it couldn't load). */
-async function screenMap(box, screens, { link, onClick, zoom } = {}) {
-  try { await loadLeaflet(); } catch (e) { box.replaceChildren(h("p", { class: "muted small" }, e.message)); return null; }
-  const map = L.map(box, { scrollWheelZoom: false, worldCopyJump: true });
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(map);
-  const pts = [];
-  for (const s of screens) {
-    if (s.lat == null || s.lng == null) continue;
-    pts.push([s.lat, s.lng]);
-    const m = L.circleMarker([s.lat, s.lng], { radius: 8, weight: 2, color: "#fff", fillOpacity: 1, fillColor: s.online ? "#16a34a" : "#94a3b8" }).addTo(map);
-    const pop = h("div", {}, h("strong", {}, s.name), h("div", { class: "small" }, [s.customerName, s.address || s.location].filter(Boolean).join(" · ")),
-      h("div", { class: "small" }, s.online ? "Online" : "Offline · last seen " + ago(s.lastSeen)));
-    if (link) pop.append(h("a", { href: link(s) }, "Open screen →"));
-    m.bindPopup(pop);
-  }
-  if (pts.length === 1) map.setView(pts[0], zoom || 14);
-  else if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 14 });
-  else map.setView([39.5, -98.35], 3);
-  if (onClick) map.on("click", e => onClick(e.latlng));
-  setTimeout(() => map.invalidateSize(), 50);
-  return map;
-}
-
-function mapCard(screens, link) {
-  const placed = screens.filter(s => s.lat != null).length;
-  const box = h("div", { class: "map" });
-  const card = h("div", { class: "card" },
-    h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Screen map"),
-      h("div", { class: "chips" }, h("span", { class: "pill" }, placed + " on map"),
-        h("span", { class: "pill ok" }, h("span", { class: "dot" }), "Online"), h("span", { class: "pill" }, h("span", { class: "dot" }), "Offline"))),
-    box,
-    placed < screens.length ? h("p", { class: "small muted", style: "margin:.5rem 0 0" }, (screens.length - placed) + " screen(s) not on the map yet. Open a screen and set its location.") : null);
-  requestAnimationFrame(() => screenMap(box, screens, { link }));
-  return card;
-}
-
-/** Location card on a screen's page: search an address or click the map. */
-function locationCard(s) {
-  let pos = s.lat != null ? { lat: s.lat, lng: s.lng } : null, address = s.address || "", map = null, marker = null;
-  const box = h("div", { class: "map small-map" });
-  const q = h("input", { type: "search", placeholder: "Search an address…", value: address });
-  const results = h("div", { class: "geo-results" });
-  const label = h("div", { class: "small muted" });
-  const setPin = (p, addr) => {
-    pos = p; if (addr !== undefined) address = addr;
-    label.textContent = pos ? (address || pos.lat.toFixed(5) + ", " + pos.lng.toFixed(5)) : "No location set.";
-    if (!map) return;
-    if (marker) { marker.remove(); marker = null; }
-    if (pos) { marker = L.marker([pos.lat, pos.lng]).addTo(map); map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 15)); }
-  };
-  const search = async () => {
-    results.replaceChildren(h("div", { class: "small muted" }, "Searching…"));
-    try {
-      const list = await api("GET", "/geocode?q=" + encodeURIComponent(q.value));
-      results.replaceChildren(...(list.length ? list.map(r => h("button", { type: "button", class: "geo-hit", onclick: () => { setPin({ lat: r.lat, lng: r.lng }, r.label); results.replaceChildren(); } }, r.label))
-        : [h("div", { class: "small muted" }, "No match. Try a shorter address, or click the map.")]));
-    } catch (e) { results.replaceChildren(h("div", { class: "small form-error" }, e.message)); }
-  };
-  q.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); search(); } });
-  const save = async () => {
-    try {
-      await api("PATCH", "/screens/" + s.id, pos ? { lat: pos.lat, lng: pos.lng, address } : { lat: null, address: "" });
-      toast(pos ? "Location saved." : "Location removed.");
-    } catch (e) { fail(e); }
-  };
-  requestAnimationFrame(async () => {
-    map = await screenMap(box, pos ? [{ ...s, ...pos }] : [], { onClick: ll => setPin({ lat: ll.lat, lng: ll.lng }, ""), zoom: 15 });
-    if (map && pos) { map.eachLayer(l => { if (l instanceof L.CircleMarker) l.remove(); }); setPin(pos); }
-  });
-  setPin(pos);
-  return h("div", { class: "card" }, h("h2", {}, "Location"),
-    h("div", { class: "row", style: "align-items:center;margin-bottom:.5rem" }, h("div", { style: "flex:1;min-width:180px" }, q), h("button", { type: "button", onclick: search }, "Find")),
-    results, box, h("div", { class: "row", style: "align-items:center;margin-top:.6rem;justify-content:space-between" }, label,
-      h("div", {}, h("button", { type: "button", class: "small", onclick: () => setPin(null, "") }, "Clear"), " ", h("button", { type: "button", class: "small primary", onclick: save }, "Save location"))),
-    h("p", { class: "small muted", style: "margin:.4rem 0 0" }, "Search an address or click the map to place the pin. Shown on the dashboard's screen map."));
 }
 
 // ---------- wizard (inside a client) ----------

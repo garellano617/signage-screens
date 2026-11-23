@@ -17,14 +17,13 @@ Every screen, playlist and media file belongs to a **client** (a business you pu
 
 ## Menu
 
-**Your team (main level):** Dashboard (all clients, offline screens, screen map) · White Label & Clients · Screen Monitoring · Reports · Billing · Download App · Profile & Admins.
+**Your team (main level):** Dashboard (all clients, offline screens) · White Label & Clients · Screen Monitoring · Reports · Billing · Download App · Profile & Admins.
 
 **Inside a client (and a client's own login):** Dashboard · Wizard · Content (Media library, Widgets) · Channels · Playlists · Screens · Screen Monitoring · Reports · Billing · Logins (or Download App and Profile & Admins for a client's login).
 
 - **Wizard:** step by step: add content → make a playlist → connect a TV → design layers.
 - **Widgets:** clock, weather (Open-Meteo, no key), news feed (RSS/Atom), QR code, countdown, message. Add them to playlists like images. The same drawing code runs in the portal and on the TV.
 - **Channels:** one playlist + layers design shared by many screens. Each screen's own schedule still applies.
-- **Screen map:** OpenStreetMap. Set a screen's location on its page (address search or click the map).
 - **Screen Monitoring:** online now, uptime per hour (24 hours, 7 days), screenshot wall, "screenshot all".
 - **Reports (proof of play):** the player reports every item it played. Plays and time per day, per content, per screen. CSV export. Kept 13 months.
 - **White label:** portal name, logo (PNG/JPG/WebP) and main color, shown on the login page, the menu and the browser tab.

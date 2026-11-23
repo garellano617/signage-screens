@@ -59,7 +59,6 @@ main { padding: 1.5rem 2rem 3rem; min-width: 0; max-width: 1200px; }
   .navgroup-head { display: none; }
   .submenu, .submenu.open { display: contents; }
   .nav a.sub { padding-left: .65rem; font-size: .9rem; }
-  .map { height: 280px; }
   .nav a { padding: .5rem .65rem; font-size: .9rem; }
   main { padding: 1rem 16px 3rem; }
 }
@@ -215,12 +214,9 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .widget-preview > .sw-root, .widget-preview.sw-root { position: absolute; }
 @media (max-width: 760px) { .widget-dialog { grid-template-columns: 1fr; } }
 
-/* maps */
-.map { height: 380px; border-radius: 8px; overflow: hidden; background: var(--surface-2); z-index: 0; }
-.small-map { height: 260px; }
+/* address search results (weather widget) */
 .geo-results { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .5rem; }
 .geo-hit { justify-content: flex-start; white-space: normal; text-align: left; font-size: .85rem; }
-.leaflet-popup-content a { display: inline-block; margin-top: .3rem; }
 
 /* wizard */
 .wizard-step { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
@@ -282,6 +278,5 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
   .navgroup-head { display: none; }
   .submenu, .submenu.open { display: contents; }
   .nav a.sub { padding-left: .65rem; font-size: .9rem; }
-  .map { height: 280px; }
   .widget-dialog { grid-template-columns: 1fr; }
 }
