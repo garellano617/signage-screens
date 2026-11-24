@@ -180,6 +180,9 @@ if (!hasColumn("customers", "billing_client_id")) db.exec("ALTER TABLE customers
 for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"], ["planned", "INTEGER NOT NULL DEFAULT 0"]])
   if (!hasColumn("screens", col)) db.exec(`ALTER TABLE screens ADD COLUMN ${col} ${type}`);
 
+// AI designer requests per client per day (YYYY-MM-DD), for the daily limit.
+db.exec("CREATE TABLE IF NOT EXISTS ai_usage (customer_id INTEGER NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (customer_id, day))");
+
 // Screen monitoring: minutes online per screen per hour (hour = Unix time / 3600000).
 db.exec(`
 CREATE TABLE IF NOT EXISTS screen_uptime (

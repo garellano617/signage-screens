@@ -709,7 +709,8 @@ const snapH = v => Math.round(v * 2) / 2;
 async function renderLayers(main, id, kind) {
   const isCh = kind === "channel";
   const path = (isCh ? "/channels/" : "/screens/") + id;
-  const [s, media] = await Promise.all([api("GET", path), api("GET", "/media")]);
+  const [s, media, templates, aiStatus] = await Promise.all([api("GET", path), api("GET", "/media"),
+    api("GET", "/layer-templates").catch(() => []), api("GET", "/ai/status").catch(() => ({ enabled: false }))]);
   if (!isCh && s.channelId) {
     // This screen's layers come from its channel.
     main.replaceChildren(h("a", { href: base() + "/screens/" + id, class: "back" }, "← " + s.name),
@@ -725,7 +726,8 @@ async function renderLayers(main, id, kind) {
   const loop = items.reduce((a, it) => a + itemLen(it), 0);
   const portrait = !isCh && (s.orientation === 90 || s.orientation === 270);
   const T = () => L.text.cycle || clampN(loop || 30, 10, 600);
-  let dirty = false, overlay = null, rt = 0, sel = null, tab = "text", playhead = 0, playing = false, raf = 0, lastTs = 0, shownItem = null;
+  const blank = !L.specials.enabled && !L.text.enabled && !L.effects.enabled;
+  let dirty = false, overlay = null, rt = 0, sel = null, tab = blank ? "templates" : "text", playhead = 0, playing = false, raf = 0, lastTs = 0, shownItem = null;
   let blockNodes = [];
   const isSel = (type, i) => !!sel && sel.type === type && (i === undefined || sel.i === i);
   // Dragging doesn't move the keyboard focus by itself; drop it so Delete works on the selected item.
@@ -870,7 +872,89 @@ async function renderLayers(main, id, kind) {
   }
 
   // ---------- side panel ----------
-  const TABS = [["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Video"]];
+  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Video"]];
+  let thumbs = [], undo = null, aiBusy = false, aiNote = "", aiPrompt = "";
+  const LAYER_KEYS = ["video", "specials", "text", "effects"];
+  /** Replace the whole design (template or AI). The previous one is kept for Undo until saved or replaced again. */
+  function applyDesign(next, label) {
+    undo = { layers: JSON.parse(JSON.stringify(L)), label };
+    LAYER_KEYS.forEach(k => { L[k] = JSON.parse(JSON.stringify(next[k])); });
+    sel = null; drawVideo(true); change(); select(null);
+  }
+  function undoBar() {
+    if (!undo) return null;
+    return h("div", { class: "ed-undo" }, h("span", { class: "small" }, undo.label + " applied. Not saved yet."),
+      h("button", { type: "button", class: "small", onclick: () => {
+        const prev = undo.layers; undo = null;
+        LAYER_KEYS.forEach(k => { L[k] = prev[k]; });
+        sel = null; drawVideo(true); change(); select(null);
+      } }, "Undo"));
+  }
+  function templatesPanel() {
+    const out = [undoBar(), h("p", { class: "small muted" }, "Pick a design to start from, then change the words, colors and positions. Your playlist keeps playing in the video area.")];
+    const byCat = {};
+    templates.forEach(tp => (byCat[tp.category] = byCat[tp.category] || []).push(tp));
+    for (const [cat, list] of Object.entries(byCat)) {
+      out.push(h("div", { class: "small muted ed-cat" }, cat));
+      out.push(h("div", { class: "ed-templates" }, list.map(tp => {
+        const ov = h("div", { class: "pv-overlay" });
+        const r = SignageOverlay.REGIONS[tp.layers.video.region] || SignageOverlay.REGIONS.full;
+        const box = h("div", { class: "preview ed-thumb" }, h("div", { class: "pv-bg" }),
+          h("div", { class: "pv-video ed-thumb-video", style: `left:${r[0]}%;top:${r[1]}%;width:${r[2]}%;height:${r[3]}%` }), ov);
+        // Thumbnails skip the animation; the effect is named under the picture instead.
+        const still = JSON.parse(JSON.stringify(tp.layers)); still.effects.enabled = false;
+        requestAnimationFrame(() => { if (ov.isConnected) thumbs.push(SignageOverlay.render(ov, still, { time: () => 2 })); });
+        const fx = tp.layers.effects.enabled ? (EFFECT_LABELS.find(e => e[0] === tp.layers.effects.type) || [, ""])[1] : "";
+        return h("button", { type: "button", class: "ed-template", title: tp.description, onclick: async () => {
+          const has = L.specials.enabled || L.text.enabled || L.effects.enabled;
+          if (has && !await confirmDlg("Use the “" + tp.name + "” template?", "It replaces this design. You can undo it until you save.", "Use template")) return;
+          applyDesign(tp.layers, "Template “" + tp.name + "”");
+          toast("Template applied. Change the words, then save.");
+        } }, box, h("strong", { class: "small" }, tp.name), fx ? h("span", { class: "small muted" }, " · " + fx) : null);
+      })));
+    }
+    return out;
+  }
+  const AI_EXAMPLES = ["Taco Tuesday: 3 tacos and a drink for $7.99, festive look",
+    "Morning coffee menu: latte $4.50, cold brew $4, croissant $3.25",
+    "Grand opening this Saturday at 10 AM, free samples all day",
+    "Holiday hours: Dec 24 close at 3 PM, closed Dec 25, gift cards available"];
+  function aiPanel() {
+    const out = [undoBar()];
+    if (!aiStatus.enabled) {
+      out.push(h("div", { class: "sub-item" }, h("strong", {}, "The AI designer is off"),
+        h("p", { class: "small muted" }, isStaff()
+          ? "To turn it on, add ANTHROPIC_API_KEY (from console.anthropic.com) in Render → signage-portal → Environment. Each request is billed by Anthropic to that account, usually a few cents. Each client can make " + (aiStatus.limit || 40) + " requests a day (AI_DAILY_LIMIT)."
+          : "Ask your provider to turn it on."),
+        h("p", { class: "small muted" }, "Meanwhile, the Templates tab has ready-made designs.")));
+      return out;
+    }
+    const ta = h("textarea", { rows: 5, maxlength: 2000, placeholder: "Describe the screen: what to promote, prices, dates, the look you want…",
+      oninput: e => { aiPrompt = e.target.value; } }, aiPrompt);
+    const note = h("p", { class: "small" }, aiNote);
+    const go = mode => async () => {
+      if (!ta.value.trim()) return fail(new Error("Describe what the screen should show first."));
+      if (mode === "design" && (L.specials.enabled || L.text.enabled || L.effects.enabled)
+        && !await confirmDlg("Replace this design?", "The AI makes a whole new design. You can undo it until you save.", "Design it")) return;
+      aiBusy = true; aiNote = ""; drawSide();
+      try {
+        const r = await api("POST", "/ai/design", { prompt: ta.value, mode, current: L });
+        aiStatus.left = r.left;
+        aiNote = r.summary;
+        applyDesign(r.layers, mode === "design" ? "AI design" : "AI words");
+      } catch (e) { fail(e); } finally { aiBusy = false; drawSide(); }
+    };
+    if (aiNote) out.push(h("div", { class: "sub-item ed-ai-note" }, h("strong", { class: "small" }, "✨ "), note));
+    out.push(h("p", { class: "small muted" }, "Describe the screen and Claude (AI) designs it with your words, prices and pictures. Check the result before saving: the AI only uses prices you give it."),
+      field("What should the screen show?", ta),
+      h("div", { class: "ed-examples" }, AI_EXAMPLES.map(x => h("button", { type: "button", class: "small", onclick: () => { aiPrompt = x; ta.value = x; } }, x))),
+      aiBusy ? h("p", { class: "small" }, h("span", { class: "spinner" }), " The AI is designing… this takes about 20 to 60 seconds.")
+        : h("div", { class: "stack", style: "gap:.5rem" },
+          h("button", { type: "button", class: "primary", onclick: go("design") }, "✨ Design the whole screen"),
+          h("button", { type: "button", onclick: go("content") }, "Write new words, keep my layout")),
+      aiStatus.left !== null && aiStatus.left !== undefined ? h("p", { class: "small muted" }, aiStatus.left + " AI requests left today for this client.") : null);
+    return out;
+  }
   const tabsBar = h("div", { class: "ed-tabs" });
   const panel = h("div", { class: "ed-panel" });
   const side = h("div", { class: "card ed-side" }, tabsBar, panel);
@@ -883,6 +967,7 @@ async function renderLayers(main, id, kind) {
         oninput: e => { if (!L.text.cycle) L.text.cycle = len; const v = clampN(Number(e.target.value) || len, 0, len); b.to = v >= len ? 0 : v; change(); } })));
   }
   function drawSide() {
+    thumbs.forEach(o => o.destroy()); thumbs = [];
     tabsBar.replaceChildren(...TABS.map(([k, l]) => h("button", { type: "button", class: tab === k ? "on" : "", onclick: () => { tab = k; drawSide(); } }, l)));
     const kids = [];
     if (tab === "media") {
@@ -912,6 +997,10 @@ async function renderLayers(main, id, kind) {
           field("Speed", h("select", { onchange: e => { tk.speed = e.target.value; change(); } }, opts([["slow", "Slow"], ["normal", "Normal"], ["fast", "Fast"]], tk.speed))),
           field("Size", h("select", { onchange: e => { tk.size = e.target.value; change(); } }, opts(SIZE_LABELS, tk.size)))),
         h("div", { class: "colors" }, colorIn(tk.color, v => { tk.color = v; change(); }, "Text"), colorIn(tk.bg, v => { tk.bg = v; change(); }, "Bar")));
+    } else if (tab === "templates") {
+      kids.push(...templatesPanel().filter(Boolean));
+    } else if (tab === "ai") {
+      kids.push(...aiPanel().filter(Boolean));
     } else if (tab === "specials") {
       kids.push(specialsPanel());
     } else if (tab === "effects") {
@@ -1110,6 +1199,7 @@ async function renderLayers(main, id, kind) {
     try {
       const saved = await api("PUT", path + "/layers", L);
       dirty = false; saveBtn.textContent = "Saved";
+      if (undo) { undo = null; if (tab === "templates" || tab === "ai") drawSide(); }
       toast(isCh ? "Layers saved. Every screen on this channel updates within 30 seconds." : "Layers saved. The screen updates within 30 seconds.");
       // The server drops empty text and unknown pictures: reload if it changed anything we show.
       if (saved.text.blocks.length !== L.text.blocks.length || saved.specials.items.length !== L.specials.items.length) route();

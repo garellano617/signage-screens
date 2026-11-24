@@ -39,6 +39,18 @@ The editor works like a video editor:
 - **Preview** (middle): drag text and pictures anywhere. Click the video area to select the video layer.
 - **Timeline** (bottom): one track per layer with an on/off box. Text and picture bars can be moved and resized to set when they show. Play, or click the ruler to jump to a moment. The **timeline length** is how often timed text and pictures repeat on the TV.
 - **Delete** key removes the selected text or picture.
+- **Templates** tab: 12 ready-made designs to start from (menu board, daily deal, price list, coffee shop, happy hour, grand opening, big sale, new arrivals, welcome lobby, holiday, Valentine's Day, fall harvest). A blank screen opens on this tab. Applying one replaces the design; **Undo** brings the old one back until you save.
+- **✨ AI** tab: describe the screen ("Taco Tuesday, 3 tacos and a drink for $7.99, festive") and Claude designs it, using the client's name and pictures. **Write new words, keep my layout** only rewrites the text (for example to change the offer or translate it). Nothing is saved until you click Save. The AI only uses prices you give it.
+
+### Turn on the AI designer
+
+The AI tab calls the Anthropic API (model `claude-opus-5-5`), which is billed to your Anthropic account per request (usually a few cents).
+
+1. Create an API key at console.anthropic.com (add billing there).
+2. In Render, open **signage-portal → Environment** and add `ANTHROPIC_API_KEY` with that key. The service restarts.
+3. Optional: `AI_DAILY_LIMIT` sets how many AI requests each client can make per day (default 40).
+
+Without the key, the AI tab shows how to turn it on, and the templates still work.
 
 1. **Video:** the screen's playlist and schedule. It can fill the screen or a smaller area (left 70%, top 85%, …) to leave room for the other layers.
 2. **Specials:** offers with title, price, description and an optional photo, taking turns every few seconds. Each one can be limited to certain days and times. Shown as a side panel or a card.

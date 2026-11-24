@@ -929,6 +929,38 @@ router.post("/apk", auth.requireStaff, auth.requireAdmin, apkUpload.single("file
   res.status(201).json({ available: true, file: a.file, size: a.size, updatedAt: a.updatedAt, url: "/download/player.apk" });
 });
 
+// ---------- layout templates and the AI designer ----------
+const ai = require("./ai");
+const { TEMPLATES } = require("./templates");
+router.get("/layer-templates", (req, res) => res.json(TEMPLATES));
+
+const today = () => new Date().toISOString().slice(0, 10);
+const aiUsed = cid => (get("SELECT count FROM ai_usage WHERE customer_id = ? AND day = ?", cid, today()) || { count: 0 }).count;
+router.get("/ai/status", (req, res) => {
+  const limit = ai.dailyLimit();
+  res.json({ enabled: ai.enabled(), limit, left: req.cid ? Math.max(0, limit - aiUsed(req.cid)) : null });
+});
+
+/** Claude designs the screen (mode "design") or rewrites the words of the current design (mode "content"). Nothing is saved. */
+router.post("/ai/design", async (req, res) => {
+  const cid = targetCustomer(req);
+  const prompt = str(req.body.prompt, 2000, "Request").trim();
+  if (!prompt) throw bad("Describe what the screen should show.");
+  const mode = req.body.mode === "content" ? "content" : "design";
+  if (!ai.enabled()) throw new ai.AiError(503, "The AI designer isn't set up yet. Add ANTHROPIC_API_KEY on the server.");
+  if (aiUsed(cid) >= ai.dailyLimit()) throw new HttpError(429, `This client has used all ${ai.dailyLimit()} AI requests for today. Try again tomorrow.`);
+  // Counted before the call: a request costs money even when its answer isn't used.
+  run(`INSERT INTO ai_usage (customer_id, day, count) VALUES (?, ?, 1)
+    ON CONFLICT (customer_id, day) DO UPDATE SET count = count + 1`, cid, today());
+  const img = clientImage(cid);
+  const check = id => !!img(id);
+  const current = sanitizeLayers(req.body.current, check);
+  const images = all("SELECT id, name FROM media WHERE customer_id = ? AND kind = 'image' ORDER BY id DESC LIMIT 60", cid);
+  const out = await ai.design({ prompt, mode, current, businessName: loadCustomer(cid).name, images });
+  const clean = sanitizeLayers(mode === "content" ? ai.mergeWords(current, out.layers) : out.layers, check);
+  res.json({ layers: withImages(clean, img), summary: String(out.summary || "").slice(0, 500), left: Math.max(0, ai.dailyLimit() - aiUsed(cid)) });
+});
+
 // ---------- errors ----------
 router.use((req, res) => res.status(404).json({ error: "Not found." }));
 // eslint-disable-next-line no-unused-vars
@@ -939,10 +971,10 @@ router.use((err, req, res, next) => {
   }
   if (err.type === "entity.parse.failed") return res.status(400).json({ error: "Invalid JSON." });
   const status = err.status || 500;
-  if (status >= 500) console.error(err);
+  if (status >= 500 && !(err instanceof ai.AiError)) console.error(err);
   // Clean up half-finished uploads.
   for (const f of [].concat(req.files || [], req.file || [])) fs.rm(f.path, { force: true }, () => {});
-  res.status(status).json({ error: status >= 500 && !(err instanceof HttpError) ? "Something went wrong on the server." : err.message });
+  res.status(status).json({ error: status >= 500 && !(err instanceof HttpError) && !(err instanceof ai.AiError) ? "Something went wrong on the server." : err.message });
 });
 
 module.exports = { router, latestApk };

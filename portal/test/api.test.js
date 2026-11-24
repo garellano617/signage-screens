@@ -712,3 +712,89 @@ test("screens set up before the TV is connected, then paired into", async () => 
   assert.match((await call("POST", "/api/screens/plan", { name: "Bar" })).body.error, /2 of 2/);
   assert.match((await call("POST", "/api/screens/pair", { code: old.pairingCode })).body.error, /2 of 2/);
 });
+
+test("layout templates and the AI designer (fake AI client, no paid calls)", async () => {
+  const ai = require("../src/ai");
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const C = (await call("POST", "/api/customers", { name: "AI Taqueria" })).body;
+  const O = (await call("POST", "/api/customers", { name: "AI Other" })).body;
+  const png = Buffer.from("89504e470d0a1a0a", "hex");
+  const up = async cid => { scopeId = cid; const fd = new FormData(); fd.append("files", new Blob([png], { type: "image/png" }), "logo.png"); return (await call("POST", "/api/media", fd)).body[0]; };
+  const otherImg = await up(O.id), logo = await up(C.id);
+  scopeId = C.id;
+
+  // Templates: a good set, each already a clean design.
+  const tpl = (await call("GET", "/api/layer-templates")).body;
+  assert.ok(tpl.length >= 10);
+  for (const t of tpl) {
+    assert.ok(t.id && t.name && t.category && t.description);
+    assert.ok(t.layers.specials.enabled || t.layers.text.enabled, t.id + " has content");
+    assert.deepEqual(Object.keys(t.layers), ["video", "specials", "text", "effects"]);
+  }
+  assert.equal(new Set(tpl.map(t => t.id)).size, tpl.length);
+
+  // Off without a key.
+  ai.setClient(null); delete process.env.ANTHROPIC_API_KEY;
+  assert.equal((await call("GET", "/api/ai/status")).body.enabled, false);
+  assert.equal((await call("POST", "/api/ai/design", { prompt: "Taco Tuesday" })).status, 503);
+
+  // A fake Claude that answers with a design using one good and one foreign picture.
+  let sent = null, answer = null;
+  ai.setClient({ beta: { messages: { parse: async p => { sent = p; return answer; } } } });
+  const block = (o = {}) => Object.assign({ kind: "text", text: "TACO TUESDAY", mediaId: null, position: "top", fs: 7, w: 0, font: "condensed", align: "center",
+    bold: true, italic: false, color: "#ffffff", bg: "#dc2626", bgOpacity: 90, from: 0, to: 0 }, o);
+  const design = {
+    summary: "A bold Taco Tuesday screen.",
+    video: { enabled: true, region: "left70" },
+    specials: { enabled: true, heading: "Specials", position: "right", seconds: 8, accent: "#f59e0b", bg: "#111827", color: "#ffffff",
+      items: [{ title: "3 tacos + drink", price: "$7.99", description: "", mediaId: null }] },
+    text: { enabled: true, cycle: 0, blocks: [block(), block({ kind: "image", text: "", mediaId: logo.id, position: "top-left", w: 15 }),
+      block({ kind: "image", text: "", mediaId: otherImg.id, position: "bottom-left", w: 15 })],
+      ticker: { enabled: true, text: "Every Tuesday", position: "bottom", speed: "normal", size: "m", color: "#ffffff", bg: "#111827" } },
+    effects: { enabled: true, type: "confetti", intensity: "light", color: "#ffffff" }
+  };
+  answer = { stop_reason: "end_turn", parsed_output: design };
+  process.env.AI_DAILY_LIMIT = "3";
+  assert.equal((await call("POST", "/api/ai/design", { prompt: "" })).status, 400);
+  let r = await call("POST", "/api/ai/design", { prompt: "Taco Tuesday: 3 tacos + drink $7.99" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(sent.model, "claude-opus-5-5");
+  assert.equal(sent.fallbacks, "default");
+  assert.ok(sent.output_config.format, "structured output");
+  assert.match(sent.messages[0].content, /AI Taqueria/);
+  assert.match(sent.messages[0].content, new RegExp("mediaId " + logo.id + ": logo"));
+  assert.doesNotMatch(sent.messages[0].content, new RegExp("mediaId " + otherImg.id + ":"), "only this client's pictures are offered");
+  assert.equal(r.body.summary, "A bold Taco Tuesday screen.");
+  assert.equal(r.body.layers.video.region, "left70");
+  assert.deepEqual(r.body.layers.text.blocks.map(b => b.kind), ["text", "image"], "another client's picture is dropped");
+  assert.equal(r.body.layers.text.blocks[1].image.mediaId, logo.id);
+  assert.equal(r.body.left, 2);
+
+  // Content mode keeps the layout and takes only the words.
+  const current = r.body.layers;
+  current.text.blocks[0].position = "bottom-right"; current.text.blocks[0].x = 10; current.text.blocks[0].y = 20;
+  answer = { stop_reason: "end_turn", parsed_output: { ...design, video: { enabled: true, region: "full" },
+    specials: { ...design.specials, heading: "Hoy", items: [{ title: "Tres tacos", price: "$7.99", description: "con bebida", mediaId: null }] },
+    text: { ...design.text, blocks: [block({ text: "MARTES DE TACOS", position: "center", fs: 3 })], ticker: { ...design.text.ticker, text: "Cada martes" } } } };
+  r = await call("POST", "/api/ai/design", { prompt: "in Spanish", mode: "content", current });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(sent.messages[0].content, /Rewrite only the words/);
+  const b0 = r.body.layers.text.blocks[0];
+  assert.equal(b0.text, "MARTES DE TACOS");
+  assert.deepEqual([b0.position, b0.x, b0.y, b0.fs], ["bottom-right", 10, 20, 7], "layout kept");
+  assert.equal(r.body.layers.video.region, "left70", "video area kept");
+  assert.equal(r.body.layers.text.blocks.length, 2, "picture kept");
+  assert.equal(r.body.layers.specials.items[0].title, "Tres tacos");
+  assert.equal(r.body.layers.text.ticker.text, "Cada martes");
+
+  // A refusal is reported, and the daily limit holds.
+  answer = { stop_reason: "refusal", parsed_output: null };
+  assert.equal((await call("POST", "/api/ai/design", { prompt: "x" })).status, 422);
+  const over = await call("POST", "/api/ai/design", { prompt: "x" });
+  assert.equal(over.status, 429);
+  assert.match(over.body.error, /all 3 AI requests/);
+  scopeId = O.id;
+  assert.equal((await call("GET", "/api/ai/status")).body.left, 3, "limits are per client");
+  ai.setClient(null); delete process.env.AI_DAILY_LIMIT;
+});
