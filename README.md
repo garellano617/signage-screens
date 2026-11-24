@@ -58,7 +58,7 @@ The repository includes a Render Blueprint (`render.yaml`). It runs the portal o
 1. Push this repository to GitHub. A private repository is fine.
 2. In Render, go to **New → Blueprint**, connect GitHub, and pick the repository.
 3. Enter `ADMIN_EMAIL` and `ADMIN_PASSWORD` for the first admin login, then click **Apply**.
-4. Add your own domain: open the service, go to **Settings → Custom Domains** and add e.g. `signage.yourdomain.com`. Then, at your DNS provider, add a **CNAME** record pointing to `signage-portal.onrender.com`. Render sets up HTTPS automatically.
+4. Own domain: the portal's address is **https://signage.precom.net** (listed under `domains` in `render.yaml`; if it doesn't show up under the service's **Settings → Custom Domains**, add it there). At Network Solutions, the DNS for `precom.net` has a **CNAME** record: host `signage`, pointing to `signage-portal.onrender.com`. Render sets up HTTPS automatically once the record is live. The old `signage-portal.onrender.com` address keeps working.
 5. Log in, open **Settings**, and upload the player APK.
 
 **Can't log in?** In Render, go to **Environment** and check `ADMIN_EMAIL` and `ADMIN_PASSWORD`. To reset the password to `ADMIN_PASSWORD`, add `ADMIN_RESET_PASSWORD` = `true`, save (the service restarts), log in, then delete `ADMIN_RESET_PASSWORD`.
@@ -72,7 +72,7 @@ Double-click `player-android\build-apk.cmd`.
 - The first run asks you to accept Google's Android SDK license, then installs the SDK pieces.
 - Java and the Android SDK live in `C:\Users\servi\android-build`. Nothing is installed system-wide.
 - The finished APK is copied into the portal, so **Settings → Download player app** serves it.
-- Optional: `build-apk.cmd http://192.168.1.81:3100` builds the portal address into the app, so TVs skip the address screen.
+- Recommended: `build-apk.cmd https://signage.precom.net` builds the portal address into the app, so TVs skip the address screen.
 - To sign with your own key instead of the debug key, create `player-android\keystore.properties` with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`.
 
 ## Set up a TV
