@@ -14,6 +14,10 @@
 .so-pos-bottom { bottom: 6%; left: 50%; transform: translateX(-50%); text-align: center; }
 .so-pos-bottom-right { bottom: 6%; right: 3%; text-align: right; }
 
+.so-free { max-width: none; }
+.so-image { padding: 0; line-height: 0; }
+.so-image img { display: block; width: 100%; height: auto; }
+
 /* ticker */
 .so-ticker { position: absolute; left: 0; right: 0; height: 1.9em; overflow: hidden; display: flex; align-items: center; z-index: 2; }
 .so-ticker-bottom { bottom: 0; }

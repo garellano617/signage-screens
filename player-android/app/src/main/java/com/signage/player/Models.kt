@@ -63,6 +63,10 @@ data class Config(
             layers?.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { sp ->
                 sp.optJSONObject("image")?.let { specialImages += imageItem(it) }
             }
+            // Pictures placed on the text layer (logos, photos) are cached the same way.
+            layers?.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { b ->
+                b.optJSONObject("image")?.let { specialImages += imageItem(it) }
+            }
             return Config(
                 paired = o.optBoolean("paired", false),
                 screen = screen,

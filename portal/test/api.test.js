@@ -326,6 +326,22 @@ test("screen layers: saved, cleaned, kept per client, sent to the player", async
   assert.equal(cfg.layers.video.region, "left70");
   assert.equal(cfg.layers.specials.items[0].image.sha256, imgA.sha256);
 
+  // Text & pictures: placed by hand, fonts, timing within a cycle, pictures from this client only.
+  const put2 = await call("PUT", "/api/screens/" + scr.id + "/layers", Object.assign({}, L, { text: Object.assign({}, L.text, { cycle: 20, blocks: [
+    { kind: "text", text: "Picanha  $11.99", x: 12.34, y: 150, fs: 99, font: "comic", align: "right", italic: true, from: 5, to: 12 },
+    { kind: "image", mediaId: imgA.id, x: 60, y: 10, w: 25, from: 15, to: 3 },
+    { kind: "image", mediaId: imgB.id, x: 1, y: 1 },
+    { kind: "image" }
+  ] }) }));
+  assert.equal(put2.status, 200, JSON.stringify(put2.body));
+  const [tb, ib] = put2.body.text.blocks;
+  assert.equal(put2.body.text.blocks.length, 2, "another client's picture and an empty picture are dropped");
+  assert.equal(put2.body.text.cycle, 20);
+  assert.deepEqual([tb.x, tb.y, tb.fs, tb.font, tb.align, tb.italic, tb.from, tb.to], [12.3, 100, 30, "sans", "right", true, 5, 12]);
+  assert.deepEqual([ib.kind, ib.w, ib.from, ib.to, ib.image.src], ["image", 25, 0, 0, imgA.src], "end before start -> whole cycle");
+  const cfg2 = (await call("GET", "/api/player/config", undefined, auth)).body;
+  assert.equal(cfg2.layers.text.blocks[1].image.sha256, imgA.sha256, "the player can cache the picture");
+
   // Another client's login can't read or change these layers.
   scopeId = B.id;
   assert.equal((await call("GET", "/api/screens/" + scr.id + "/layers")).status, 404);
@@ -337,6 +353,7 @@ test("screen layers: saved, cleaned, kept per client, sent to the player", async
   const after = (await call("GET", "/api/screens/" + scr.id + "/layers")).body;
   assert.equal(after.specials.items[0].title, "Taco plate");
   assert.equal(after.specials.items[0].image, null);
+  assert.deepEqual(after.text.blocks.map(b => b.kind), ["text"], "a picture block whose picture was deleted is dropped");
 });
 
 test("screen map location, monitoring uptime, screenshot all", async () => {

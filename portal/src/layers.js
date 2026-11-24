@@ -12,13 +12,16 @@ const clip = (v, n) => String(v == null ? "" : v).slice(0, n);
 const color = (v, d) => (/^#[0-9a-fA-F]{6}$/.test(v || "") ? String(v).toLowerCase() : d);
 const pick = (v, list, d) => (list.includes(v) ? v : d);
 const num = (v, min, max, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d; };
-const time = v => (/^([01]\d|2[0-3]):[0-5]\d$/.test(v || "") ? v : "");
+const numf = (v, min, max, d) => { const n = Math.round(Number(v) * 10) / 10; return v !== null && v !== "" && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d; };
+const FONTS = ["sans", "serif", "condensed", "mono", "script"];
+const MAX_BLOCKS = 30;
+const time = v =>(/^([01]\d|2[0-3]):[0-5]\d$/.test(v || "") ? v : "");
 
 function defaultLayers() {
   return {
     video: { enabled: true, region: "full" },
     specials: { enabled: false, heading: "Today's specials", position: "right", seconds: 8, accent: "#f59e0b", bg: "#111827", color: "#ffffff", items: [] },
-    text: { enabled: false, blocks: [], ticker: { enabled: false, text: "", position: "bottom", speed: "normal", size: "m", color: "#ffffff", bg: "#111827" } },
+    text: { enabled: false, cycle: 0, blocks: [], ticker: { enabled: false, text: "", position: "bottom", speed: "normal", size: "m", color: "#ffffff", bg: "#111827" } },
     effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff" }
   };
 }
@@ -43,15 +46,39 @@ function sanitizeLayers(input, checkImage) {
       end: time(x && x.end)
     };
   }).filter(x => x.title || x.price || x.description || x.mediaId);
-  const blocks = (Array.isArray(tx.blocks) ? tx.blocks : []).slice(0, 12).map(b => ({
-    text: clip(b && b.text, 300),
-    position: pick(b && b.position, POSITIONS, "top"),
-    size: pick(b && b.size, SIZES, "m"),
-    bold: !!(b && b.bold),
-    color: color(b && b.color, "#ffffff"),
-    bg: color(b && b.bg, "#000000"),
-    bgOpacity: num(b && b.bgOpacity, 0, 100, 50)
-  })).filter(b => b.text.trim());
+  const cycle = num(tx.cycle, 0, 3600, 0);
+  const blocks = (Array.isArray(tx.blocks) ? tx.blocks : []).slice(0, MAX_BLOCKS).map(raw => {
+    const b = raw && typeof raw === "object" ? raw : {};
+    const kind = b.kind === "image" ? "image" : "text";
+    const mediaId = kind === "image" && b.mediaId ? Number(b.mediaId) : null;
+    const free = b.x !== null && b.x !== undefined && b.x !== "" && b.y !== null && b.y !== undefined && b.y !== "";
+    const from = cycle ? numf(b.from, 0, cycle, 0) : 0;
+    const to = cycle ? numf(b.to, 0, cycle, 0) : 0;
+    return {
+      kind,
+      text: kind === "text" ? clip(b.text, 600) : "",
+      mediaId: mediaId && Number.isInteger(mediaId) && checkImage(mediaId) ? mediaId : null,
+      position: pick(b.position, POSITIONS, "top"),
+      // Free placement: top-left corner in % of the screen (null = use position).
+      x: free ? numf(b.x, -50, 100, 0) : null,
+      y: free ? numf(b.y, -50, 100, 0) : null,
+      // Width in % of the screen (0 = as wide as the text).
+      w: numf(b.w, 0, 100, kind === "image" ? 30 : 0),
+      size: pick(b.size, SIZES, "m"),
+      // Font size in % of the screen width (0 = use size).
+      fs: numf(b.fs, 0, 30, 0),
+      font: pick(b.font, FONTS, "sans"),
+      align: pick(b.align, ["left", "center", "right"], ""),
+      bold: !!b.bold,
+      italic: !!b.italic,
+      color: color(b.color, "#ffffff"),
+      bg: color(b.bg, "#000000"),
+      bgOpacity: num(b.bgOpacity, 0, 100, kind === "image" ? 0 : 50),
+      // Shown from..to seconds into each cycle (to = 0: until the end).
+      from: to && to <= from ? 0 : from,
+      to: to && to <= from ? 0 : to
+    };
+  }).filter(b => (b.kind === "text" ? b.text.trim() : b.mediaId));
   return {
     video: { enabled: v.enabled !== false, region: pick(v.region, REGIONS, d.video.region) },
     specials: {
@@ -64,6 +91,8 @@ function sanitizeLayers(input, checkImage) {
     },
     text: {
       enabled: !!tx.enabled,
+      // Text timing repeats every `cycle` seconds (0 = every block shows all the time).
+      cycle,
       blocks,
       ticker: {
         enabled: !!tk.enabled,
@@ -91,14 +120,17 @@ function parseLayers(json) {
   return raw ? sanitizeLayers(raw, () => true) : defaultLayers();
 }
 
-/** Adds each special's image (src, sha256, size) so the portal can preview it and the player can cache it. */
+/** Adds each special's and image block's image (src, sha256, size) so the portal can preview it and the player can cache it. */
 function withImages(layers, getMedia) {
   const out = JSON.parse(JSON.stringify(layers));
-  out.specials.items = out.specials.items.map(x => {
+  const attach = x => {
     const m = x.mediaId ? getMedia(x.mediaId) : null;
     return { ...x, mediaId: m ? x.mediaId : null, image: m ? { mediaId: m.id, src: "/media/" + m.file, sha256: m.sha256, size: m.size, name: m.name } : null };
-  });
+  };
+  out.specials.items = out.specials.items.map(attach);
+  // An image block whose picture was deleted is dropped.
+  out.text.blocks = out.text.blocks.map(b => (b.kind === "image" ? attach(b) : b)).filter(b => b.kind !== "image" || b.image);
   return out;
 }
 
-module.exports = { defaultLayers, sanitizeLayers, parseLayers, withImages, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS };
+module.exports = { defaultLayers, sanitizeLayers, parseLayers, withImages, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };

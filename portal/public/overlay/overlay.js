@@ -18,6 +18,14 @@
   var SIZE = { s: 2, m: 2.8, l: 4.2, xl: 6.2 };
   var TICKER_SIZE = { s: 1.8, m: 2.4, l: 3.2, xl: 4.2 };
   var SPEED = { slow: 6, normal: 10, fast: 16 }; // % of width per second
+  // System fonts only (the TV works offline). Android names: sans-serif-condensed, serif, monospace, cursive.
+  var FONTS = {
+    sans: "\"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
+    serif: "Georgia, \"Times New Roman\", \"Noto Serif\", serif",
+    condensed: "\"Roboto Condensed\", \"Arial Narrow\", \"sans-serif-condensed\", sans-serif",
+    mono: "Consolas, \"Roboto Mono\", \"Courier New\", monospace",
+    script: "\"Segoe Script\", \"Brush Script MT\", \"Dancing Script\", cursive"
+  };
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -101,20 +109,52 @@
       timers.push(setInterval(show, (sp.seconds || 8) * 1000));
     }
 
-    // ---- text ----
+    // ---- text and images ----
     var tx = layers.text;
     if (tx && tx.enabled) {
-      (tx.blocks || []).forEach(function (b) {
-        var t = el("div", "so-text so-pos-" + b.position, b.text);
-        t.style.fontSize = (SIZE[b.size] || SIZE.m) + "em";
-        t.style.fontWeight = b.bold ? "700" : "400";
-        t.style.color = b.color;
-        t.style.background = rgba(b.bg, b.bgOpacity);
-        if (!b.bgOpacity) t.style.textShadow = "0 0.08em 0.3em rgba(0,0,0,.7)";
-        if (/^bottom/.test(b.position)) avoid(t, "bottom", 6);
-        if (/^top/.test(b.position)) avoid(t, "top", 4);
+      var timed = [];
+      (tx.blocks || []).forEach(function (b, i) {
+        var free = typeof b.x === "number" && typeof b.y === "number";
+        var t = el("div", "so-text " + (free ? "so-free" : "so-pos-" + b.position));
+        if (b.kind === "image") {
+          var src = b.image ? resolveImage(b) : null;
+          if (!src) return;
+          t.className += " so-image";
+          var im = el("img");
+          im.src = src; im.alt = "";
+          t.appendChild(im);
+          t.style.width = (b.w || 30) + "em";
+        } else {
+          t.textContent = b.text;
+          t.style.fontSize = (b.fs || SIZE[b.size] || SIZE.m) + "em";
+          t.style.fontWeight = b.bold ? "700" : "400";
+          if (b.italic) t.style.fontStyle = "italic";
+          t.style.fontFamily = FONTS[b.font] || FONTS.sans;
+          t.style.color = b.color;
+          if (!b.bgOpacity) t.style.textShadow = "0 0.08em 0.3em rgba(0,0,0,.7)";
+          if (b.w) { t.style.width = b.w + "em"; t.style.maxWidth = "none"; }
+        }
+        if (b.align) t.style.textAlign = b.align;
+        t.style.background = rgba(b.bg, b.bgOpacity || 0);
+        if (free) { t.style.left = b.x + "%"; t.style.top = b.y + "%"; }
+        else {
+          if (/^bottom/.test(b.position)) avoid(t, "bottom", 6);
+          if (/^top/.test(b.position)) avoid(t, "top", 4);
+        }
+        if (tx.cycle && (b.from || b.to)) timed.push([t, b.from || 0, b.to || tx.cycle]);
         root.appendChild(t);
+        if (opts.onBlock) opts.onBlock(t, b, i);
       });
+      // Timed blocks show from..to seconds into each cycle. The editor passes its playhead as opts.time.
+      if (timed.length) {
+        var clock = opts.time || function () { return Date.now() / 1000; };
+        var tickTimed = function () {
+          var s = ((clock() % tx.cycle) + tx.cycle) % tx.cycle;
+          timed.forEach(function (x) { x[0].style.visibility = s >= x[1] && s < x[2] ? "" : "hidden"; });
+        };
+        tickTimed();
+        timers.push(setInterval(tickTimed, 200));
+      }
       var tk = tx.ticker;
       if (tk && tk.enabled && tk.text && tk.text.trim()) {
         var bar = el("div", "so-ticker so-ticker-" + tk.position);
@@ -233,5 +273,5 @@
     return function () { cancelAnimationFrame(raf); global.removeEventListener("resize", onResize); };
   }
 
-  global.SignageOverlay = { render: render, activeNow: activeNow, REGIONS: REGIONS };
+  global.SignageOverlay = { render: render, activeNow: activeNow, REGIONS: REGIONS, FONTS: FONTS };
 })(window);

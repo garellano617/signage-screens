@@ -635,7 +635,24 @@ const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sp
 const opts = (list, val) => list.map(([v, l]) => h("option", { value: v, selected: v === val }, l));
 const colorIn = (val, onchange, label) => h("label", { class: "color-in" }, h("input", { type: "color", value: val, oninput: e => onchange(e.target.value) }), label);
 
-/** Layers editor for a screen, or for a channel (kind = "channel"). */
+const FONT_LABELS = [["sans", "Sans"], ["serif", "Serif"], ["condensed", "Condensed"], ["mono", "Typewriter"], ["script", "Script"]];
+const SIZE_EM = { s: 2, m: 2.8, l: 4.2, xl: 6.2 };
+const TEXT_PRESETS = [
+  ["Heading", "Your heading", { fs: 6, bold: true, bgOpacity: 0 }],
+  ["Subheading", "A short subheading", { fs: 3.6, bold: true, bgOpacity: 0 }],
+  ["Body text", "Add a little text", { fs: 2.2, bold: false, bgOpacity: 0 }],
+  ["Price list", "Picanha      $11.99\nRib Eye      $10.99\nCostela       $9.99", { fs: 2.4, bold: true, font: "mono", bg: "#ffffff", bgOpacity: 85, color: "#111111" }],
+  ["Label", "SALE", { fs: 2.6, bold: true, bg: "#b91c1c", bgOpacity: 100 }]
+];
+const fmtT = sec => Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
+const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+const snapH = v => Math.round(v * 2) / 2;
+
+/**
+ * Layers editor for a screen, or for a channel (kind = "channel").
+ * Toolbar for the selected item, side panel (media, text, specials, effects, video), live preview you can drag text
+ * and pictures on, and a timeline with one track per layer. Text and picture bars can be moved to set when they show.
+ */
 async function renderLayers(main, id, kind) {
   const isCh = kind === "channel";
   const path = (isCh ? "/channels/" : "/screens/") + id;
@@ -649,148 +666,421 @@ async function renderLayers(main, id, kind) {
   }
   const L = JSON.parse(JSON.stringify(s.layers));
   const images = media.filter(m => m.kind === "image");
-  let firstItem = null;
-  if (s.playlistId) { try { firstItem = (await api("GET", "/playlists/" + s.playlistId)).items.find(i => i.kind !== "web") || null; } catch (_) {} }
-  let dirty = false, overlay = null, t = 0;
+  let items = [];
+  if (s.playlistId) { try { items = (await api("GET", "/playlists/" + s.playlistId)).items || []; } catch (_) {} }
+  const itemLen = it => Math.max(1, Number(it.duration) || 10);
+  const loop = items.reduce((a, it) => a + itemLen(it), 0);
   const portrait = !isCh && (s.orientation === 90 || s.orientation === 270);
+  const T = () => L.text.cycle || clampN(loop || 30, 10, 600);
+  let dirty = false, overlay = null, rt = 0, sel = null, tab = "text", playhead = 0, playing = false, raf = 0, lastTs = 0, shownItem = null;
+  let blockNodes = [];
+  const isSel = (type, i) => !!sel && sel.type === type && (i === undefined || sel.i === i);
+  // Dragging doesn't move the keyboard focus by itself; drop it so Delete works on the selected item.
+  const unfocus = () => { const a = document.activeElement; if (a && a !== document.body && a.blur) a.blur(); };
 
-  // ---- live preview ----
+  // ---------- preview ----------
   const pvVideo = h("div", { class: "pv-video" });
   const pvOverlay = h("div", { class: "pv-overlay" });
-  const preview = h("div", { class: "preview" + (portrait ? " portrait" : "") }, h("div", { class: "pv-bg" }), pvVideo, pvOverlay);
-  function drawVideo() {
+  const preview = h("div", { class: "preview ed-preview" + (portrait ? " portrait" : "") }, h("div", { class: "pv-bg" }), pvVideo, pvOverlay);
+  preview.addEventListener("pointerdown", e => { if (!e.target.closest(".so-text")) select(e.target.closest(".pv-video") ? { type: "video" } : null); });
+
+  function itemAt(t) {
+    if (!items.length) return -1;
+    let x = t % loop;
+    for (let i = 0; i < items.length; i++) { if (x < itemLen(items[i])) return i; x -= itemLen(items[i]); }
+    return 0;
+  }
+  function drawVideo(force) {
     const r = SignageOverlay.REGIONS[L.video.region] || SignageOverlay.REGIONS.full;
     Object.assign(pvVideo.style, { left: r[0] + "%", top: r[1] + "%", width: r[2] + "%", height: r[3] + "%", display: L.video.enabled ? "" : "none" });
-    pvVideo.replaceChildren(firstItem
-      ? (firstItem.kind === "video" ? h("video", { src: firstItem.src, muted: true, autoplay: true, loop: true, playsInline: true }) : h("img", { src: firstItem.src, alt: "" }))
-      : h("div", { class: "pv-placeholder" }, "Video layer", h("small", {}, s.playlistName ? "Playlist: " + s.playlistName : "No playlist yet")));
+    pvVideo.classList.toggle("ed-selected", isSel("video"));
+    const i = itemAt(playhead);
+    if (i === shownItem && !force) return;
+    shownItem = i;
+    const it = items[i];
+    pvVideo.replaceChildren(it && it.kind === "image" ? h("img", { src: it.src, alt: "" })
+      : it && it.kind === "video" ? h("video", { src: it.src, muted: true, autoplay: true, loop: true, playsInline: true })
+      : h("div", { class: "pv-placeholder" }, it ? it.name : "Video layer",
+        h("small", {}, it ? (it.kind === "widget" ? "Widget" : "Web page") : s.playlistName ? "Playlist: " + s.playlistName : "No playlist yet")));
   }
-  function refresh() {
-    clearTimeout(t);
-    t = setTimeout(() => { if (overlay) overlay.destroy(); overlay = SignageOverlay.render(pvOverlay, L); }, 120);
+
+  function hookBlock(node, b, i) {
+    blockNodes[i] = node;
+    node.style.pointerEvents = "auto";
+    node.style.cursor = "move";
+    node.classList.toggle("ed-selected", isSel("block", i));
+    node.addEventListener("pointerdown", e => {
+      e.preventDefault(); e.stopPropagation(); unfocus();
+      if (!isSel("block", i)) select({ type: "block", i });
+      const box = pvOverlay.getBoundingClientRect(), r = node.getBoundingClientRect();
+      const sx = e.clientX, sy = e.clientY;
+      const x0 = (r.left - box.left) / box.width * 100, y0 = (r.top - box.top) / box.height * 100;
+      let moved = false;
+      const mv = ev => {
+        if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 4) return;
+        moved = true;
+        b.x = Math.round((x0 + (ev.clientX - sx) / box.width * 100) * 10) / 10;
+        b.y = Math.round((y0 + (ev.clientY - sy) / box.height * 100) * 10) / 10;
+        node.className = node.className.replace(/\bso-pos-\S+/, "").trim();
+        node.classList.add("so-free");
+        Object.assign(node.style, { left: b.x + "%", top: b.y + "%", right: "auto", bottom: "auto", transform: "none" });
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
+        if (moved) { change(); drawToolbar(); }
+      };
+      window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+    });
   }
-  const change = () => { dirty = true; saveBtn.textContent = "Save changes"; refresh(); };
+  function renderOverlay() {
+    if (overlay) overlay.destroy();
+    blockNodes = [];
+    overlay = SignageOverlay.render(pvOverlay, L, { time: () => playhead, onBlock: hookBlock });
+  }
+  const refresh = () => { clearTimeout(rt); rt = setTimeout(renderOverlay, 80); };
+  const change = () => { dirty = true; saveBtn.textContent = "Save changes"; refresh(); drawTimeline(); };
 
-  // ---- layer cards ----
-  const layerCard = (key, title, desc, body) => {
-    const bodyBox = h("div", { class: "layer-body" + (L[key].enabled ? "" : " off") }, body);
-    return h("div", { class: "card layer" },
-      h("div", { class: "layer-head" },
-        h("div", {}, h("h2", {}, title), h("div", { class: "small muted" }, desc)),
-        h("label", { class: "switch" }, h("input", { type: "checkbox", checked: L[key].enabled, onchange: e => {
-          L[key].enabled = e.target.checked; bodyBox.classList.toggle("off", !e.target.checked); if (key === "video") drawVideo(); change();
-        } }), h("span", {}))),
-      bodyBox);
-  };
+  // ---------- selection ----------
+  function select(next, keepTimeline) {
+    sel = next;
+    blockNodes.forEach((n, i) => n && n.classList.toggle("ed-selected", isSel("block", i)));
+    pvVideo.classList.toggle("ed-selected", isSel("video"));
+    if (sel) {
+      const b = sel.type === "block" ? L.text.blocks[sel.i] : null;
+      tab = b ? (b.kind === "image" ? "media" : "text") : sel.type === "ticker" ? "text" : sel.type;
+    }
+    drawToolbar(); drawSide();
+    if (!keepTimeline) drawTimeline();
+  }
+  function addBlock(b) {
+    L.text.enabled = true;
+    L.text.blocks.push(Object.assign({ kind: "text", text: "", position: "center", x: 30, y: 40, w: 0, size: "m", fs: 2.8, font: "sans", align: "",
+      bold: true, italic: false, color: "#ffffff", bg: "#000000", bgOpacity: 0, from: 0, to: 0, mediaId: null, image: null }, b));
+    change();
+    select({ type: "block", i: L.text.blocks.length - 1 });
+  }
+  function removeBlock(i) { L.text.blocks.splice(i, 1); sel = null; change(); select(null); }
 
-  // video
-  const videoBody = h("div", {},
-    field("Area on the screen", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(); change(); } }, opts(REGION_LABELS, L.video.region))),
-    h("p", { class: "small muted" }, isCh ? ["Plays the channel's playlist (", s.playlistName || "none yet", "). Change it on the channel page. Use a smaller area to leave room for a specials panel or a ticker."]
-      : ["Plays this screen's playlist and schedule (", s.playlistName || "no playlist yet", "). Change them on the screen page. Use a smaller area to leave room for a specials panel or a ticker."]));
+  // ---------- toolbar ----------
+  const toolbar = h("div", { class: "card ed-toolbar" });
+  const tbBtn = (label, on, onclick, title) => h("button", { type: "button", class: "small" + (on ? " on" : ""), title: title || label, onclick }, label);
+  const sw = (checked, onchange) => h("label", { class: "switch", title: "On / off" }, h("input", { type: "checkbox", checked, onchange: e => onchange(e.target.checked) }), h("span", {}));
+  function drawToolbar() {
+    const kids = [];
+    if (isSel("block")) {
+      const i = sel.i, b = L.text.blocks[i];
+      const upd = fn => e => { fn(e); change(); };
+      if (b.kind === "text") {
+        kids.push(
+          h("select", { title: "Font", onchange: upd(e => { b.font = e.target.value; }) }, opts(FONT_LABELS, b.font || "sans")),
+          h("label", { class: "tb-num", title: "Text size" }, "Size", h("input", { type: "number", min: 1, max: 30, step: 0.2, value: b.fs || SIZE_EM[b.size] || 2.8,
+            oninput: upd(e => { b.fs = clampN(Number(e.target.value) || 2.8, 1, 30); }) })),
+          tbBtn("B", b.bold, () => { b.bold = !b.bold; change(); drawToolbar(); }, "Bold"),
+          tbBtn("I", b.italic, () => { b.italic = !b.italic; change(); drawToolbar(); }, "Italic"),
+          ...[["left", "⇤"], ["center", "↔"], ["right", "⇥"]].map(([a, l]) => tbBtn(l, b.align === a, () => { b.align = b.align === a ? "" : a; change(); drawToolbar(); }, "Align " + a)),
+          colorIn(b.color, v => { b.color = v; change(); }, "Text"),
+          colorIn(b.bg, v => { b.bg = v; if (!b.bgOpacity) { b.bgOpacity = 100; drawToolbar(); } change(); }, "Box"),
+          h("label", { class: "tb-num", title: "Box opacity" }, "Box", h("input", { type: "range", min: 0, max: 100, value: b.bgOpacity, style: "width:80px", oninput: upd(e => { b.bgOpacity = Number(e.target.value); }) })),
+          h("label", { class: "tb-num", title: "Width in % of the screen (0 = fit the text)" }, "Width", h("input", { type: "number", min: 0, max: 100, step: 1, value: b.w || 0,
+            oninput: upd(e => { b.w = clampN(Number(e.target.value) || 0, 0, 100); }) })));
+      } else {
+        kids.push(h("strong", { class: "small" }, "Picture"),
+          h("label", { class: "tb-num", title: "Width in % of the screen" }, "Width", h("input", { type: "range", min: 3, max: 100, value: b.w || 30, style: "width:120px",
+            oninput: upd(e => { b.w = Number(e.target.value); }) })),
+          colorIn(b.bg, v => { b.bg = v; if (!b.bgOpacity) { b.bgOpacity = 100; drawToolbar(); } change(); }, "Frame"),
+          h("label", { class: "tb-num" }, "", h("input", { type: "range", min: 0, max: 100, value: b.bgOpacity, style: "width:70px", title: "Frame opacity", oninput: upd(e => { b.bgOpacity = Number(e.target.value); }) })));
+      }
+      const free = typeof b.x === "number";
+      kids.push(
+        h("select", { title: "Snap to a spot", onchange: e => { b.position = e.target.value; b.x = null; b.y = null; change(); drawToolbar(); } },
+          free ? h("option", { value: "", selected: true }, "Placed by hand") : null, opts(POSITION_LABELS, free ? "" : b.position)),
+        tbBtn("↑", false, () => { if (i < L.text.blocks.length - 1) { L.text.blocks.splice(i + 1, 0, L.text.blocks.splice(i, 1)[0]); sel.i = i + 1; change(); } }, "Bring forward"),
+        tbBtn("↓", false, () => { if (i > 0) { L.text.blocks.splice(i - 1, 0, L.text.blocks.splice(i, 1)[0]); sel.i = i - 1; change(); } }, "Send backward"),
+        tbBtn("Duplicate", false, () => {
+          const c = JSON.parse(JSON.stringify(b));
+          if (typeof c.x === "number") { c.x += 2; c.y += 2; }
+          L.text.blocks.splice(i + 1, 0, c); change(); select({ type: "block", i: i + 1 });
+        }),
+        h("button", { type: "button", class: "small danger", onclick: () => removeBlock(i) }, "Delete"));
+    } else if (isSel("video")) {
+      kids.push(h("strong", { class: "small" }, "Video layer"), sw(L.video.enabled, v => { L.video.enabled = v; drawVideo(true); change(); }),
+        field("", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(true); change(); } }, opts(REGION_LABELS, L.video.region))));
+    } else if (sel) {
+      const names = { specials: "Specials", ticker: "Scrolling ticker", effects: "Effects" };
+      const obj = sel.type === "ticker" ? L.text.ticker : L[sel.type];
+      kids.push(h("strong", { class: "small" }, names[sel.type]), sw(obj.enabled, v => { obj.enabled = v; if (v && sel.type === "ticker") L.text.enabled = true; change(); drawSide(); }),
+        h("span", { class: "small muted" }, "Settings are in the panel on the left."));
+    } else {
+      kids.push(h("span", { class: "small muted" }, "Click something on the screen or a bar in the timeline to edit it. Drag text and pictures to move them."));
+    }
+    toolbar.replaceChildren(...kids);
+  }
 
-  // specials
-  const spList = h("div", {});
-  function drawSpecials() {
-    spList.replaceChildren(...L.specials.items.map((it, i) => h("div", { class: "sub-item" },
-      h("div", { class: "row" },
-        field("Title", h("input", { value: it.title, maxlength: 80, placeholder: "e.g. Taco Tuesday", oninput: e => { it.title = e.target.value; change(); } })),
-        h("div", { class: "field", style: "flex:0 1 120px" }, h("label", {}, "Price"), h("input", { value: it.price, maxlength: 20, placeholder: "$2.99", oninput: e => { it.price = e.target.value; change(); } }))),
-      field("Description", h("input", { value: it.description, maxlength: 200, placeholder: "optional", oninput: e => { it.description = e.target.value; change(); } })),
-      field("Photo", h("select", { onchange: e => {
-        const m = images.find(x => x.id === Number(e.target.value));
-        it.mediaId = m ? m.id : null; it.image = m ? { src: m.src } : null; change();
-      } }, h("option", { value: "" }, images.length ? "— no photo —" : "— upload images in Media first —"),
-        images.map(m => h("option", { value: m.id, selected: m.id === it.mediaId }, m.name)))),
-      h("div", { class: "row", style: "align-items:center" },
-        h("div", { class: "days" }, DAYS.map((d, b) => h("button", { type: "button", class: it.days & (1 << b) ? "on" : "",
+  // ---------- side panel ----------
+  const TABS = [["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Video"]];
+  const tabsBar = h("div", { class: "ed-tabs" });
+  const panel = h("div", { class: "ed-panel" });
+  const side = h("div", { class: "card ed-side" }, tabsBar, panel);
+  function timingFields(b) {
+    const len = T();
+    return h("div", { class: "row" },
+      h("div", { class: "field" }, h("label", {}, "Show from (s)"), h("input", { type: "number", min: 0, max: len, step: 0.5, value: b.from || 0,
+        oninput: e => { if (!L.text.cycle) L.text.cycle = len; b.from = clampN(Number(e.target.value) || 0, 0, len); if (b.to && b.to <= b.from) b.to = 0; change(); } })),
+      h("div", { class: "field" }, h("label", {}, "Until (s)"), h("input", { type: "number", min: 0, max: len, step: 0.5, value: b.to || len,
+        oninput: e => { if (!L.text.cycle) L.text.cycle = len; const v = clampN(Number(e.target.value) || len, 0, len); b.to = v >= len ? 0 : v; change(); } })));
+  }
+  function drawSide() {
+    tabsBar.replaceChildren(...TABS.map(([k, l]) => h("button", { type: "button", class: tab === k ? "on" : "", onclick: () => { tab = k; drawSide(); } }, l)));
+    const kids = [];
+    if (tab === "media") {
+      const b = isSel("block") && L.text.blocks[sel.i].kind === "image" ? L.text.blocks[sel.i] : null;
+      if (b) kids.push(h("div", { class: "sub-item" }, h("strong", { class: "small" }, "Selected picture"), timingFields(b)));
+      kids.push(h("p", { class: "small muted" }, "Click a picture to place it on the screen (logos, food photos, price boards)."));
+      kids.push(images.length ? h("div", { class: "ed-imgs" }, images.map(m => h("button", { type: "button", title: m.name,
+        onclick: () => addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 30, x: 35, y: 30, text: "" }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
+        : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
+      kids.push(h("p", { class: "small muted" }, "Videos and the main slideshow play in the Video layer (the playlist)."));
+    } else if (tab === "text") {
+      const b = isSel("block") && L.text.blocks[sel.i].kind === "text" ? L.text.blocks[sel.i] : null;
+      if (b) {
+        kids.push(h("div", { class: "sub-item" },
+          field("Selected text", h("textarea", { rows: 4, maxlength: 600, oninput: e => { b.text = e.target.value; change(); } }, b.text)),
+          timingFields(b)));
+      }
+      kids.push(h("div", { class: "ed-presets" }, h("div", { class: "small muted", style: "margin-bottom:.4rem" }, "Add text"),
+        TEXT_PRESETS.map(([label, text, st]) => h("button", { type: "button", onclick: () => addBlock(Object.assign({ text }, st)) },
+          h("span", { style: "font-weight:" + (st.bold ? 700 : 400) + ";font-size:" + Math.min(1.3, 0.75 + st.fs / 12) + "rem" }, label)))));
+      const tk = L.text.ticker;
+      kids.push(h("div", { class: "layer-head", style: "margin-top:1rem" }, h("strong", {}, "Scrolling ticker"),
+        sw(tk.enabled, v => { tk.enabled = v; if (v) L.text.enabled = true; change(); drawToolbar(); })),
+        field("Messages (one per line)", h("textarea", { rows: 3, maxlength: 1000, placeholder: "Free Wi-Fi\nAsk about catering!", oninput: e => { tk.text = e.target.value; change(); } }, tk.text)),
+        h("div", { class: "row" },
+          field("Where", h("select", { onchange: e => { tk.position = e.target.value; change(); } }, opts([["bottom", "Bottom"], ["top", "Top"]], tk.position))),
+          field("Speed", h("select", { onchange: e => { tk.speed = e.target.value; change(); } }, opts([["slow", "Slow"], ["normal", "Normal"], ["fast", "Fast"]], tk.speed))),
+          field("Size", h("select", { onchange: e => { tk.size = e.target.value; change(); } }, opts(SIZE_LABELS, tk.size)))),
+        h("div", { class: "colors" }, colorIn(tk.color, v => { tk.color = v; change(); }, "Text"), colorIn(tk.bg, v => { tk.bg = v; change(); }, "Bar")));
+    } else if (tab === "specials") {
+      kids.push(specialsPanel());
+    } else if (tab === "effects") {
+      const ef = L.effects;
+      kids.push(h("div", { class: "ed-fx" },
+        h("button", { type: "button", class: ef.enabled ? "" : "on", onclick: () => { ef.enabled = false; change(); drawSide(); drawToolbar(); } }, "None"),
+        EFFECT_LABELS.map(([v, l]) => h("button", { type: "button", class: ef.enabled && ef.type === v ? "on" : "",
+          onclick: () => { ef.enabled = true; ef.type = v; change(); drawSide(); drawToolbar(); } }, l))),
+        field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
+        h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")));
+    } else {
+      kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Video layer"), sw(L.video.enabled, v => { L.video.enabled = v; drawVideo(true); change(); drawToolbar(); })),
+        field("Area on the screen", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(true); change(); } }, opts(REGION_LABELS, L.video.region))),
+        h("p", { class: "small muted" }, isCh ? "Plays the channel's playlist (" + (s.playlistName || "none yet") + ")." : "Plays this screen's playlist and schedule (" + (s.playlistName || "no playlist yet") + ").",
+          " Use a smaller area to leave room for specials or a ticker."),
+        h("a", { class: "btn small", href: base() + path }, isCh ? "Change the channel's playlist" : "Change the playlist or schedule"));
+    }
+    panel.replaceChildren(...kids);
+  }
+
+  function specialsPanel() {
+    const sp = L.specials;
+    const list = h("div", {});
+    const draw = () => {
+      list.replaceChildren(...sp.items.map((it, i) => h("div", { class: "sub-item" },
+        h("div", { class: "row" },
+          field("Title", h("input", { value: it.title, maxlength: 80, placeholder: "e.g. Taco Tuesday", oninput: e => { it.title = e.target.value; change(); } })),
+          h("div", { class: "field", style: "flex:0 1 100px" }, h("label", {}, "Price"), h("input", { value: it.price, maxlength: 20, placeholder: "$2.99", oninput: e => { it.price = e.target.value; change(); } }))),
+        field("Description", h("input", { value: it.description, maxlength: 200, placeholder: "optional", oninput: e => { it.description = e.target.value; change(); } })),
+        field("Photo", h("select", { onchange: e => {
+          const m = images.find(x => x.id === Number(e.target.value));
+          it.mediaId = m ? m.id : null; it.image = m ? { src: m.src } : null; change();
+        } }, h("option", { value: "" }, images.length ? "— no photo —" : "— upload images in Media first —"),
+          images.map(m => h("option", { value: m.id, selected: m.id === it.mediaId }, m.name)))),
+        h("div", { class: "days", style: "margin-bottom:.5rem" }, DAYS.map((d, b) => h("button", { type: "button", class: it.days & (1 << b) ? "on" : "",
           onclick: e => { const n = it.days ^ (1 << b); if (!n) return; it.days = n; e.target.classList.toggle("on"); change(); } }, d))),
-        h("div", { class: "times" },
-          h("input", { type: "time", value: it.start, "aria-label": "From", onchange: e => { it.start = e.target.value; change(); } }), "to",
-          h("input", { type: "time", value: it.end, "aria-label": "Until", onchange: e => { it.end = e.target.value; change(); } })),
-        h("button", { type: "button", class: "small danger", onclick: () => { L.specials.items.splice(i, 1); drawSpecials(); change(); } }, "Remove")))));
-    if (!L.specials.items.length) spList.append(h("p", { class: "small muted" }, "No specials yet."));
-  }
-  drawSpecials();
-  const specialsBody = h("div", {},
-    h("div", { class: "row" },
-      field("Heading", h("input", { value: L.specials.heading, maxlength: 60, oninput: e => { L.specials.heading = e.target.value; change(); } })),
-      field("Where", h("select", { onchange: e => { L.specials.position = e.target.value; change(); } }, opts(SPECIAL_POSITIONS, L.specials.position))),
-      h("div", { class: "field", style: "flex:0 1 130px" }, h("label", {}, "Seconds each"),
-        h("input", { type: "number", min: 3, max: 120, value: L.specials.seconds, oninput: e => { L.specials.seconds = Number(e.target.value) || 8; change(); } }))),
-    h("div", { class: "colors" },
-      colorIn(L.specials.bg, v => { L.specials.bg = v; change(); }, "Background"),
-      colorIn(L.specials.color, v => { L.specials.color = v; change(); }, "Text"),
-      colorIn(L.specials.accent, v => { L.specials.accent = v; change(); }, "Price & heading")),
-    h("p", { class: "small muted" }, "Specials take turns. Leave the times empty to show a special all day, or set days and times (e.g. lunch 11:00 to 14:00)."),
-    spList,
-    h("button", { type: "button", onclick: () => { L.specials.items.push({ title: "", price: "", description: "", mediaId: null, image: null, days: 127, start: "", end: "" }); drawSpecials(); change(); } }, "+ Add special"));
-
-  // text
-  const blockList = h("div", {});
-  function drawBlocks() {
-    blockList.replaceChildren(...L.text.blocks.map((b, i) => h("div", { class: "sub-item" },
-      field("Text", h("textarea", { rows: 2, maxlength: 300, placeholder: "e.g. Open 7 days · 8am–10pm", oninput: e => { b.text = e.target.value; change(); } }, b.text)),
+        h("div", { class: "row", style: "align-items:center" },
+          h("div", { class: "times" },
+            h("input", { type: "time", value: it.start, "aria-label": "From", onchange: e => { it.start = e.target.value; change(); } }), "to",
+            h("input", { type: "time", value: it.end, "aria-label": "Until", onchange: e => { it.end = e.target.value; change(); } })),
+          h("button", { type: "button", class: "small danger", onclick: () => { sp.items.splice(i, 1); draw(); change(); } }, "Remove")))));
+      if (!sp.items.length) list.append(h("p", { class: "small muted" }, "No specials yet."));
+    };
+    draw();
+    return h("div", {},
+      h("div", { class: "layer-head" }, h("strong", {}, "Specials"), sw(sp.enabled, v => { sp.enabled = v; change(); drawToolbar(); })),
+      field("Heading", h("input", { value: sp.heading, maxlength: 60, oninput: e => { sp.heading = e.target.value; change(); } })),
       h("div", { class: "row" },
-        field("Where", h("select", { onchange: e => { b.position = e.target.value; change(); } }, opts(POSITION_LABELS, b.position))),
-        field("Size", h("select", { onchange: e => { b.size = e.target.value; change(); } }, opts(SIZE_LABELS, b.size)))),
+        field("Where", h("select", { onchange: e => { sp.position = e.target.value; change(); } }, opts(SPECIAL_POSITIONS, sp.position))),
+        h("div", { class: "field", style: "flex:0 1 110px" }, h("label", {}, "Seconds each"),
+          h("input", { type: "number", min: 3, max: 120, value: sp.seconds, oninput: e => { sp.seconds = clampN(Number(e.target.value) || 8, 3, 120); change(); } }))),
       h("div", { class: "colors" },
-        h("label", { class: "color-in" }, h("input", { type: "checkbox", checked: b.bold, onchange: e => { b.bold = e.target.checked; change(); } }), "Bold"),
-        colorIn(b.color, v => { b.color = v; change(); }, "Text"),
-        colorIn(b.bg, v => { b.bg = v; change(); }, "Box"),
-        h("label", { class: "color-in" }, "Box opacity", h("input", { type: "range", min: 0, max: 100, value: b.bgOpacity, style: "width:100px", oninput: e => { b.bgOpacity = Number(e.target.value); change(); } })),
-        h("button", { type: "button", class: "small danger", onclick: () => { L.text.blocks.splice(i, 1); drawBlocks(); change(); } }, "Remove")))));
-    if (!L.text.blocks.length) blockList.append(h("p", { class: "small muted" }, "No text blocks yet."));
+        colorIn(sp.bg, v => { sp.bg = v; change(); }, "Background"),
+        colorIn(sp.color, v => { sp.color = v; change(); }, "Text"),
+        colorIn(sp.accent, v => { sp.accent = v; change(); }, "Price & heading")),
+      h("p", { class: "small muted" }, "Specials take turns. Leave the times empty to show a special all day."),
+      list,
+      h("button", { type: "button", onclick: () => { sp.enabled = true; sp.items.push({ title: "", price: "", description: "", mediaId: null, image: null, days: 127, start: "", end: "" }); draw(); change(); drawToolbar(); } }, "+ Add special"));
   }
-  drawBlocks();
-  const tk = L.text.ticker;
-  const tickerBody = h("div", { class: "layer-body" + (tk.enabled ? "" : " off") },
-    field("Messages (one per line)", h("textarea", { rows: 3, maxlength: 1000, placeholder: "Free Wi-Fi\nAsk about catering!", oninput: e => { tk.text = e.target.value; change(); } }, tk.text)),
-    h("div", { class: "row" },
-      field("Where", h("select", { onchange: e => { tk.position = e.target.value; change(); } }, opts([["bottom", "Bottom"], ["top", "Top"]], tk.position))),
-      field("Speed", h("select", { onchange: e => { tk.speed = e.target.value; change(); } }, opts([["slow", "Slow"], ["normal", "Normal"], ["fast", "Fast"]], tk.speed))),
-      field("Size", h("select", { onchange: e => { tk.size = e.target.value; change(); } }, opts(SIZE_LABELS, tk.size)))),
-    h("div", { class: "colors" }, colorIn(tk.color, v => { tk.color = v; change(); }, "Text"), colorIn(tk.bg, v => { tk.bg = v; change(); }, "Bar")));
-  const textBody = h("div", {},
-    blockList,
-    h("button", { type: "button", onclick: () => { L.text.blocks.push({ text: "", position: "top", size: "m", bold: true, color: "#ffffff", bg: "#000000", bgOpacity: 50 }); drawBlocks(); change(); } }, "+ Add text"),
-    h("div", { class: "layer-head", style: "margin-top:1.25rem" }, h("h3", { style: "margin:0" }, "Scrolling ticker"),
-      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: tk.enabled, onchange: e => { tk.enabled = e.target.checked; tickerBody.classList.toggle("off", !tk.enabled); change(); } }), h("span", {}))),
-    tickerBody);
 
-  // effects
-  const effectsBody = h("div", {},
-    h("div", { class: "row" },
-      field("Effect", h("select", { onchange: e => { L.effects.type = e.target.value; change(); } }, opts(EFFECT_LABELS, L.effects.type))),
-      field("Amount", h("select", { onchange: e => { L.effects.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], L.effects.intensity)))),
-    h("div", { class: "colors" }, colorIn(L.effects.color, v => { L.effects.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")));
+  // ---------- timeline ----------
+  const timeLabel = h("span", { class: "ed-time" });
+  const playBtn = h("button", { type: "button", class: "ed-play", title: "Play / pause", onclick: () => setPlaying(!playing) }, "▶");
+  const tlBody = h("div", { class: "tl-body" });
+  const cycleIn = h("input", { type: "number", min: 5, max: 3600, step: 1, style: "width:80px",
+    onchange: e => { const v = Math.round(Number(e.target.value)); L.text.cycle = v >= 5 ? Math.min(3600, v) : 0;
+      L.text.blocks.forEach(b => { if (b.from >= T()) b.from = 0; if (b.to > T()) b.to = 0; }); playhead = playhead % T(); change(); } });
+  const timeline = h("div", { class: "card ed-timeline" },
+    h("div", { class: "tl-head" }, playBtn, timeLabel,
+      h("label", { class: "tb-num" }, "Timeline length (s)", cycleIn),
+      h("span", { class: "small muted" }, "On the TV, timed text and pictures repeat every " + "this many seconds.")),
+    tlBody);
 
+  function updatePlayhead() {
+    const len = T();
+    tlBody.style.setProperty("--p", String(playhead / len));
+    timeLabel.textContent = fmtT(playhead) + " / " + fmtT(len);
+    drawVideo();
+  }
+  function setPlaying(on) {
+    playing = on; playBtn.textContent = on ? "❚❚" : "▶"; lastTs = 0;
+    cancelAnimationFrame(raf);
+    if (on) raf = requestAnimationFrame(function step(ts) {
+      if (!playing) return;
+      if (lastTs) playhead = (playhead + (ts - lastTs) / 1000) % T();
+      lastTs = ts; updatePlayhead();
+      raf = requestAnimationFrame(step);
+    });
+  }
+  function seekFrom(e, lane) {
+    const r = lane.getBoundingClientRect();
+    playhead = clampN((e.clientX - r.left) / r.width, 0, 0.999) * T();
+    updatePlayhead();
+  }
+  function tlClip(cls, from, to, label, len, extra) {
+    const c = h("div", Object.assign({ class: "tl-clip " + cls, title: label }, extra || {}), label);
+    c.style.left = (from / len * 100) + "%";
+    c.style.width = Math.max(0.5, (Math.min(to, len) - from) / len * 100) + "%";
+    return c;
+  }
+  function row(name, type, on, toggle, clips, group) {
+    const lane = h("div", { class: "tl-lane", onpointerdown: e => { if (e.target === lane) { seekFrom(e, lane); if (type) select({ type }); } } }, clips);
+    return h("div", { class: "tl-row" + (group ? " tl-group" : "") },
+      h("div", { class: "tl-name", onclick: () => type && select({ type }) },
+        toggle ? h("input", { type: "checkbox", checked: on, title: "On / off", onclick: e => e.stopPropagation(), onchange: e => { toggle(e.target.checked); change(); drawToolbar(); drawSide(); } }) : null,
+        h("span", {}, name)),
+      lane);
+  }
+  function barDrag(e, b, i, mode) {
+    e.preventDefault(); e.stopPropagation(); unfocus();
+    const bar = e.currentTarget.closest(".tl-clip"), lane = bar.parentNode;
+    if (!isSel("block", i)) { select({ type: "block", i }, true); tlBody.querySelectorAll(".tl-clip.sel").forEach(x => x.classList.remove("sel")); bar.classList.add("sel"); }
+    const len = T();
+    const w = lane.getBoundingClientRect().width, sx = e.clientX;
+    const f0 = b.from || 0, t0 = b.to || len;
+    let moved = false;
+    const mv = ev => {
+      const d = (ev.clientX - sx) / w * len;
+      if (!moved && Math.abs(ev.clientX - sx) < 3) return;
+      moved = true;
+      let f = f0, t = t0;
+      if (mode === "move") { f = snapH(clampN(f0 + d, 0, len - (t0 - f0))); t = f + (t0 - f0); }
+      else if (mode === "l") f = snapH(clampN(f0 + d, 0, t0 - 0.5));
+      else t = snapH(clampN(t0 + d, f0 + 0.5, len));
+      b.from = f; b.to = t;
+      bar.style.left = (f / len * 100) + "%"; bar.style.width = ((t - f) / len * 100) + "%";
+      bar.title = fmtT(f) + " – " + fmtT(t);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
+      if (!moved) return;
+      if (!L.text.cycle) L.text.cycle = len;
+      if (b.from <= 0 && b.to >= len) { b.from = 0; b.to = 0; }
+      change(); drawSide();
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  }
+  function drawTimeline() {
+    const len = T();
+    cycleIn.value = len;
+    const step = len <= 20 ? 2 : len <= 60 ? 5 : len <= 180 ? 15 : len <= 600 ? 60 : 300;
+    const ticks = [];
+    for (let t = 0; t < len; t += step) ticks.push(h("span", { class: "tl-tick", style: "left:" + (t / len * 100) + "%" }, fmtT(t)));
+    const rows = [row("", null, false, null, ticks)];
+    rows[0].classList.add("tl-ruler");
+    // video: the playlist, repeated to fill the timeline
+    const vClips = [];
+    if (items.length) {
+      for (let t = 0, k = 0; t < len && k < 400; k++) {
+        const it = items[k % items.length], d = itemLen(it);
+        vClips.push(tlClip("tl-video" + (L.video.enabled ? "" : " off") + (isSel("video") ? " sel" : ""), t, t + d, it.name, len, { onpointerdown: e => { e.stopPropagation(); seekFrom(e, e.currentTarget.parentNode); select({ type: "video" }); } }));
+        t += d;
+      }
+    }
+    rows.push(row("Video", "video", L.video.enabled, v => { L.video.enabled = v; drawVideo(true); }, vClips));
+    // specials: each one for `seconds`, taking turns
+    const sp = L.specials, spClips = [];
+    if (sp.items.length) {
+      for (let t = 0, k = 0; t < len && k < 400; k++, t += sp.seconds) {
+        const it = sp.items[k % sp.items.length];
+        spClips.push(tlClip("tl-specials" + (sp.enabled ? "" : " off") + (isSel("specials") ? " sel" : ""), t, t + sp.seconds, it.title || it.price || "Special", len,
+          { onpointerdown: e => { e.stopPropagation(); select({ type: "specials" }); } }));
+      }
+    }
+    rows.push(row("Specials", "specials", sp.enabled, v => { sp.enabled = v; }, spClips));
+    // text and pictures: one row each, top of the stack first
+    rows.push(row("Text & pictures", null, L.text.enabled, v => { L.text.enabled = v; }, [], true));
+    for (let i = L.text.blocks.length - 1; i >= 0; i--) {
+      const b = L.text.blocks[i];
+      const label = b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : (b.text.split("\n")[0] || "Text");
+      const bar = tlClip((b.kind === "image" ? "tl-image" : "tl-text") + (L.text.enabled ? "" : " off") + (isSel("block", i) ? " sel" : ""),
+        b.from || 0, b.to || len, label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
+      bar.append(h("span", { class: "tl-h l", onpointerdown: e => barDrag(e, b, i, "l") }), h("span", { class: "tl-h r", onpointerdown: e => barDrag(e, b, i, "r") }));
+      const r = row(label, null, false, null, [bar]);
+      r.querySelector(".tl-name").addEventListener("click", () => select({ type: "block", i }));
+      rows.push(r);
+    }
+    if (!L.text.blocks.length) rows.push(row("", null, false, null, [h("span", { class: "tl-empty" }, "Add text or pictures from the panel on the left.")]));
+    const tk = L.text.ticker;
+    rows.push(row("Ticker", "ticker", tk.enabled, v => { tk.enabled = v; if (v) L.text.enabled = true; },
+      tk.enabled || tk.text ? [tlClip("tl-ticker" + (tk.enabled && L.text.enabled ? "" : " off") + (isSel("ticker") ? " sel" : ""), 0, len, (tk.text || "").split("\n").join("  •  ") || "Ticker", len,
+        { onpointerdown: e => { e.stopPropagation(); select({ type: "ticker" }); } })] : []));
+    const ef = L.effects;
+    rows.push(row("Effects", "effects", ef.enabled, v => { ef.enabled = v; },
+      [tlClip("tl-effects" + (ef.enabled ? "" : " off") + (isSel("effects") ? " sel" : ""), 0, len, (EFFECT_LABELS.find(x => x[0] === ef.type) || ["", ""])[1], len,
+        { onpointerdown: e => { e.stopPropagation(); select({ type: "effects" }); } })]));
+    tlBody.replaceChildren(...rows, h("div", { class: "tl-playhead" }));
+    rows[0].querySelector(".tl-lane").addEventListener("pointerdown", e => seekFrom(e, e.currentTarget));
+    if (playhead >= len) playhead = 0;
+    updatePlayhead();
+  }
+
+  // ---------- save ----------
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
       const saved = await api("PUT", path + "/layers", L);
-      // Keep what the server cleaned (e.g. empty text removed) but don't redraw the editor.
       dirty = false; saveBtn.textContent = "Saved";
       toast(isCh ? "Layers saved. Every screen on this channel updates within 30 seconds." : "Layers saved. The screen updates within 30 seconds.");
+      // The server drops empty text and unknown pictures: reload if it changed anything we show.
       if (saved.text.blocks.length !== L.text.blocks.length || saved.specials.items.length !== L.specials.items.length) route();
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
   } }, "Save");
 
+  const onKey = e => {
+    if (!isSel("block") || /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ""))) return;
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeBlock(sel.i); }
+  };
+  document.addEventListener("keydown", onKey);
+
   main.replaceChildren(
     h("a", { href: base() + path, class: "back", onclick: e => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); } }, "← " + s.name),
-    pageHead("Layers", (isCh ? "Channel " : "") + s.name + " · " + clientName(), saveBtn),
-    h("div", { class: "layers-grid" },
-      h("div", { class: "preview-col" }, h("div", { class: "card preview-card" }, h("h2", {}, "Live preview"), preview,
-        h("p", { class: "small muted", style: "margin:.6rem 0 0" }, "Layers stack from bottom to top: Video → Specials → Text → Effects."))),
-      h("div", { class: "stack" },
-        layerCard("video", "1 · Video", "The playlist (images, videos, web pages)", videoBody),
-        layerCard("specials", "2 · Specials", "Rotating offers with price and photo", specialsBody),
-        layerCard("text", "3 · Text", "Text blocks anywhere, plus a scrolling ticker", textBody),
-        layerCard("effects", "4 · Effects", "Animated overlay on top of everything", effectsBody))));
-  drawVideo(); refresh();
+    pageHead("Design", (isCh ? "Channel " : "") + s.name + " · " + clientName(), saveBtn),
+    h("div", { class: "ed" },
+      toolbar, side,
+      h("div", { class: "card ed-stage" }, preview,
+        h("p", { class: "small muted", style: "margin:.5rem 0 0" }, "Bottom to top: Video → Specials → Text & pictures → Effects.")),
+      timeline));
+  drawToolbar(); drawSide(); drawTimeline(); drawVideo(true); renderOverlay();
   window.onbeforeunload = () => (dirty ? true : undefined);
   // Stop the preview animations when leaving the page.
-  const stop = () => { if (overlay) overlay.destroy(); window.removeEventListener("hashchange", stop); };
+  const stop = () => { setPlaying(false); if (overlay) overlay.destroy(); document.removeEventListener("keydown", onKey); window.removeEventListener("hashchange", stop); };
   window.addEventListener("hashchange", stop);
 }
 

@@ -26,13 +26,15 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         val needed = layers != null && listOf("specials", "text", "effects").any { layers.optJSONObject(it)?.optBoolean("enabled") == true }
         if (layers == null || !needed) { hide(); return }
 
-        // Point each special's photo at the downloaded copy on this device.
-        layers.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { sp ->
-            sp.optJSONObject("image")?.let { img ->
+        // Point each special's photo and each picture on the text layer at the downloaded copy on this device.
+        val localize = { o: JSONObject ->
+            o.optJSONObject("image")?.let { img ->
                 val item = Config.imageItem(img)
                 if (cache.isReady(item)) img.put("localSrc", Uri.fromFile(cache.fileFor(item)).toString())
             }
         }
+        layers.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { localize(it) }
+        layers.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { localize(it) }
         val json = layers.toString()
         if (json == shown && web != null) return
         shown = json

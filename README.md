@@ -31,14 +31,21 @@ Every screen, playlist and media file belongs to a **client** (a business you pu
 
 ## Screen layers
 
-Each screen is designed as four layers, stacked bottom to top. Open a screen and click **Design layers**. The editor has a live preview, and the TV draws the layers with the same code (`portal/public/overlay/`, bundled into the APK at build time).
+Each screen is designed as four layers, stacked bottom to top. Open a screen and click **Design layers**. The TV draws the layers with the same code as the editor's preview (`portal/public/overlay/`, bundled into the APK at build time).
+
+The editor works like a video editor:
+- **Toolbar** (top): settings for whatever is selected: font, size, bold, italic, alignment, colors, box, width, snap to a spot, bring forward / send backward, duplicate, delete.
+- **Side panel** (left): **Media** (click a picture to place it), **Text** (heading, subheading, body text, price list, label, plus the scrolling ticker), **Specials**, **Effects**, **Video**.
+- **Preview** (middle): drag text and pictures anywhere. Click the video area to select the video layer.
+- **Timeline** (bottom): one track per layer with an on/off box. Text and picture bars can be moved and resized to set when they show. Play, or click the ruler to jump to a moment. The **timeline length** is how often timed text and pictures repeat on the TV.
+- **Delete** key removes the selected text or picture.
 
 1. **Video:** the screen's playlist and schedule. It can fill the screen or a smaller area (left 70%, top 85%, …) to leave room for the other layers.
 2. **Specials:** offers with title, price, description and an optional photo, taking turns every few seconds. Each one can be limited to certain days and times. Shown as a side panel or a card.
-3. **Text:** text blocks in any of 9 positions (size, colors, box), plus a scrolling ticker at the top or bottom. When a ticker is on, other layers move out of its way.
+3. **Text & pictures:** text in any of 5 fonts (system fonts, so they work offline) and pictures (logos, food photos, price boards) placed anywhere, each shown all the time or only part of each cycle. Plus a scrolling ticker at the top or bottom; text snapped to a top or bottom spot moves out of its way.
 4. **Effects:** an animated overlay: snow, confetti, sparkles, bubbles, hearts, falling leaves or twinkling stars.
 
-Each layer has an on/off switch. Specials photos are downloaded to the TV with the rest of the media, so layers work offline.
+Specials photos and pictures on the text layer are downloaded to the TV with the rest of the media, so layers work offline.
 
 ## Run the portal on this PC
 
