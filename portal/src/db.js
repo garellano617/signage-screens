@@ -176,7 +176,8 @@ fs.mkdirSync(path.join(DATA_DIR, "branding"), { recursive: true });
 if (!hasColumn("customers", "billing_client_id")) db.exec("ALTER TABLE customers ADD COLUMN billing_client_id TEXT");
 
 // Screen map: where each screen is.
-for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"]])
+// planned = 1: set up in the portal before a TV is connected (no device yet).
+for (const [col, type] of [["lat", "REAL"], ["lng", "REAL"], ["address", "TEXT"], ["last_minute", "INTEGER"], ["planned", "INTEGER NOT NULL DEFAULT 0"]])
   if (!hasColumn("screens", col)) db.exec(`ALTER TABLE screens ADD COLUMN ${col} ${type}`);
 
 // Screen monitoring: minutes online per screen per hour (hour = Unix time / 3600000).

@@ -232,7 +232,7 @@ function screenSummary(s) {
     playlistId: s.playlist_id, playlistName: s.playlist_name || null,
     orientation: s.orientation, volume: s.volume,
     model: s.model, appVersion: s.app_version, ip: s.ip,
-    online: isOnline(s), lastSeen: s.last_seen, pairedAt: s.paired_at,
+    online: !s.planned && isOnline(s), lastSeen: s.last_seen, pairedAt: s.planned ? null : s.paired_at, planned: !!s.planned,
     status,
     screenshot: s.screenshot_file ? "/screenshots/" + s.screenshot_file : null, screenshotAt: s.screenshot_at,
     scheduleCount: s.schedule_count || 0,
@@ -254,7 +254,8 @@ router.get("/dashboard", (req, res) => {
   res.json({
     screens: screens.length,
     online: screens.filter(s => s.online).length,
-    offline: screens.filter(s => !s.online),
+    offline: screens.filter(s => !s.online && !s.planned),
+    planned: screens.filter(s => s.planned),
     noContent: screens.filter(s => !s.playlistId && !s.scheduleCount),
     media: m.n, mediaBytes: m.bytes,
     playlists: get("SELECT COUNT(*) n FROM playlists WHERE 1=1" + mw, ...mp).n,
@@ -384,17 +385,51 @@ function checkPlaylist(id, customerId) {
   return n;
 }
 
+function checkScreenLimit(cid) {
+  const c = loadCustomer(cid);
+  if (c.screen_limit === null) return;
+  const used = get("SELECT COUNT(*) n FROM screens WHERE customer_id = ? AND paired_at IS NOT NULL", cid).n;
+  if (used >= c.screen_limit) throw bad(`${c.name} already has ${used} of ${c.screen_limit} screens. Raise the limit on the Customers page first.`);
+}
+
+/** A screen set up ahead of time: name, playlist and layers, with no TV yet. A TV is connected later with its code. */
+router.post("/screens/plan", (req, res) => {
+  const cid = targetCustomer(req);
+  checkScreenLimit(cid);
+  const name = str(req.body.name, 100, "Name");
+  if (!name) throw bad("Give the screen a name.");
+  // Placeholder device id and a token hash no real token can match (real hashes are 64 hex characters).
+  const r = run(`INSERT INTO screens (device_id, token_hash, paired_at, planned, customer_id, name, location, playlist_id, channel_id, created_at)
+    VALUES (?, 'planned', ?, 1, ?, ?, ?, ?, ?, ?)`, "planned-" + crypto.randomUUID(), now(), cid, name,
+    str(req.body.location, 200, "Location"), checkPlaylist(req.body.playlistId, cid), checkChannel(req.body.channelId, cid), now());
+  res.status(201).json(screenSummary(loadScreen({ cid: null }, r.lastInsertRowid)));
+});
+
+/**
+ * Pair the TV showing this code. With screenId, the TV takes over that screen (a planned one, or an existing
+ * screen whose TV is being replaced) and keeps its name, playlist, schedule and layers.
+ */
 router.post("/screens/pair", (req, res) => {
   const cid = targetCustomer(req);
   const code = String(req.body.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (code.length !== 6) throw bad("Enter the 6-character code shown on the TV.");
+  const target = req.body.screenId ? loadScreen(req, intId(req.body.screenId)) : null;
+  if (target && target.customer_id !== cid) throw bad("That screen belongs to another client.");
   const s = get("SELECT * FROM screens WHERE pairing_code = ? AND paired_at IS NULL", code);
   if (!s) throw bad("No screen is showing that code. Check the TV and try again.");
-  const c = loadCustomer(cid);
-  if (c.screen_limit !== null) {
-    const used = get("SELECT COUNT(*) n FROM screens WHERE customer_id = ? AND paired_at IS NOT NULL", cid).n;
-    if (used >= c.screen_limit) throw bad(`${c.name} already has ${used} of ${c.screen_limit} screens. Raise the limit on the Customers page first.`);
+  if (target) {
+    tx(() => {
+      // The waiting TV's row goes; its device id and token move onto the prepared screen.
+      run("DELETE FROM screens WHERE id = ?", s.id);
+      run(`UPDATE screens SET device_id = ?, token_hash = ?, model = ?, app_version = ?, ip = ?, last_seen = ?, status_json = ?,
+        screenshot_file = NULL, screenshot_at = NULL, planned = 0, paired_at = ? WHERE id = ?`,
+        s.device_id, s.token_hash, s.model, s.app_version, s.ip, s.last_seen, s.status_json, now(), target.id);
+      run("DELETE FROM commands WHERE screen_id = ? AND delivered_at IS NULL", target.id);
+    });
+    if (target.screenshot_file) fs.rm(path.join(DATA_DIR, "screenshots", target.screenshot_file), { force: true }, () => {});
+    return res.status(201).json(screenSummary(loadScreen({ cid: null }, target.id)));
   }
+  checkScreenLimit(cid);
   const name = str(req.body.name, 100, "Name") || "Screen " + code;
   run("UPDATE screens SET paired_at = ?, pairing_code = NULL, customer_id = ?, name = ?, location = ?, playlist_id = ? WHERE id = ?",
     now(), cid, name, str(req.body.location, 200, "Location"), checkPlaylist(req.body.playlistId, cid), s.id);
@@ -450,6 +485,7 @@ router.delete("/screens/:id", (req, res) => {
 
 const COMMANDS = ["reload", "restart_app", "screenshot", "clear_cache", "identify"];
 router.post("/screens/:id/commands", (req, res) => {
+  if (loadScreen(req, intId(req.params.id)).planned) throw bad("No TV is connected to this screen yet.");
   const s = loadScreen(req, intId(req.params.id));
   const type = String(req.body.type || "");
   if (!COMMANDS.includes(type)) throw bad("Unknown command.");
@@ -464,7 +500,7 @@ router.post("/screens-commands", (req, res) => {
   const type = String(req.body.type || "");
   if (!["screenshot", "reload", "identify"].includes(type)) throw bad("Unknown command.");
   const [w, p] = scope(req, "s");
-  const ids = all("SELECT s.id FROM screens s WHERE s.paired_at IS NOT NULL" + w, ...p).map(r => r.id);
+  const ids = all("SELECT s.id FROM screens s WHERE s.paired_at IS NOT NULL AND s.planned = 0" + w, ...p).map(r => r.id);
   tx(() => ids.forEach(id => {
     if (!get("SELECT id FROM commands WHERE screen_id = ? AND type = ? AND delivered_at IS NULL", id, type))
       run("INSERT INTO commands (screen_id, type, created_at) VALUES (?, ?, ?)", id, type, now());
@@ -475,7 +511,7 @@ router.post("/screens-commands", (req, res) => {
 // ---------- screen monitoring ----------
 router.get("/monitoring", (req, res) => {
   const [w, p] = scope(req, "s");
-  const screens = all(screenQuery + w + " ORDER BY cu.name, s.name", ...p).map(screenSummary);
+  const screens = all(screenQuery + " AND s.planned = 0" + w + " ORDER BY cu.name, s.name", ...p).map(screenSummary);
   const nowHour = Math.floor(now() / 3600e3);
   const out = screens.map(s => {
     const rows = all("SELECT hour, minutes FROM screen_uptime WHERE screen_id = ? AND hour > ?", s.id, nowHour - 24 * 7);

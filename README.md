@@ -87,6 +87,8 @@ Double-click `player-android\build-apk.cmd`.
 1. Install the APK. You may need to allow installing from unknown sources.
 2. Open **Signage Player** and enter the portal address.
 3. The TV shows a 6-character code. In the portal, go to **Screens → Add screen** and enter it.
+   - **Set up before the TV is installed:** in **Add screen**, choose **Set up now, connect the TV later**. Give the screen a name, then pick its playlist and schedule and design its layers. It shows **No TV yet** (not counted as offline). When the TV is installed, open the screen and click **Connect TV** (or pick it under **Connect it to** in **Add screen**) and type the TV's code. The TV plays the prepared design right away. Prepared screens count toward the client's screen limit.
+   - **Replace a TV:** on the screen's page, click **Replace TV** and type the new TV's code. It takes over the screen's playlist, schedule and layers, and the old TV goes back to showing a code.
 4. On the TV remote, press **BACK three times** (or long-press on touch screens) for the menu: change the portal address, turn on kiosk mode (use as home screen), allow auto-start, or exit.
 
 ## How the player talks to the portal

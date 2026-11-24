@@ -648,3 +648,67 @@ test("billing: reads the billing app, links clients, client logins see only thei
   fake.close();
   delete process.env.BILLING_URL; delete process.env.BILLING_KEY; billingLink.resetCache();
 });
+
+test("screens set up before the TV is connected, then paired into", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const P = (await call("POST", "/api/customers", { name: "Planned Diner", screenLimit: 2 })).body;
+  const O = (await call("POST", "/api/customers", { name: "Elsewhere Inc" })).body;
+  scopeId = O.id;
+  const otherPlanned = (await call("POST", "/api/screens/plan", { name: "Not yours" })).body;
+  scopeId = P.id;
+  const pl = (await call("POST", "/api/playlists", { name: "Diner menu" })).body;
+
+  assert.equal((await call("POST", "/api/screens/plan", { name: "" })).status, 400, "needs a name");
+  const plan = await call("POST", "/api/screens/plan", { name: "Front counter", location: "Main St", playlistId: pl.id });
+  assert.equal(plan.status, 201, JSON.stringify(plan.body));
+  assert.equal(plan.body.planned, true);
+  assert.equal(plan.body.online, false);
+  const sid = plan.body.id;
+
+  // Design it and give it a schedule before any TV exists.
+  const L = (await call("GET", "/api/screens/" + sid + "/layers")).body;
+  L.text.enabled = true; L.text.blocks = [{ text: "Grand opening", position: "top" }];
+  assert.equal((await call("PUT", "/api/screens/" + sid + "/layers", L)).status, 200);
+  assert.equal((await call("PUT", "/api/screens/" + sid + "/schedules", [{ playlistId: pl.id, days: 127, start: "06:00", end: "11:00" }])).status, 200);
+  assert.equal((await call("POST", "/api/screens/" + sid + "/commands", { type: "reload" })).status, 400, "no TV to command");
+  const dash = (await call("GET", "/api/dashboard")).body;
+  assert.equal(dash.offline.length, 0, "a planned screen isn't 'offline'");
+  assert.deepEqual(dash.planned.map(s => s.id), [sid]);
+  assert.ok(!(await call("GET", "/api/monitoring")).body.some(s => s.id === sid), "not in monitoring");
+
+  // The TV arrives and shows a code. Pairing into another client's planned screen is refused.
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-planned-0001", model: "Counter TV" })).body;
+  const auth = { authorization: "Bearer " + reg.token };
+  assert.equal((await call("POST", "/api/screens/pair", { code: reg.pairingCode, screenId: otherPlanned.id })).status, 404);
+  const pr = await call("POST", "/api/screens/pair", { code: reg.pairingCode, screenId: sid });
+  assert.equal(pr.status, 201, JSON.stringify(pr.body));
+  assert.equal(pr.body.id, sid);
+  assert.equal(pr.body.planned, false);
+  assert.equal(pr.body.name, "Front counter");
+  assert.equal(pr.body.model, "Counter TV");
+
+  // The TV now plays what was prepared, with the token it already had.
+  const cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
+  assert.equal(cfg.paired, true);
+  assert.equal(cfg.screen.name, "Front counter");
+  assert.equal(cfg.layers.text.blocks[0].text, "Grand opening");
+  assert.equal(cfg.schedules.length, 1);
+  const hb = (await call("POST", "/api/player/heartbeat", { playing: "" }, auth)).body;
+  assert.equal(hb.paired, true);
+  // Restarting the app (re-register) keeps it on the same screen.
+  assert.equal((await call("POST", "/api/player/register", { deviceId: "android-planned-0001" })).body.paired, true);
+  assert.equal((await call("GET", "/api/screens")).body.filter(s => s.id === sid).length, 1);
+
+  // Replacing the TV: the new one takes over, the old one goes back to a pairing code.
+  const reg2 = (await call("POST", "/api/player/register", { deviceId: "android-planned-0002", model: "New TV" })).body;
+  assert.equal((await call("POST", "/api/screens/pair", { code: reg2.pairingCode, screenId: sid })).body.model, "New TV");
+  const old = (await call("POST", "/api/player/register", { deviceId: "android-planned-0001" })).body;
+  assert.equal(old.paired, false);
+  assert.match(old.pairingCode, /^[A-HJ-NP-Z2-9]{6}$/);
+
+  // Planned screens count toward the screen limit (2): one used, one more planned is fine, a third is not.
+  assert.equal((await call("POST", "/api/screens/plan", { name: "Patio" })).status, 201);
+  assert.match((await call("POST", "/api/screens/plan", { name: "Bar" })).body.error, /2 of 2/);
+  assert.match((await call("POST", "/api/screens/pair", { code: old.pairingCode })).body.error, /2 of 2/);
+});

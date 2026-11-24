@@ -64,7 +64,8 @@ function dur(sec) {
   return m ? (m + "m" + (s ? " " + s + "s" : "")) : s + "s";
 }
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const statusPill = s => s.online
+const statusPill = s => s.planned ? h("span", { class: "pill warn" }, h("span", { class: "dot" }), "No TV yet")
+  : s.online
   ? h("span", { class: "pill ok" }, h("span", { class: "dot" }), "Online")
   : h("span", { class: "pill danger" }, h("span", { class: "dot" }), "Offline");
 
@@ -437,10 +438,12 @@ async function renderDashboard(main) {
     h("div", { class: "grid stats" },
       stat(d.screens + (c && c.screenLimit !== null ? " / " + c.screenLimit : ""), "Screens", base() + "/screens"),
       stat(d.online, "Online now"), stat(d.offline.length, "Offline"),
+      d.planned.length ? stat(d.planned.length, "Waiting for a TV", base() + "/screens") : null,
       stat(d.playlists, "Playlists", base() + "/playlists"), stat(d.media, "Media files · " + bytes(d.mediaBytes), base() + "/media")),
     h("div", { class: "grid two", style: "margin-top:1rem" },
       list("Offline screens", d.offline, d.screens ? "All screens are online. 👍" : "No screens yet. Click “Add screen” to pair a TV.", s => "Last seen " + ago(s.lastSeen)),
-      list("Screens with nothing to play", d.noContent, "Every screen has a playlist.", () => "No playlist")),
+      list("Screens with nothing to play", d.noContent, "Every screen has a playlist.", () => "No playlist"),
+      d.planned.length ? list("Set up, waiting for a TV", d.planned, "", () => "No TV yet") : null),
     c && isAdmin() ? h("div", { style: "margin-top:2rem;text-align:right" },
       h("button", { class: "small danger", onclick: () => deleteClient(c) }, "Delete this client")) : null);
   poll(() => renderDashboard(main).catch(() => {}), 60000);
@@ -451,16 +454,56 @@ function playlistOptions(playlists, selected, emptyLabel) {
   return [h("option", { value: "" }, emptyLabel), playlists.map(p => h("option", { value: p.id, selected: p.id === selected }, p.name))];
 }
 
+const codeInput = () => h("input", { name: "code", required: true, maxlength: 7, autocomplete: "off", style: "text-transform:uppercase;letter-spacing:.2em;font-size:1.3rem", placeholder: "ABC123" });
+
+/** Add a screen: pair a TV now, or set the screen up now and connect its TV later. */
 async function pairDialog() {
-  const playlists = await api("GET", "/playlists");
-  const r = await dialog("Add a screen for " + clientName(), h("div", {},
-    h("p", { class: "muted small" }, "Install the Signage Player app on the TV and open it. It shows a 6-character code. Type it here."),
-    field("Pairing code", h("input", { name: "code", required: true, maxlength: 7, autocomplete: "off", style: "text-transform:uppercase;letter-spacing:.2em;font-size:1.3rem", placeholder: "ABC123" })),
-    field("Screen name", h("input", { name: "name", placeholder: "e.g. Lobby TV", maxlength: 100 })),
+  const [playlists, screens] = await Promise.all([api("GET", "/playlists"), api("GET", "/screens")]);
+  const planned = screens.filter(s => s.planned);
+  let mode = "now";
+  const code = codeInput();
+  const into = h("select", { name: "screenId" }, h("option", { value: "" }, "A new screen"),
+    planned.map(s => h("option", { value: s.id }, s.name + " (set up, waiting for its TV)")));
+  const name = h("input", { name: "name", placeholder: "e.g. Lobby TV", maxlength: 100 });
+  const details = h("div", {}, field("Screen name", name),
     field("Location", h("input", { name: "location", placeholder: "e.g. Main St store", maxlength: 200 })),
-    field("Playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— none yet —")))),
-  { submit: "Pair screen", onSubmit: f => api("POST", "/screens/pair", Object.fromEntries(f)) });
-  if (r) { loadCustomers().catch(() => {}); toast("Screen paired. It will start playing within a few seconds."); go("/screens/" + r.id); }
+    field("Playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— none yet —"))));
+  const codeBox = h("div", {}, h("p", { class: "muted small" }, "Install the Signage Player app on the TV and open it. It shows a 6-character code. Type it here."),
+    field("Pairing code", code), planned.length ? field("Connect it to", into) : null);
+  const later = h("p", { class: "muted small hidden" }, "The screen is created now without a TV, so you can pick its playlist and schedule and design its layers ahead of time. When the TV is installed, open the screen and click Connect TV, then type the code the TV shows.");
+  const sync = () => {
+    codeBox.classList.toggle("hidden", mode !== "now"); later.classList.toggle("hidden", mode === "now");
+    code.required = mode === "now"; name.required = mode !== "now";
+    details.classList.toggle("hidden", mode === "now" && !!into.value);
+    const btn = details.closest("form") && details.closest("form").querySelector("button[type=submit]");
+    if (btn) btn.textContent = mode === "now" ? "Pair screen" : "Create screen";
+  };
+  into.addEventListener("change", sync);
+  const modeBtns = h("div", { class: "seg" }, [["now", "Connect a TV now"], ["later", "Set up now, connect the TV later"]].map(([v, l]) =>
+    h("button", { type: "button", class: v === mode ? "on" : "", onclick: e => {
+      mode = v; modeBtns.querySelectorAll("button").forEach(b => b.classList.toggle("on", b === e.target)); sync();
+    } }, l)));
+  const r = await dialog("Add a screen for " + clientName(), h("div", {}, modeBtns, codeBox, later, details),
+    { submit: "Pair screen", onSubmit: f => {
+      const b = Object.fromEntries(f);
+      if (mode === "later") return api("POST", "/screens/plan", { name: b.name, location: b.location, playlistId: b.playlistId || null });
+      return api("POST", "/screens/pair", b.screenId ? { code: b.code, screenId: b.screenId } : b);
+    } });
+  if (!r) return;
+  loadCustomers().catch(() => {});
+  toast(r.planned ? "Screen created. Design it now, and connect the TV when it's installed." : "Screen paired. It will start playing within a few seconds.");
+  go("/screens/" + r.id);
+}
+
+/** Connect the TV showing a code to this screen (the first TV for a planned screen, or a replacement TV). */
+async function connectTvDialog(s) {
+  const r = await dialog(s.planned ? "Connect the TV for " + s.name : "Replace the TV for " + s.name, h("div", {},
+    h("p", { class: "muted small" }, s.planned
+      ? "Open the Signage Player app on the TV. It shows a 6-character code. Type it here. The TV starts playing this screen's playlist and layers right away."
+      : "Open the Signage Player app on the new TV and type the code it shows. It takes over this screen's playlist, schedule and layers. The old TV goes back to showing a pairing code."),
+    field("Pairing code", codeInput())),
+  { submit: "Connect TV", onSubmit: f => api("POST", "/screens/pair", { code: f.get("code"), screenId: s.id }) });
+  if (r) { loadCustomers().catch(() => {}); toast("TV connected. It will start playing within a few seconds."); route(); }
 }
 
 async function renderScreens(main) {
@@ -483,7 +526,7 @@ async function renderScreens(main) {
       h("tbody", {}, screens.map(s => h("tr", { class: "click", onclick: e => { if (e.target.type !== "checkbox") go("/screens/" + s.id); } },
         h("td", {}, h("input", { type: "checkbox", onchange: e => { e.target.checked ? selected.add(s.id) : selected.delete(s.id); sync(); } })),
         h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, s.location)),
-        h("td", {}, statusPill(s), h("div", { class: "small muted" }, s.online ? "" : ago(s.lastSeen))),
+        h("td", {}, statusPill(s), h("div", { class: "small muted" }, s.online || s.planned ? "" : ago(s.lastSeen))),
         h("td", { class: "small" }, s.online && s.status.playing ? s.status.playing : h("span", { class: "muted" }, "—")),
         h("td", { class: "small" }, s.playlistName || h("span", { class: "pill warn" }, "None"), s.scheduleCount ? h("div", { class: "muted" }, "+ " + s.scheduleCount + " scheduled") : null)))))))
       : h("div", { class: "card empty" }, h("p", {}, "No screens yet."), h("p", { class: "small" }, "Install the player app on a TV, open it, and pair it with the code it shows."),
@@ -576,11 +619,29 @@ async function renderScreen(main, id) {
     } catch (e) { fail(e); }
   } }, label);
 
+  const deviceCards = s.planned ? [
+    h("div", { class: "card" }, h("h2", {}, "TV"),
+      h("p", { class: "muted small" }, "No TV is connected yet. Set up the playlist, schedule and layers now. When the TV is installed, open the Signage Player app on it and type the code it shows."),
+      h("button", { class: "primary", onclick: () => connectTvDialog(s) }, "Connect TV"))
+  ] : [
+    h("div", { class: "card" }, h("h2", {}, "Live view"), shotBox,
+      h("div", { class: "cmds", style: "margin-top:.75rem" }, cmd("screenshot", "📷 Take screenshot", "Screenshot requested. It appears here within about 30 seconds."))),
+    h("div", { class: "card" }, h("h2", {}, "Remote control"),
+      h("div", { class: "cmds" },
+        cmd("identify", "Show name on TV", "The screen name will flash on the TV."),
+        cmd("reload", "Reload content", "The screen will reload its content."),
+        cmd("clear_cache", "Clear cache & re-download", "The screen will clear its cache and download everything again."),
+        cmd("restart_app", "Restart app", "The player app will restart.")),
+      h("p", { class: "muted small", style: "margin-top:.75rem" }, "Commands reach the screen at its next check-in (within 30 seconds).")),
+    h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Device"),
+      h("button", { class: "small", onclick: () => connectTvDialog(s) }, "Replace TV")), dl)
+  ];
   main.replaceChildren(
     h("a", { href: base() + "/screens", class: "back" }, "← All screens"),
     pageHead(s.name, [clientName(), s.location].filter(Boolean).join(" · "),
+      s.planned ? h("button", { class: "primary", onclick: () => connectTvDialog(s) }, "Connect TV") : null,
       h("button", { class: "danger", onclick: async () => {
-        if (!await confirmDlg("Remove this screen?", "The TV will go back to showing a pairing code. You can pair it again later.", "Remove")) return;
+        if (!await confirmDlg("Remove this screen?", s.planned ? "Its playlist, schedule and layers will be deleted." : "The TV will go back to showing a pairing code. You can pair it again later.", "Remove")) return;
         try { await api("DELETE", "/screens/" + id); toast("Screen removed."); go("/screens"); } catch (e) { fail(e); }
       } }, "Remove screen")),
     h("div", { class: "grid two" },
@@ -601,20 +662,12 @@ async function renderScreen(main, id) {
             h("a", { class: "btn primary small", href: base() + "/screens/" + id + "/layers" }, "Design layers")),
           h("div", { class: "chips" }, [["video", "Video"], ["specials", "Specials"], ["text", "Text"], ["effects", "Effects"]].map(([k, l]) =>
             h("span", { class: "pill" + (s.layers[k].enabled ? " ok" : "") }, (s.layers[k].enabled ? "● " : "○ ") + l)))),
-        h("div", { class: "card" }, h("h2", {}, "Live view"), shotBox,
-          h("div", { class: "cmds", style: "margin-top:.75rem" }, cmd("screenshot", "📷 Take screenshot", "Screenshot requested. It appears here within about 30 seconds."))),
-        h("div", { class: "card" }, h("h2", {}, "Remote control"),
-          h("div", { class: "cmds" },
-            cmd("identify", "Show name on TV", "The screen name will flash on the TV."),
-            cmd("reload", "Reload content", "The screen will reload its content."),
-            cmd("clear_cache", "Clear cache & re-download", "The screen will clear its cache and download everything again."),
-            cmd("restart_app", "Restart app", "The player app will restart.")),
-          h("p", { class: "muted small", style: "margin-top:.75rem" }, "Commands reach the screen at its next check-in (within 30 seconds).")),
-        h("div", { class: "card" }, h("h2", {}, "Device"), dl))));
+        ...deviceCards)));
 
   poll(async () => {
     try {
       const x = await api("GET", "/screens/" + id);
+      if (x.planned !== s.planned) return route();
       dl.replaceChildren(...deviceRows(x));
       if (x.screenshotAt !== lastShot) { lastShot = x.screenshotAt; drawShot(x); }
     } catch (_) {}
@@ -1468,10 +1521,12 @@ async function renderWizard(main) {
           } });
         if (r) { toast("Playlist created."); route(); }
       }, label: "Create from all my media", alt: [base() + "/playlists", "Open playlists"] },
-    { title: "Connect a TV", done: screens.length > 0, text: screens.length ? `${screens.length} screen(s) connected.` : "Install the player app on the TV, open it, and type the code it shows.",
+    { title: "Connect a TV", done: screens.some(s => !s.planned), text: screens.some(s => !s.planned) ? `${screens.filter(s => !s.planned).length} screen(s) connected.`
+        : screens.length ? "Your screen is set up. Install the player app on the TV, open it, then click Connect TV on the screen's page and type the code it shows."
+        : "Install the player app on the TV, open it, and type the code it shows. No TV yet? Choose “Set up now, connect the TV later” to design the screen first.",
       action: () => pairDialog(), label: "Add screen", alt: [isStaff() ? "#/download" : "#/download", "Get the app"] },
     { title: "Design the screen", done: layered, text: layered ? "Your first screen has extra layers (specials, text or effects)." : "Add specials with prices, a scrolling ticker, text or effects on top of your playlist.",
-      action: () => screens.length ? go("/screens/" + screens[0].id + "/layers") : fail(new Error("Connect a TV first (step 3).")), label: "Design layers", optional: true }
+      action: () => screens.length ? go("/screens/" + screens[0].id + "/layers") : fail(new Error("Add a screen first (step 3). It can be set up before the TV is connected.")), label: "Design layers", optional: true }
   ];
   const doneCount = steps.filter(s => s.done).length;
   main.replaceChildren(
