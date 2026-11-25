@@ -192,6 +192,7 @@ class MainActivity : ComponentActivity() {
                     if (config == null || config?.version != hb.str("configVersion")) fetchConfig()
                     handleCommands(hb.optJSONArray("commands"))
                 }
+                hb.optJSONObject("app")?.let { app -> lifecycleScope.launch { Updater.check(this@MainActivity, api, app) } }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: UnauthorizedException) {
@@ -329,6 +330,7 @@ class MainActivity : ComponentActivity() {
             .put("androidVersion", Build.VERSION.RELEASE)
             .put("appVersion", BuildConfig.VERSION_NAME)
             .put("configVersion", config?.version.orEmpty())
+            .put("update", Updater.status)
             .put("error", lastNetError.ifEmpty { if (::engine.isInitialized) engine.lastError else "" })
     }
 

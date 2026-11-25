@@ -1,0 +1,87 @@
+# Builds the Android player app whenever its code changes and publishes it to the portal.
+# Every TV then downloads and installs it on its own (see README: "Automatic player updates").
+#
+# Needs two repository secrets (GitHub → Settings → Secrets and variables → Actions):
+#   PLAYER_KEYSTORE_B64  the signing key, base64 (the same key as the app already on the TVs)
+#   PLAYER_UPLOAD_KEY    the same value as PLAYER_UPLOAD_KEY on the portal (Render → signage-portal → Environment)
+# Optional: PLAYER_KEYSTORE_PASSWORD, PLAYER_KEY_ALIAS, PLAYER_KEY_PASSWORD (default: Android's debug key values).
+name: Player app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "player-android/**"
+      - "portal/public/overlay/**"
+      - ".github/workflows/player-app.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: player-app
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Signing key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.PLAYER_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.PLAYER_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PLAYER_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PLAYER_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::Skipped: add the PLAYER_KEYSTORE_B64 secret. Without the same signing key, TVs refuse the update."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > player-android/release.keystore
+          {
+            echo "storeFile=release.keystore"
+            echo "storePassword=${STORE_PASSWORD:-android}"
+            echo "keyAlias=${KEY_ALIAS:-androiddebugkey}"
+            echo "keyPassword=${KEY_PASSWORD:-android}"
+          } > player-android/keystore.properties
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test
+        if: steps.key.outputs.ready == 'true'
+        working-directory: player-android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testReleaseUnitTest assembleRelease -PsignageServerUrl=https://signage.precom.net
+
+      - uses: actions/upload-artifact@v4
+        if: steps.key.outputs.ready == 'true'
+        with:
+          name: signage-player
+          path: player-android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Publish to the portal
+        if: steps.key.outputs.ready == 'true'
+        env:
+          UPLOAD_KEY: ${{ secrets.PLAYER_UPLOAD_KEY }}
+        run: |
+          if [ -z "$UPLOAD_KEY" ]; then
+            echo "::warning::PLAYER_UPLOAD_KEY isn't set, so the app was built but not published. Download it from this run's artifacts."
+            exit 0
+          fi
+          f=$(ls player-android/app/build/outputs/apk/release/*.apk | head -1)
+          curl -fsS --retry 3 -X POST \
+            -H "x-upload-key: $UPLOAD_KEY" \
+            -H "x-file-name: $(basename "$f")" \
+            -H "content-type: application/vnd.android.package-archive" \
+            --data-binary @"$f" https://signage.precom.net/api/player-app
+          echo
+          echo "Published $(basename "$f"). TVs update within about 30 seconds of their next check-in."

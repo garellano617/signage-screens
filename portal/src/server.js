@@ -7,6 +7,8 @@ const { DATA_DIR, get, run } = require("./db");
 const auth = require("./auth");
 const brand = require("./branding");
 const playerRoutes = require("./playerRoutes");
+const crypto = require("node:crypto");
+const apk = require("./apk");
 const { router: adminRoutes, latestApk } = require("./adminRoutes");
 
 function createApp() {
@@ -31,6 +33,21 @@ function createApp() {
     if (!f) return res.status(404).end();
     res.set("Cache-Control", "public, max-age=86400");
     res.sendFile(f);
+  });
+
+  // Automatic builds (GitHub Actions) upload a new player app here. Off unless PLAYER_UPLOAD_KEY is set.
+  app.post("/api/player-app", express.raw({ type: () => true, limit: "200mb" }), (req, res) => {
+    const want = String(process.env.PLAYER_UPLOAD_KEY || "");
+    const got = String(req.get("x-upload-key") || "");
+    const ok = want.length >= 32 && got.length === want.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want));
+    if (!ok) return res.status(want ? 401 : 404).json({ error: want ? "Wrong upload key." : "Uploads are off." });
+    if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ error: "Send the .apk file as the request body." });
+    const tmp = path.join(apk.DIR, "ci-" + Date.now() + ".apk.part");
+    fs.writeFileSync(tmp, req.body);
+    const a = apk.installApk(tmp, req.get("x-file-name") || "signage-player.apk");
+    if (!a) return res.status(400).json({ error: "That file isn't a valid Android app." });
+    console.log("New player app uploaded by the build: " + a.file + " (" + a.sha256.slice(0, 12) + ")");
+    res.status(201).json({ file: a.file, size: a.size, sha256: a.sha256 });
   });
 
   // Player API (bearer token).

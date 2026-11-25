@@ -24,8 +24,11 @@ android {
         applicationId = "com.signage.player"
         minSdk = 21
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        // Every build gets a higher version number (minutes since 2025), so the newest build can always
+        // replace the one on the TVs. A build server can set it: -PsignageVersionCode=…
+        versionCode = (project.findProperty("signageVersionCode") as String?)?.toInt()
+            ?: ((System.currentTimeMillis() / 60_000) - 29_000_000).toInt()
+        versionName = "1.2.$versionCode"
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
     }
 

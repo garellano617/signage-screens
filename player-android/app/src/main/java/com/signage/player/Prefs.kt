@@ -30,6 +30,11 @@ class Prefs(context: Context) {
         get() = sp.getString("pendingPlays", null)
         set(v) = sp.edit().putString("pendingPlays", v).apply()
 
+    /** Fingerprint of an app update that failed to install, so it isn't tried again. */
+    var failedUpdate: String?
+        get() = sp.getString("failedUpdate", null)
+        set(v) = sp.edit().putString("failedUpdate", v).apply()
+
     var lastCrash: String?
         get() = sp.getString("lastCrash", null)
         set(v) = sp.edit().putString("lastCrash", v).commit().let { }

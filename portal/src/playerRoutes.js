@@ -7,6 +7,7 @@ const { get, run, all, tx, now, DATA_DIR } = require("./db");
 const { requirePlayer, sha256 } = require("./auth");
 const { buildConfig } = require("./playerConfig");
 const widgets = require("./widgets");
+const { latestApk } = require("./apk");
 
 const router = express.Router();
 router.use(express.json({ limit: "64kb" }));
@@ -61,7 +62,8 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
     resolution: clip(b.resolution, 40),
     androidVersion: clip(b.androidVersion, 40),
     configVersion: clip(b.configVersion, 64),
-    error: clip(b.error, 500)
+    error: clip(b.error, 500),
+    update: clip(b.update, 300)
   };
   run("UPDATE screens SET last_seen = ?, ip = ?, status_json = ?, app_version = COALESCE(NULLIF(?, ''), app_version) WHERE id = ?",
     now(), req.ip || "", JSON.stringify(status), clip(b.appVersion, 40), s.id);
@@ -91,7 +93,10 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
     if (commands.length) run("UPDATE commands SET delivered_at = ? WHERE screen_id = ? AND delivered_at IS NULL", now(), s.id);
   }
   const cfg = buildConfig(s);
-  res.json({ paired: !!s.paired_at, pairingCode: s.paired_at ? null : s.pairing_code, configVersion: cfg.version, commands });
+  // The newest player app: players install it when its fingerprint differs from their own.
+  let app = null;
+  try { const a = latestApk(); if (a) app = { sha256: a.sha256, size: a.size, url: "/download/player.apk" }; } catch (e) { /* no apk folder yet */ }
+  res.json({ paired: !!s.paired_at, pairingCode: s.paired_at ? null : s.pairing_code, configVersion: cfg.version, commands, app });
 });
 
 // Live data (weather, news) for a widget on this screen's client.

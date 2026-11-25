@@ -183,6 +183,30 @@ test("admins upload the player APK and anyone can download it", async () => {
   assert.equal(dl.headers.get("content-type"), "application/vnd.android.package-archive");
 });
 
+test("automatic builds upload the player app; players are told its fingerprint", async () => {
+  const crypto = require("node:crypto");
+  const body = Buffer.concat([Buffer.from("PK\x03\x04", "latin1"), crypto.randomBytes(4000)]);
+  const post = headers => fetch(base + "/api/player-app", { method: "POST", headers: { "content-type": "application/octet-stream", ...headers }, body });
+  // Off until PLAYER_UPLOAD_KEY is set; then the key must match.
+  assert.equal((await post({ "x-upload-key": "x".repeat(40) })).status, 404);
+  process.env.PLAYER_UPLOAD_KEY = "k".repeat(40);
+  try {
+    assert.equal((await post({ "x-upload-key": "x".repeat(40) })).status, 401);
+    assert.equal((await post({})).status, 401);
+    const ok = await post({ "x-upload-key": "k".repeat(40), "x-file-name": "signage-player-1.2.0-release.apk" });
+    assert.equal(ok.status, 201);
+    const sha = crypto.createHash("sha256").update(body).digest("hex");
+    assert.equal((await ok.json()).sha256, sha);
+    assert.equal((await call("GET", "/api/apk")).body.file, "signage-player-1.2.0-release.apk");
+    // A player's heartbeat says which app to have.
+    const reg = (await call("POST", "/api/player/register", { deviceId: "android-update-0001" })).body;
+    const hb = (await call("POST", "/api/player/heartbeat", { update: "Up to date" }, { authorization: "Bearer " + reg.token })).body;
+    assert.deepEqual(hb.app, { sha256: sha, size: body.length, url: "/download/player.apk" });
+  } finally {
+    delete process.env.PLAYER_UPLOAD_KEY;
+  }
+});
+
 test("users: editors can't manage users; last admin protected", async () => {
   scopeId = null;
   const add = await call("POST", "/api/users", { email: "ed@test.local", password: "editor-pass-1", role: "editor" });

@@ -33,8 +33,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
-copy /y "app\build\outputs\apk\release\signage-player-1.1.0-release.apk" "..\portal\data\apk\" >nul
+del /q "..\portal\data\apk\*.apk" 2>nul
+copy /y "app\build\outputs\apk\release\signage-player-*-release.apk" "..\portal\data\apk\" >nul
 echo.
-echo Done: app\build\outputs\apk\release\signage-player-1.1.0-release.apk
+echo Done: the new signage-player-...-release.apk is in app\build\outputs\apk\release
 echo It is also in the portal's download folder (Settings - Download player app).
 pause

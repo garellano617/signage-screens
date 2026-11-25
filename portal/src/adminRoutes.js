@@ -892,12 +892,7 @@ router.post("/branding/logo", auth.requireStaff, auth.requireAdmin,
 router.delete("/branding/logo", auth.requireStaff, auth.requireAdmin, (req, res) => { brand.removeLogo(); res.json(brand.branding()); });
 
 // ---------- player app download info ----------
-function latestApk() {
-  const dir = path.join(DATA_DIR, "apk");
-  const files = fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith(".apk"))
-    .map(f => ({ f, st: fs.statSync(path.join(dir, f)) })).sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
-  return files[0] ? { file: files[0].f, path: path.join(dir, files[0].f), size: files[0].st.size, updatedAt: files[0].st.mtimeMs } : null;
-}
+const { latestApk, installApk } = require("./apk");
 router.get("/apk", (req, res) => {
   const a = latestApk();
   res.json(a ? { available: true, file: a.file, size: a.size, updatedAt: a.updatedAt, url: "/download/player.apk" } : { available: false });
@@ -918,14 +913,8 @@ const apkUpload = multer({
 router.post("/apk", auth.requireStaff, auth.requireAdmin, apkUpload.single("file"), (req, res) => {
   const f = req.file;
   if (!f) throw bad("Choose an .apk file.");
-  const head = Buffer.alloc(4);
-  const fd = fs.openSync(f.path, "r"); fs.readSync(fd, head, 0, 4, 0); fs.closeSync(fd);
-  if (head.toString("latin1") !== "PK\x03\x04") { fs.rmSync(f.path, { force: true }); throw bad("That file isn't a valid Android app."); }
-  const dir = path.join(DATA_DIR, "apk");
-  const name = path.basename(f.originalname).replace(/[^\w.-]/g, "_");
-  for (const old of fs.readdirSync(dir)) if (old.toLowerCase().endsWith(".apk")) fs.rmSync(path.join(dir, old), { force: true });
-  fs.renameSync(f.path, path.join(dir, name));
-  const a = latestApk();
+  const a = installApk(f.path, f.originalname);
+  if (!a) throw bad("That file isn't a valid Android app.");
   res.status(201).json({ available: true, file: a.file, size: a.size, updatedAt: a.updatedAt, url: "/download/player.apk" });
 });
 
