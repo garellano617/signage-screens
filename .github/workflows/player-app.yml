@@ -39,7 +39,10 @@ jobs:
           STORE_PASSWORD: ${{ secrets.PLAYER_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.PLAYER_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.PLAYER_KEY_PASSWORD }}
+          UPLOAD_KEY: ${{ secrets.PLAYER_UPLOAD_KEY }}
         run: |
+          echo "Secrets this build can see: PLAYER_KEYSTORE_B64 ${KEYSTORE_B64:+yes (${#KEYSTORE_B64} characters)}${KEYSTORE_B64:-NO}, PLAYER_UPLOAD_KEY ${UPLOAD_KEY:+yes}${UPLOAD_KEY:-NO}"
+          echo "::notice::PLAYER_KEYSTORE_B64: ${KEYSTORE_B64:+found}${KEYSTORE_B64:-missing}. PLAYER_UPLOAD_KEY: ${UPLOAD_KEY:+found}${UPLOAD_KEY:-missing}."
           if [ -z "$KEYSTORE_B64" ]; then
             echo "::warning::Skipped: add the PLAYER_KEYSTORE_B64 secret. Without the same signing key, TVs refuse the update."
             echo "ready=false" >> "$GITHUB_OUTPUT"
