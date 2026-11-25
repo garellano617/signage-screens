@@ -144,6 +144,7 @@ const ICONS = {
   clients: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 21h18"/></svg>',
   logins: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="4"/><path d="M1 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 11h6M20 8v6"/></svg>',
   channels: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M17 2l-5 5-5-5"/></svg>',
+  walls: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="9" height="7" rx="1"/><rect x="13" y="4" width="9" height="7" rx="1"/><rect x="2" y="13" width="9" height="7" rx="1"/><rect x="13" y="13" width="9" height="7" rx="1"/></svg>',
   wizard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8l1.4 1.4M17.8 6.2l1.4-1.4M12.2 6.2l-1.4-1.4"/><path d="M15 9l-12 12"/></svg>',
   widgets: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>',
   content: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>',
@@ -170,6 +171,8 @@ const clientRoutes = [
   [/^\/channels$/, "channels", renderChannels],
   [/^\/channels\/(\d+)$/, "channels", renderChannel],
   [/^\/channels\/(\d+)\/layers$/, "channels", (main, id) => renderLayers(main, id, "channel")],
+  [/^\/walls$/, "walls", renderWalls],
+  [/^\/walls\/(\d+)$/, "walls", renderWall],
   [/^\/playlists$/, "playlists", renderPlaylists],
   [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
   [/^\/media$/, "media", renderMedia],
@@ -219,6 +222,7 @@ function shell(section, inClient) {
       link(base() + "/wizard", "wizard", "Wizard"),
       contentGroup(),
       link(base() + "/channels", "channels", "Channels"),
+      link(base() + "/walls", "walls", "Video walls"),
       link(base() + "/playlists", "playlists", "Playlists"),
       link(base() + "/screens", "screens", "Screens"),
       link(base() + "/monitoring", "monitoring", "Screen Monitoring"),
@@ -655,6 +659,9 @@ async function renderScreen(main, id) {
           slotsBox,
           h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave))),
       h("div", { class: "stack" },
+        s.wallId ? h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Video wall"),
+            h("a", { class: "btn small", href: base() + "/walls/" + s.wallId }, "Open wall")),
+          h("p", { class: "small muted", style: "margin:0" }, "This screen is part of the video wall “" + s.wallName + "” (column " + (s.wallCol + 1) + ", row " + (s.wallRow + 1) + "). It plays the wall's playlist, so its own playlist, channel, schedule and layers are not used while it's in the wall.")) : null,
         s.channelId ? h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
             h("a", { class: "btn small", href: base() + "/channels/" + s.channelId }, "Open channel")),
           h("p", { class: "small muted", style: "margin:0" }, "This screen uses the layers of the channel “" + s.channelName + "”.")) :
@@ -1448,6 +1455,100 @@ async function renderChannel(main, id) {
           statusPill(s))))
           : h("p", { class: "muted" }, "No screens yet."),
         h("p", { class: "small muted", style: "margin-bottom:0" }, "Ticked screens show this channel's playlist and layers. Click Save to apply."))));
+}
+
+// ---------- inside a client: video walls ----------
+const wallSize = w => w.cols + " × " + w.rows;
+
+async function renderWalls(main) {
+  const [walls, playlists] = await Promise.all([api("GET", "/walls"), api("GET", "/playlists")]);
+  const create = async () => {
+    const r = await dialog("New video wall", h("div", {},
+      h("p", { class: "muted small" }, "A video wall shows one big picture across several screens mounted next to each other. Each screen shows its own part, and they play in step."),
+      field("Name", h("input", { name: "name", required: true, maxlength: 100, placeholder: "e.g. Front window wall" })),
+      h("div", { class: "row" },
+        field("Screens across", h("select", { name: "cols" }, [1, 2, 3, 4, 5, 6].map(n => h("option", { value: n, selected: n === 2 }, n)))),
+        field("Screens down", h("select", { name: "rows" }, [1, 2, 3, 4, 5, 6].map(n => h("option", { value: n, selected: n === 1 }, n))))),
+      field("Playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— choose later —")))),
+    { submit: "Create wall", onSubmit: f => api("POST", "/walls", Object.fromEntries(f)) });
+    if (r) go("/walls/" + r.id);
+  };
+  main.replaceChildren(
+    pageHead("Video walls", clientName() + " · one picture across several screens", h("button", { class: "primary", onclick: create }, "+ New video wall")),
+    walls.length ? h("div", { class: "card table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Wall"), h("th", {}, "Size"), h("th", {}, "Playlist"), h("th", {}, "Screens"))),
+      h("tbody", {}, walls.map(w => h("tr", { class: "click", onclick: () => go("/walls/" + w.id) },
+        h("td", {}, h("strong", {}, w.name)),
+        h("td", { class: "small" }, wallSize(w)),
+        h("td", { class: "small" }, w.playlistName || h("span", { class: "pill warn" }, "None")),
+        h("td", { class: "small" }, w.tiles.length + " of " + (w.cols * w.rows) + " placed (" + w.tiles.filter(t => t.online).length + " online)"))))))
+      : h("div", { class: "card empty" }, h("p", {}, "No video walls yet. Use one when two or more TVs hang side by side and should show one big picture or video."),
+        h("button", { class: "primary", onclick: create }, "+ New video wall")));
+}
+
+async function renderWall(main, id) {
+  const [w, playlists, screens] = await Promise.all([api("GET", "/walls/" + id), api("GET", "/playlists"), api("GET", "/screens")]);
+  const nameIn = h("input", { value: w.name, maxlength: 100 });
+  const plSel = h("select", {}, playlistOptions(playlists, w.playlistId, "— none —"));
+  const num = (v, max) => h("select", {}, Array.from({ length: max }, (_, i) => i + 1).map(n => h("option", { value: n, selected: n === v }, n)));
+  const colsSel = num(w.cols, 6), rowsSel = num(w.rows, 6);
+  const bezelIn = h("input", { type: "number", min: 0, max: 10, step: 0.1, value: w.bezel });
+  const fitSel = h("select", {}, h("option", { value: "fill", selected: w.fit === "fill" }, "Fill the whole wall (edges may be cut off)"),
+    h("option", { value: "fit", selected: w.fit === "fit" }, "Show the whole picture (black bars if the shape differs)"));
+  // Which screen is in each spot: key "col:row" -> screenId.
+  const spots = new Map(w.tiles.map(t => [t.col + ":" + t.row, t.screenId]));
+  const gridBox = h("div", { class: "wall-grid" });
+  const byId = new Map(screens.map(s => [s.id, s]));
+  function drawGrid() {
+    const cols = Number(colsSel.value), rows = Number(rowsSel.value);
+    for (const k of [...spots.keys()]) { const [c, r] = k.split(":").map(Number); if (c >= cols || r >= rows) spots.delete(k); }
+    gridBox.style.gridTemplateColumns = "repeat(" + cols + ", minmax(0, 1fr))";
+    const cells = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const key = c + ":" + r, cur = spots.get(key);
+      const sel = h("select", { "aria-label": "Screen in column " + (c + 1) + ", row " + (r + 1), onchange: e => {
+        const v = Number(e.target.value) || null;
+        // A screen can only be in one spot: take it out of any other.
+        for (const [k, sid] of spots) if (sid === v) spots.delete(k);
+        if (v) spots.set(key, v); else spots.delete(key);
+        drawGrid();
+      } }, h("option", { value: "" }, "— empty —"),
+        screens.map(s => h("option", { value: s.id, selected: s.id === cur },
+          s.name + (s.wallId && s.wallId !== w.id ? " (in “" + s.wallName + "”)" : ""))));
+      const s = cur && byId.get(cur);
+      cells.push(h("div", { class: "wall-cell" + (cur ? " filled" : "") },
+        h("div", { class: "small muted" }, "Column " + (c + 1) + ", row " + (r + 1) + (c === 0 && r === 0 ? " · sound" : "")),
+        sel, s ? statusPill(s) : null));
+    }
+    gridBox.replaceChildren(...cells);
+  }
+  colsSel.addEventListener("change", drawGrid);
+  rowsSel.addEventListener("change", drawGrid);
+  drawGrid();
+  const saveBtn = h("button", { class: "primary", onclick: async () => {
+    saveBtn.disabled = true;
+    try {
+      await api("PATCH", "/walls/" + id, { name: nameIn.value, playlistId: plSel.value || null, cols: colsSel.value, rows: rowsSel.value, bezel: bezelIn.value || 0, fit: fitSel.value });
+      await api("PUT", "/walls/" + id + "/screens", { tiles: [...spots].map(([k, screenId]) => { const [col, row] = k.split(":").map(Number); return { screenId, col, row }; }) });
+      toast("Video wall saved. Its screens update within 30 seconds."); route();
+    } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
+  } }, "Save");
+  main.replaceChildren(
+    h("a", { href: base() + "/walls", class: "back" }, "← All video walls"),
+    pageHead(w.name, "Video wall · " + clientName(), h("button", { class: "danger", onclick: async () => {
+      if (!await confirmDlg("Delete video wall “" + w.name + "”?", "Its screens go back to their own playlist and layers. Playlists and media are kept.")) return;
+      try { await api("DELETE", "/walls/" + id); toast("Video wall deleted."); go("/walls"); } catch (e) { fail(e); }
+    } }, "Delete"), saveBtn),
+    h("div", { class: "grid two" },
+      h("div", { class: "card" }, h("h2", {}, "Content"), field("Name", nameIn), field("Playlist", plSel),
+        h("div", { class: "row" }, field("Screens across", colsSel), field("Screens down", rowsSel)),
+        field("Picture", fitSel),
+        field("Gap between screens (% of a screen's width)", bezelIn),
+        h("p", { class: "small muted", style: "margin-bottom:0" }, "Pictures and videos are shown across the wall. Web pages and widgets in the playlist are skipped. Only the top-left screen plays sound. Make videos and pictures in the wall's shape for the best result, e.g. 3840 × 1080 for two screens side by side. Gap: measure the frame between two screens' pictures and divide by one screen's picture width (e.g. 1 cm ÷ 120 cm ≈ 0.8). 0 if the frames don't matter.")),
+      h("div", { class: "card" }, h("h2", {}, "Where each screen hangs"),
+        h("p", { class: "small muted" }, "As seen from the front. Pick the screen in each spot."),
+        screens.length ? gridBox : h("p", { class: "muted" }, "No screens yet."),
+        h("p", { class: "small muted", style: "margin-bottom:0" }, "Screens play in step using the portal's clock. While in a wall, a screen's own playlist, channel, schedule and layers are not used. Click Save to apply."))));
 }
 
 // ---------- inside a client: widgets ----------

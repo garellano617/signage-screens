@@ -40,6 +40,22 @@ function buildConfig(screen) {
   const schedules = all("SELECT * FROM schedules WHERE screen_id = ? ORDER BY position, id", screen.id)
     .map(s => ({ id: s.id, days: s.days, start: s.start_time, end: s.end_time, playlist: playlistForPlayer(s.playlist_id) }))
     .filter(s => s.playlist);
+  // A screen in a video wall plays the wall's playlist, cropped to its tile, in step with the other screens.
+  const wall = screen.wall_id ? get("SELECT * FROM walls WHERE id = ?", screen.wall_id) : null;
+  if (wall && screen.wall_col < wall.cols && screen.wall_row < wall.rows) {
+    const first = screen.wall_col === 0 && screen.wall_row === 0;
+    const cfg = {
+      paired: true,
+      // Sound comes from the top-left screen only, so the screens don't echo.
+      screen: { id: screen.id, name: screen.name, orientation: 0, volume: first ? screen.volume : 0 },
+      defaultPlaylist: playlistForPlayer(wall.playlist_id),
+      schedules: [],
+      layers: parseLayers(null),
+      wall: { id: wall.id, cols: wall.cols, rows: wall.rows, col: screen.wall_col, row: screen.wall_row, bezel: wall.bezel, fit: wall.fit }
+    };
+    cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
+    return cfg;
+  }
   // A screen on a channel takes the channel's main playlist and layers (its own schedule still applies).
   const channel = screen.channel_id ? get("SELECT playlist_id, layers_json FROM channels WHERE id = ?", screen.channel_id) : null;
   const cfg = {

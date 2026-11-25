@@ -28,6 +28,12 @@ data class Slot(val days: Int, val start: Int, val end: Int, val playlist: Playl
 
 data class ScreenInfo(val name: String, val orientation: Int, val volume: Int)
 
+/**
+ * This screen's place in a video wall: a grid of cols × rows screens showing one big picture.
+ * bezel: gap between neighbouring screens in % of one screen's width. fit: "fill" (crop) or "fit".
+ */
+data class Wall(val id: Long, val cols: Int, val rows: Int, val col: Int, val row: Int, val bezel: Float, val fit: String)
+
 data class Config(
     val paired: Boolean,
     val screen: ScreenInfo?,
@@ -40,6 +46,8 @@ data class Config(
     val videoRegion: String = "full",
     /** Photos used by specials, cached like playlist media. */
     val specialImages: List<Item> = emptyList(),
+    /** Set when this screen is part of a video wall. */
+    val wall: Wall? = null,
 ) {
     val allItems: List<Item>
         get() = (listOfNotNull(defaultPlaylist) + slots.map { it.playlist }).flatMap { it.items } + specialImages
@@ -80,6 +88,10 @@ data class Config(
                     else -> video.str("region").ifEmpty { "full" }
                 },
                 specialImages = specialImages.distinctBy { it.src },
+                wall = o.optJSONObject("wall")?.let { w ->
+                    Wall(w.optLong("id"), w.optInt("cols", 1).coerceAtLeast(1), w.optInt("rows", 1).coerceAtLeast(1),
+                        w.optInt("col", 0), w.optInt("row", 0), w.optDouble("bezel", 0.0).toFloat(), w.str("fit").ifEmpty { "fill" })
+                },
             )
         }
 

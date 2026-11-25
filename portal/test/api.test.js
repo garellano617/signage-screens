@@ -822,3 +822,69 @@ test("layout templates and the AI designer (fake AI client, no paid calls)", asy
   assert.equal((await call("GET", "/api/ai/status")).body.left, 3, "limits are per client");
   ai.setClient(null); delete process.env.AI_DAILY_LIMIT;
 });
+
+test("video walls: tiles, cropped config per screen, sound from the first screen, per client", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const A = (await call("POST", "/api/customers", { name: "Wall Shop" })).body;
+  const B = (await call("POST", "/api/customers", { name: "Wall Other" })).body;
+  scopeId = A.id;
+  const own = (await call("POST", "/api/playlists", { name: "Own" })).body;
+  const big = (await call("POST", "/api/playlists", { name: "Big picture" })).body;
+  const pair = async dev => {
+    const reg = (await call("POST", "/api/player/register", { deviceId: dev })).body;
+    const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode, playlistId: own.id })).body;
+    return { s, auth: { authorization: "Bearer " + reg.token } };
+  };
+  const left = await pair("android-wall-0001"), right = await pair("android-wall-0002"), extra = await pair("android-wall-0003");
+
+  assert.equal((await call("POST", "/api/walls", { name: "" })).status, 400);
+  const w = (await call("POST", "/api/walls", { name: "Window", cols: 2, rows: 1, playlistId: big.id, bezel: 0.8 })).body;
+  assert.deepEqual([w.cols, w.rows, w.bezel, w.fit, w.playlistName], [2, 1, 0.8, "fill", "Big picture"]);
+
+  // Bad placements are refused.
+  const put = tiles => call("PUT", "/api/walls/" + w.id + "/screens", { tiles });
+  assert.equal((await put([{ screenId: left.s.id, col: 2, row: 0 }])).status, 400, "outside the grid");
+  assert.equal((await put([{ screenId: left.s.id, col: 0, row: 0 }, { screenId: right.s.id, col: 0, row: 0 }])).status, 400, "same spot");
+  assert.equal((await put([{ screenId: left.s.id, col: 0, row: 0 }, { screenId: left.s.id, col: 1, row: 0 }])).status, 400, "screen twice");
+  const placed = (await put([{ screenId: left.s.id, col: 0, row: 0 }, { screenId: right.s.id, col: 1, row: 0 }])).body;
+  assert.equal(placed.tiles.length, 2);
+
+  // Each screen gets the wall's playlist and its own tile; only the first one has sound; no schedule or layers.
+  await call("PATCH", "/api/screens/" + right.s.id, { volume: 80 });
+  const lc = (await call("GET", "/api/player/config", undefined, left.auth)).body;
+  const rc = (await call("GET", "/api/player/config", undefined, right.auth)).body;
+  assert.equal(lc.defaultPlaylist.name, "Big picture");
+  assert.deepEqual(lc.wall, { id: w.id, cols: 2, rows: 1, col: 0, row: 0, bezel: 0.8, fit: "fill" });
+  assert.deepEqual([rc.wall.col, rc.wall.row, rc.screen.volume], [1, 0, 0]);
+  assert.equal(lc.screen.volume, 100);
+  assert.deepEqual(rc.schedules, []);
+  assert.equal(rc.layers.text.enabled, false);
+  // The heartbeat carries the portal's clock, so the screens can play in step.
+  const hb = (await call("POST", "/api/player/heartbeat", {}, left.auth)).body;
+  assert.ok(Math.abs(hb.serverTime - Date.now()) < 5000);
+  // The screen page says which wall it's in.
+  const sp = (await call("GET", "/api/screens/" + left.s.id)).body;
+  assert.deepEqual([sp.wallName, sp.wallCol, sp.wallRow], ["Window", 0, 0]);
+
+  // Making the grid smaller lets go of screens that no longer fit; they go back to their own playlist.
+  const small = (await call("PATCH", "/api/walls/" + w.id, { cols: 1 })).body;
+  assert.deepEqual(small.tiles.map(t => t.screenId), [left.s.id]);
+  const rc2 = (await call("GET", "/api/player/config", undefined, right.auth)).body;
+  assert.equal(rc2.wall, undefined);
+  assert.equal(rc2.defaultPlaylist.name, "Own");
+  // Moving a screen to another wall takes it out of the first.
+  const w2 = (await call("POST", "/api/walls", { name: "Counter", cols: 2, rows: 2 })).body;
+  await call("PUT", "/api/walls/" + w2.id + "/screens", { tiles: [{ screenId: left.s.id, col: 1, row: 1 }, { screenId: extra.s.id, col: 0, row: 0 }] });
+  assert.equal((await call("GET", "/api/walls/" + w.id)).body.tiles.length, 0);
+
+  // Another client can't see or use it.
+  scopeId = B.id;
+  assert.equal((await call("GET", "/api/walls/" + w2.id)).status, 404);
+  assert.equal((await call("GET", "/api/walls")).body.length, 0);
+  scopeId = A.id;
+  // Deleting a wall frees its screens.
+  await call("DELETE", "/api/walls/" + w2.id);
+  assert.equal((await call("GET", "/api/player/config", undefined, extra.auth)).body.wall, undefined);
+  scopeId = null;
+});

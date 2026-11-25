@@ -96,7 +96,7 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
   // The newest player app: players install it when its fingerprint differs from their own.
   let app = null;
   try { const a = latestApk(); if (a) app = { sha256: a.sha256, size: a.size, url: "/download/player.apk" }; } catch (e) { /* no apk folder yet */ }
-  res.json({ paired: !!s.paired_at, pairingCode: s.paired_at ? null : s.pairing_code, configVersion: cfg.version, commands, app });
+  res.json({ paired: !!s.paired_at, pairingCode: s.paired_at ? null : s.pairing_code, configVersion: cfg.version, commands, app, serverTime: now() });
 });
 
 // Live data (weather, news) for a widget on this screen's client.

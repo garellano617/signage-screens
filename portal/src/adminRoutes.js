@@ -237,13 +237,14 @@ function screenSummary(s) {
     screenshot: s.screenshot_file ? "/screenshots/" + s.screenshot_file : null, screenshotAt: s.screenshot_at,
     scheduleCount: s.schedule_count || 0,
     lat: s.lat, lng: s.lng, address: s.address || "",
-    channelId: s.channel_id || null, channelName: s.channel_name || null
+    channelId: s.channel_id || null, channelName: s.channel_name || null,
+    wallId: s.wall_id || null, wallName: s.wall_name || null, wallCol: s.wall_col, wallRow: s.wall_row
   };
 }
-const screenQuery = `SELECT s.*, p.name AS playlist_name, cu.name AS customer_name, ch.name AS channel_name,
+const screenQuery = `SELECT s.*, p.name AS playlist_name, cu.name AS customer_name, ch.name AS channel_name, wl.name AS wall_name,
   (SELECT COUNT(*) FROM schedules sc WHERE sc.screen_id = s.id) AS schedule_count
   FROM screens s LEFT JOIN playlists p ON p.id = s.playlist_id LEFT JOIN customers cu ON cu.id = s.customer_id
-  LEFT JOIN channels ch ON ch.id = s.channel_id
+  LEFT JOIN channels ch ON ch.id = s.channel_id LEFT JOIN walls wl ON wl.id = s.wall_id
   WHERE s.paired_at IS NOT NULL`;
 
 router.get("/dashboard", (req, res) => {
@@ -360,6 +361,89 @@ router.put("/channels/:id/screens", (req, res) => {
 router.delete("/channels/:id", (req, res) => {
   const c = loadChannel(req, intId(req.params.id));
   tx(() => { run("UPDATE screens SET channel_id = NULL WHERE channel_id = ?", c.id); run("DELETE FROM channels WHERE id = ?", c.id); });
+  res.json({ ok: true });
+});
+
+// ---------- video walls: one big picture across several screens ----------
+const wallQuery = `SELECT w.*, p.name AS playlist_name, cu.name AS customer_name FROM walls w
+  LEFT JOIN playlists p ON p.id = w.playlist_id LEFT JOIN customers cu ON cu.id = w.customer_id WHERE 1=1`;
+function loadWall(req, id) {
+  const [w, p] = scope(req, "w");
+  const x = get(wallQuery + " AND w.id = ?" + w, id, ...p);
+  if (!x) throw notFound("Video wall");
+  return x;
+}
+function wallOut(w) {
+  return {
+    id: w.id, name: w.name, customerId: w.customer_id, customerName: w.customer_name,
+    cols: w.cols, rows: w.rows, bezel: w.bezel, fit: w.fit,
+    playlistId: w.playlist_id, playlistName: w.playlist_name || null, updatedAt: w.updated_at,
+    tiles: all("SELECT id, name, wall_col, wall_row, last_seen, planned FROM screens WHERE wall_id = ? AND paired_at IS NOT NULL ORDER BY wall_row, wall_col", w.id)
+      .map(s => ({ screenId: s.id, name: s.name, col: s.wall_col, row: s.wall_row, online: !s.planned && isOnline(s), planned: !!s.planned }))
+  };
+}
+function wallFields(body, cur) {
+  const int = (v, lo, hi, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+  const name = body.name !== undefined ? str(body.name, 100, "Name") : cur.name;
+  if (!name) throw bad("Give the video wall a name.");
+  const bz = body.bezel !== undefined ? Number(body.bezel) : cur.bezel;
+  return {
+    name, cols: body.cols !== undefined ? int(body.cols, 1, 6, cur.cols) : cur.cols, rows: body.rows !== undefined ? int(body.rows, 1, 6, cur.rows) : cur.rows,
+    bezel: Number.isFinite(bz) ? Math.min(10, Math.max(0, Math.round(bz * 100) / 100)) : 0,
+    fit: (body.fit !== undefined ? body.fit : cur.fit) === "fit" ? "fit" : "fill"
+  };
+}
+
+router.get("/walls", (req, res) => {
+  const [w, p] = scope(req, "w");
+  res.json(all(wallQuery + w + " ORDER BY w.name COLLATE NOCASE", ...p).map(wallOut));
+});
+
+router.post("/walls", (req, res) => {
+  const cid = targetCustomer(req);
+  const f = wallFields(req.body || {}, { name: "", cols: 2, rows: 1, bezel: 0, fit: "fill" });
+  const r = run("INSERT INTO walls (customer_id, name, cols, rows, playlist_id, bezel, fit, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    cid, f.name, f.cols, f.rows, checkPlaylist(req.body.playlistId, cid), f.bezel, f.fit, now(), now());
+  res.status(201).json(wallOut(loadWall({ cid: null }, r.lastInsertRowid)));
+});
+
+router.get("/walls/:id", (req, res) => res.json(wallOut(loadWall(req, intId(req.params.id)))));
+
+router.patch("/walls/:id", (req, res) => {
+  const w = loadWall(req, intId(req.params.id));
+  const f = wallFields(req.body || {}, w);
+  const pl = req.body.playlistId !== undefined ? checkPlaylist(req.body.playlistId, w.customer_id) : w.playlist_id;
+  tx(() => {
+    run("UPDATE walls SET name = ?, cols = ?, rows = ?, playlist_id = ?, bezel = ?, fit = ?, updated_at = ? WHERE id = ?", f.name, f.cols, f.rows, pl, f.bezel, f.fit, now(), w.id);
+    // A smaller grid lets go of the screens that no longer fit.
+    run("UPDATE screens SET wall_id = NULL, wall_col = NULL, wall_row = NULL WHERE wall_id = ? AND (wall_col >= ? OR wall_row >= ?)", w.id, f.cols, f.rows);
+  });
+  res.json(wallOut(loadWall(req, w.id)));
+});
+
+// Which screen sits where: exactly the tiles listed (other screens leave the wall). A screen can be in one wall only.
+router.put("/walls/:id/screens", (req, res) => {
+  const w = loadWall(req, intId(req.params.id));
+  const tiles = (Array.isArray(req.body.tiles) ? req.body.tiles : []).map(t => ({ screenId: intId(t && t.screenId), col: Math.round(Number(t && t.col)), row: Math.round(Number(t && t.row)) }));
+  const cells = new Set(), ids = new Set();
+  for (const t of tiles) {
+    if (!(t.col >= 0 && t.col < w.cols && t.row >= 0 && t.row < w.rows)) throw bad("A screen is placed outside the wall's grid.");
+    if (cells.has(t.col + ":" + t.row)) throw bad("Two screens are in the same spot.");
+    if (ids.has(t.screenId)) throw bad("A screen can only be in one spot.");
+    if (!get("SELECT id FROM screens WHERE id = ? AND customer_id = ? AND paired_at IS NOT NULL", t.screenId, w.customer_id)) throw bad("A screen in that list doesn't belong to this client.");
+    cells.add(t.col + ":" + t.row); ids.add(t.screenId);
+  }
+  tx(() => {
+    run("UPDATE screens SET wall_id = NULL, wall_col = NULL, wall_row = NULL WHERE wall_id = ?", w.id);
+    tiles.forEach(t => run("UPDATE screens SET wall_id = ?, wall_col = ?, wall_row = ? WHERE id = ?", w.id, t.col, t.row, t.screenId));
+    run("UPDATE walls SET updated_at = ? WHERE id = ?", now(), w.id);
+  });
+  res.json(wallOut(loadWall(req, w.id)));
+});
+
+router.delete("/walls/:id", (req, res) => {
+  const w = loadWall(req, intId(req.params.id));
+  tx(() => { run("UPDATE screens SET wall_id = NULL, wall_col = NULL, wall_row = NULL WHERE wall_id = ?", w.id); run("DELETE FROM walls WHERE id = ?", w.id); });
   res.json({ ok: true });
 });
 

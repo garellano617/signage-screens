@@ -152,6 +152,25 @@ CREATE TABLE IF NOT EXISTS channels (
 `);
 if (!hasColumn("screens", "channel_id")) db.exec("ALTER TABLE screens ADD COLUMN channel_id INTEGER REFERENCES channels(id) ON DELETE SET NULL");
 
+// Video walls: several screens side by side showing one big picture. Each screen has a tile (column, row).
+// bezel = gap between neighbouring screens in % of a screen's width; fit = "fill" (crop to fill) or "fit".
+db.exec(`
+CREATE TABLE IF NOT EXISTS walls (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  cols INTEGER NOT NULL DEFAULT 2,
+  rows INTEGER NOT NULL DEFAULT 1,
+  playlist_id INTEGER REFERENCES playlists(id) ON DELETE SET NULL,
+  bezel REAL NOT NULL DEFAULT 0,
+  fit TEXT NOT NULL DEFAULT 'fill',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`);
+for (const [col, type] of [["wall_id", "INTEGER REFERENCES walls(id) ON DELETE SET NULL"], ["wall_col", "INTEGER"], ["wall_row", "INTEGER"]])
+  if (!hasColumn("screens", col)) db.exec("ALTER TABLE screens ADD COLUMN " + col + " " + type);
+
 // Reports (proof of play): one row per item played on a screen.
 db.exec(`
 CREATE TABLE IF NOT EXISTS plays (

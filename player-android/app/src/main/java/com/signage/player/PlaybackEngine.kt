@@ -5,6 +5,7 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
 import android.view.Gravity
@@ -20,6 +21,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +75,9 @@ class PlaybackEngine(
     var onPlayed: ((Item, Long, Int, String) -> Unit)? = null
     var volume = 1f
         set(v) { field = v; player?.volume = v }
+    /** Set when this screen is part of a video wall: it shows its part of the picture, in step with the others. */
+    var wall: Wall? = null
+    private val videoLengths = HashMap<String, Long>()
 
     init {
         val mp = FrameLayout.LayoutParams.MATCH_PARENT
@@ -114,6 +119,8 @@ class PlaybackEngine(
     }
 
     private suspend fun loop(playlist: Playlist?) {
+        wall?.let { wallLoop(playlist, it); return }
+        layoutWall(null)
         while (scope.isActive) {
             val items = playlist?.items.orEmpty().filter { cache.isReady(it) }
             if (items.isEmpty()) {
@@ -176,11 +183,171 @@ class PlaybackEngine(
         return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
-    private suspend fun playVideo(file: File): Boolean {
-        val p = player ?: ExoPlayer.Builder(activity).build().also {
-            player = it
-            playerView.player = it
+    private fun ensurePlayer(): ExoPlayer = player ?: ExoPlayer.Builder(activity).build().also {
+        player = it
+        playerView.player = it
+    }
+
+    // ---------- video wall ----------
+
+    /**
+     * Sizes the picture to the whole wall and shifts it so this screen shows only its own tile.
+     * The stage clips everything outside the screen. null = normal, one screen.
+     */
+    private fun layoutWall(w: Wall?) {
+        val sw = stage.width
+        val sh = stage.height
+        for (v in listOf<View>(image, playerView)) {
+            val lp = v.layoutParams as FrameLayout.LayoutParams
+            lp.gravity = Gravity.TOP or Gravity.START
+            if (w == null || sw == 0 || sh == 0) {
+                lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+                v.translationX = 0f
+                v.translationY = 0f
+            } else {
+                val gap = w.bezel / 100f * sw
+                lp.width = Math.round(w.cols * sw + (w.cols - 1) * gap)
+                lp.height = Math.round(w.rows * sh + (w.rows - 1) * gap)
+                v.translationX = -(w.col * (sw + gap))
+                v.translationY = -(w.row * (sh + gap))
+            }
+            v.layoutParams = lp
         }
+        val fill = w != null && w.fit != "fit"
+        image.scaleType = if (fill) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+        playerView.resizeMode = if (fill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
+
+    /** Length of a video file in ms. Every screen has the same file, so they all get the same number. */
+    private suspend fun videoLengthMs(file: File, fallback: Long): Long = videoLengths[file.name] ?: withContext(Dispatchers.IO) {
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(file.path)
+            r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { r.release() }
+        }
+    }?.also { videoLengths[file.name] = it } ?: fallback
+
+    /**
+     * Video wall playback. The playlist repeats on a timeline shared by all screens of the wall:
+     * at portal time T, every screen is at the same item and the same moment in it.
+     * Pictures and videos only; web pages and widgets are skipped.
+     */
+    private suspend fun wallLoop(playlist: Playlist?, w: Wall) {
+        while (scope.isActive) {
+            val items = playlist?.items.orEmpty().filter { (it.isVideo || it.kind == "image") && cache.isReady(it) }
+            if (items.isEmpty()) {
+                nowPlaying = ""
+                player?.stop()
+                idle.text = activity.getString(if (playlist == null) R.string.no_content else R.string.waiting_for_downloads)
+                show(idle)
+                delay(5_000)
+                continue
+            }
+            val lengths = items.map { (if (it.isVideo) videoLengthMs(cache.fileFor(it), it.duration * 1000L) else it.duration * 1000L).coerceAtLeast(1_000L) }
+            val spot = WallTimeline.at(lengths, ServerClock.now())
+            val item = items[spot.index]
+            val start = spot.start
+            val end = spot.end
+            nowPlaying = item.name
+            layoutWall(w)
+            val ok = try {
+                if (item.isVideo) playWallVideo(cache.fileFor(item), start, end) else playWallImage(cache.fileFor(item), w)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Log.e(TAG, "Couldn't play ${item.name} on the wall", e)
+                lastError = "Couldn't play ${item.name}: ${e.message}"
+                false
+            }
+            if (ok) {
+                cache.touch(item)
+                onPlayed?.invoke(item, System.currentTimeMillis() - (ServerClock.now() - start), ((end - start) / 1000).toInt(), playlist?.name.orEmpty())
+            }
+            // Wait for the item's end on the shared timeline, so the next one starts together.
+            val left = end - ServerClock.now()
+            if (left > 0) delay(left)
+        }
+    }
+
+    private suspend fun playWallImage(file: File, w: Wall): Boolean {
+        val sw = stage.width.takeIf { it > 0 } ?: 1920
+        val sh = stage.height.takeIf { it > 0 } ?: 1080
+        // Decode for the whole wall's size, but no bigger than about 4K, to keep memory in check.
+        var reqW = w.cols * sw
+        var reqH = w.rows * sh
+        val scale = minOf(1f, 3840f / maxOf(reqW, reqH))
+        reqW = (reqW * scale).toInt()
+        reqH = (reqH * scale).toInt()
+        val bmp = withContext(Dispatchers.IO) { decodeScaled(file, reqW, reqH) } ?: run {
+            lastError = "Couldn't open image ${file.name}"
+            return false
+        }
+        val old = currentBitmap
+        image.setImageBitmap(bmp)
+        currentBitmap = bmp
+        show(image)
+        player?.stop()
+        if (old != null && old !== bmp) old.recycle()
+        return true
+    }
+
+    /**
+     * Plays a video on the shared timeline: starts at the right moment, then keeps checking the
+     * position against the portal clock and nudges the speed (or jumps) to stay with the other screens.
+     */
+    private suspend fun playWallVideo(file: File, start: Long, end: Long): Boolean {
+        val length = end - start
+        // Load a little ahead of where the wall is, then start exactly when the wall gets there.
+        val target = ServerClock.now() - start + 800
+        if (target >= length - 500) return true
+        val p = ensurePlayer()
+        p.volume = volume
+        p.repeatMode = Player.REPEAT_MODE_OFF
+        p.setPlaybackSpeed(1f)
+        p.playWhenReady = false
+        p.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)), target)
+        p.prepare()
+        var failed = false
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                lastError = "Video ${file.name}: ${error.errorCodeName}"
+                failed = true
+            }
+        }
+        p.addListener(listener)
+        try {
+            withTimeoutOrNull(5_000) { while (p.playbackState != Player.STATE_READY && !failed) delay(20) }
+            if (failed) return false
+            val wait = start + target - ServerClock.now()
+            if (wait > 0) delay(wait) else p.seekTo(ServerClock.now() - start)
+            show(playerView)
+            p.play()
+            while (ServerClock.now() < end - 150) {
+                if (failed) return false
+                if (p.playbackState == Player.STATE_ENDED) break
+                val expected = ServerClock.now() - start
+                val diff = p.currentPosition - expected
+                when {
+                    Math.abs(diff) > 400 -> { p.setPlaybackSpeed(1f); p.seekTo((expected + 120).coerceIn(0, length)) }
+                    Math.abs(diff) > 25 -> p.setPlaybackSpeed((1f - diff / 2000f).coerceIn(0.95f, 1.05f))
+                    else -> p.setPlaybackSpeed(1f)
+                }
+                delay(500)
+            }
+            return true
+        } finally {
+            p.removeListener(listener)
+            p.setPlaybackSpeed(1f)
+        }
+    }
+
+    private suspend fun playVideo(file: File): Boolean {
+        val p = ensurePlayer()
         p.volume = volume
         p.repeatMode = Player.REPEAT_MODE_OFF
         p.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))

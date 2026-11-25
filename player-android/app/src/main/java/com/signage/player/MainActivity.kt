@@ -174,7 +174,9 @@ class MainActivity : ComponentActivity() {
             try {
                 if (prefs.token == null) register()
                 val batch = plays.take(500)
+                val sentAt = SystemClock.elapsedRealtime()
                 val hb = api.heartbeat(statusJson().put("plays", JSONArray(batch)))
+                ServerClock.sample(sentAt, SystemClock.elapsedRealtime(), hb.optLong("serverTime"))
                 repeat(batch.size) { if (plays.isNotEmpty()) plays.removeFirst() }
                 lastNetError = ""
                 if (!hb.optBoolean("paired")) {
@@ -270,6 +272,10 @@ class MainActivity : ComponentActivity() {
         config = c
         val s = c.screen
         engine.volume = (s?.volume ?: 100) / 100f
+        if (engine.wall != c.wall) {
+            engine.wall = c.wall
+            engine.restart()
+        }
         applyOrientation(s?.orientation ?: 0)
         videoRegion = c.videoRegion
         applyRegion()
