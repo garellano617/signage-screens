@@ -10,6 +10,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -39,6 +40,8 @@ class PlaybackEngine(
     private val cache: MediaCache,
     private val scope: CoroutineScope,
     private val resolve: (String) -> String,
+    /** True while the TV has internet. Offline, web pages load from the WebView's saved copy. */
+    private val online: () -> Boolean,
     /** Live data for a widget (JSON text), or null. */
     private val widgetData: suspend (Item) -> String?,
 ) {
@@ -50,6 +53,7 @@ class PlaybackEngine(
     }
     private val playerView = LayoutInflater.from(activity).inflate(R.layout.player_view, stage, false) as PlayerView
     private var web: WebView? = null
+    private var webFailed = false
     private val idle = TextView(activity).apply {
         setTextColor(Color.parseColor("#9aa4b5"))
         textSize = 22f
@@ -138,6 +142,7 @@ class PlaybackEngine(
                     lastError = "Couldn't play ${item.name}: ${e.message}"
                     false
                 }
+                if (ok) cache.touch(item)
                 if (ok) onPlayed?.invoke(item, startedAt, ((System.currentTimeMillis() - startedAt) / 1000).toInt(), playlist?.name.orEmpty())
                 // Don't spin through a playlist where everything fails.
                 if (!ok) delay(2_000)
@@ -216,16 +221,43 @@ class PlaybackEngine(
         wv.settings.mediaPlaybackRequiresUserGesture = false
         wv.settings.loadWithOverviewMode = true
         wv.settings.useWideViewPort = true
-        wv.webViewClient = WebViewClient()
+        wv.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String) { webLoad?.let { if (it.isActive) it.complete(true) } }
+
+            @Suppress("DEPRECATION")
+            override fun onReceivedError(view: WebView, errorCode: Int, description: String?, failingUrl: String?) {
+                // Only the page itself (this callback is for the main frame); a missing picture on it doesn't count.
+                webLoad?.let { if (it.isActive) it.complete(false) }
+            }
+        }
         wv.visibility = View.GONE
         stage.addView(wv, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         web = wv
     }
 
+    private var webLoad: kotlinx.coroutines.CompletableDeferred<Boolean>? = null
+
+    /**
+     * Shows a web page. Online it loads normally (and the WebView keeps a copy). Offline it loads the saved
+     * copy; a page that was never saved is skipped, so the screen shows the next item instead of an error page.
+     */
     private suspend fun playWeb(item: Item): Boolean {
         val wv = webView()
         val url = resolve(item.src)
-        if (wv.url != url) wv.loadUrl(url)
+        val isOnline = online()
+        wv.settings.cacheMode = if (isOnline) WebSettings.LOAD_DEFAULT else WebSettings.LOAD_CACHE_ELSE_NETWORK
+        if (wv.url != url || webFailed) {
+            val done = kotlinx.coroutines.CompletableDeferred<Boolean>()
+            webLoad = done
+            wv.loadUrl(url)
+            webFailed = !(withTimeoutOrNull(if (isOnline) 20_000L else 8_000L) { done.await() } ?: isOnline)
+            webLoad = null
+            if (webFailed) {
+                lastError = if (isOnline) "Web page ${item.name} didn't load" else "Web page ${item.name} isn't saved on this TV (no internet)"
+                wv.stopLoading()
+                return false
+            }
+        }
         show(wv)
         player?.stop()
         delay(item.duration * 1000L)

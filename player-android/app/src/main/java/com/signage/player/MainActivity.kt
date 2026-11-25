@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
         setup.visibility = View.GONE
         api = Api(prefs.serverUrl) { prefs.token }
         if (!::engine.isInitialized) {
-            engine = PlaybackEngine(this, stage, cache, lifecycleScope, { api.resolve(it) }) { item -> widgetData(item) }
+            engine = PlaybackEngine(this, stage, cache, lifecycleScope, { api.resolve(it) }, { lastNetError.isEmpty() && isNetworkUp() }) { item -> widgetData(item) }
             engine.onPlayed = { item, at, sec, playlist ->
                 plays.addLast(JSONObject().put("mediaId", item.mediaId).put("name", item.name).put("kind", item.kind)
                     .put("playlist", playlist).put("at", at).put("sec", sec))
@@ -228,6 +228,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun isNetworkUp(): Boolean = try {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        cm.activeNetworkInfo?.isConnected == true
+    } catch (e: Exception) {
+        true
+    }
+
     private fun showPairing(code: String) {
         hideStatus()
         pairing.visibility = View.VISIBLE
@@ -243,7 +251,7 @@ class MainActivity : ComponentActivity() {
         missing.forEachIndexed { i, item ->
             if (engine.nowPlaying.isEmpty()) showStatus(getString(R.string.downloading, i + 1, missing.size, item.name))
             try {
-                cache.download(api, item)
+                cache.download(api, item, c.allItems)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
