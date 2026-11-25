@@ -1956,8 +1956,11 @@ async function renderDownload(main) {
             h("p", { class: "small muted" }, "On the TV or Android box, open this address in a browser to download it: ", h("span", { class: "mono" }, portalUrl + apk.url)))
           : h("p", { class: "muted" }, "No player app uploaded yet."),
         isAdmin() && isStaff() ? h("div", { style: "margin-top:.5rem" },
+          h("p", { class: "small muted", style: "margin:0 0 .4rem" }, "New versions are built and published here automatically when the app changes, and every TV updates itself. Upload by hand only as a backup (for example a version built on your PC)."),
           h("input", { type: "file", accept: ".apk", class: "hidden", id: "apkFile", onchange: async e => {
             const file = e.target.files[0]; if (!file) return;
+            e.target.value = "";
+            if (!await confirmDlg("Send " + file.name + " to every TV?", "Each TV with app 1.2 or later downloads and installs it within about a minute. It must be signed with the same key and be newer than the current version, or the TVs won't install it.", "Upload and update TVs")) return;
             const fd = new FormData(); fd.append("file", file);
             toast("Uploading " + file.name + "…");
             try {
