@@ -877,7 +877,7 @@ async function renderLayers(main, id, kind) {
     } else {
       kids.push(h("span", { class: "small muted" }, "Click something on the screen or a bar in the timeline to edit it. Drag text and pictures to move them."));
     }
-    toolbar.replaceChildren(...kids);
+    toolbar.replaceChildren(...kids.filter(k => k != null && k !== false));
   }
 
   // ---------- side panel ----------
@@ -1033,7 +1033,7 @@ async function renderLayers(main, id, kind) {
           " Use a smaller area to leave room for specials or a ticker."),
         h("a", { class: "btn small", href: base() + path }, isCh ? "Change the channel's playlist" : "Change the playlist or schedule"));
     }
-    panel.replaceChildren(...kids);
+    panel.replaceChildren(...kids.filter(k => k != null && k !== false));
   }
 
   function specialsPanel() {
@@ -1193,7 +1193,7 @@ async function renderLayers(main, id, kind) {
       r.querySelector(".tl-name").addEventListener("click", () => select({ type: "block", i }));
       rows.push(r);
     }
-    if (!L.text.blocks.length) rows.push(row("", null, false, null, [h("span", { class: "tl-empty" }, "Add text or pictures from the panel on the left.")]));
+    if (!L.text.blocks.length) rows.push(row("", null, false, null, [h("span", { class: "tl-empty" }, "Empty. Add text or pictures in the Text tab.")]));
     const tk = L.text.ticker;
     rows.push(row("Ticker", "ticker", tk.enabled, v => { tk.enabled = v; if (v) L.text.enabled = true; },
       tk.enabled || tk.text ? [tlClip("tl-ticker" + (tk.enabled && L.text.enabled ? "" : " off") + (isSel("ticker") ? " sel" : ""), 0, len, (tk.text || "").split("\n").join("  •  ") || "Ticker", len,
