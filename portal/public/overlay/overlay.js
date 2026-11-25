@@ -178,8 +178,11 @@
     }
 
     // ---- effects (top layer) ----
+    // On a video wall (layers.view) and for the scene effects, effects are drawn from the clock so every
+    // screen of the wall draws its own part of the same picture. opts.now: shared clock in ms (the player
+    // passes the portal's clock).
     var ef = layers.effects;
-    if (ef && ef.enabled) cleanups.push(effects(root, ef));
+    if (ef && ef.enabled) cleanups.push(layers.view || SCENES[ef.type] ? scene(root, ef, layers.view, opts.now || Date.now) : effects(root, ef));
 
     fit();
     var onResize = function () { fit(); };
@@ -273,5 +276,225 @@
     return function () { cancelAnimationFrame(raf); global.removeEventListener("resize", onResize); };
   }
 
-  global.SignageOverlay = { render: render, activeNow: activeNow, REGIONS: REGIONS, FONTS: FONTS };
+  // ---- clock-driven effects: the same on every screen of a video wall ----
+  // Every position is worked out from the time alone (no randomness that differs between screens), in the
+  // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1 };
+  var BALLOONS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#facc15"];
+  var FIREWORKS = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#c084fc", "#f472b6", "#ffffff"];
+  function rnd(a, b) { var x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); }
+  function mod(a, n) { return ((a % n) + n) % n; }
+
+  function scene(root, ef, view, now) {
+    var cv = el("canvas", "so-effects");
+    root.appendChild(cv);
+    var ctx = cv.getContext("2d");
+    var v = view || { cols: 1, rows: 1, col: 0, row: 0, gap: 0 };
+    var W = 0, H = 0, VW = 0, VH = 0, OX = 0, OY = 0, raf = 0;
+    var type = ef.type, base = COUNTS[ef.intensity] || COUNTS.medium;
+
+    function size() {
+      var r = window.devicePixelRatio || 1;
+      W = root.clientWidth; H = root.clientHeight;
+      cv.width = W * r; cv.height = H * r; ctx.setTransform(r, 0, 0, r, 0, 0);
+      var g = (v.gap || 0) * W;
+      VW = v.cols * W + (v.cols - 1) * g; VH = v.rows * H + (v.rows - 1) * g;
+      OX = v.col * (W + g); OY = v.row * (H + g);
+    }
+
+    // Falling / rising / twinkling particles, the same kinds as the single-screen effects.
+    function particles(kind, t, count, color) {
+      var u = W / 100, n = Math.min(900, Math.round(count * v.cols * v.rows));
+      var rising = kind === "bubbles" || kind === "hearts" || kind === "balloons";
+      var twinkle = kind === "sparkles" || kind === "stars";
+      for (var k = 0; k < n; k++) {
+        var s = (0.4 + rnd(k, 1)) * u * (kind === "snow" ? 0.5 : kind === "confetti" ? 0.7 : kind === "bubbles" ? 1.4 : kind === "balloons" ? 2.2 : 1);
+        ctx.save();
+        if (twinkle) {
+          var life = t * 0.5 + rnd(k, 7), round = Math.floor(life);
+          ctx.globalAlpha = Math.sin((life - round) * Math.PI);
+          ctx.translate(rnd(k * 31 + round, 1) * VW, rnd(k * 31 + round, 2) * VH);
+          ctx.rotate(rnd(k, 5) * 6.28);
+          ctx.fillStyle = color;
+          if (kind === "stars") star(s); else { ctx.fillRect(-s * 0.12, -s, s * 0.24, s * 2); ctx.fillRect(-s, -s * 0.12, s * 2, s * 0.24); }
+          ctx.restore();
+          continue;
+        }
+        var vy = (0.4 + rnd(k, 2) * 0.6) * u * (kind === "snow" ? 4 : kind === "confetti" ? 9 : kind === "leaves" ? 5 : kind === "balloons" ? 4 : 6);
+        var travel = VH + 8 * s + 60;
+        var y = mod(t * vy + rnd(k, 3) * travel, travel) - 4 * s - 30;
+        if (rising) y = VH - y;
+        var x = rnd(k, 4) * VW + Math.sin(t * 1.5 + rnd(k, 6) * 6.28) * s * 1.5;
+        ctx.translate(x, y);
+        ctx.rotate(kind === "snow" || kind === "bubbles" || kind === "balloons" ? Math.sin(t + k) * 0.08 : rnd(k, 8) * 6.28 + t * (rnd(k, 9) - 0.5) * 4);
+        ctx.fillStyle = kind === "confetti" ? CONFETTI[k % CONFETTI.length] : kind === "leaves" ? LEAVES[k % LEAVES.length] : color;
+        ctx.strokeStyle = ctx.fillStyle;
+        if (kind === "snow") { ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(0, 0, s, 0, 7); ctx.fill(); }
+        else if (kind === "bubbles") { ctx.globalAlpha = 0.6; ctx.lineWidth = Math.max(1, s / 8); ctx.beginPath(); ctx.arc(0, 0, s, 0, 7); ctx.stroke(); }
+        else if (kind === "confetti") ctx.fillRect(-s, -s * 0.4, s * 2, s * 0.8);
+        else if (kind === "hearts") { ctx.globalAlpha = 0.85; heart(s * 1.6); }
+        else if (kind === "leaves") { ctx.beginPath(); ctx.ellipse(0, 0, s * 1.3, s * 0.6, 0, 0, 7); ctx.fill(); }
+        else if (kind === "balloons") balloon(s, BALLOONS[k % BALLOONS.length]);
+        ctx.restore();
+      }
+    }
+    function heart(s) {
+      ctx.beginPath(); ctx.moveTo(0, s * 0.3);
+      ctx.bezierCurveTo(0, 0, -s * 0.5, 0, -s * 0.5, s * 0.3); ctx.bezierCurveTo(-s * 0.5, s * 0.6, 0, s * 0.8, 0, s);
+      ctx.bezierCurveTo(0, s * 0.8, s * 0.5, s * 0.6, s * 0.5, s * 0.3); ctx.bezierCurveTo(s * 0.5, 0, 0, 0, 0, s * 0.3); ctx.fill();
+    }
+    function star(s) {
+      ctx.beginPath();
+      for (var i = 0; i < 10; i++) { var a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? s * 0.4 : s; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+      ctx.closePath(); ctx.fill();
+    }
+    function balloon(s, c) {
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = Math.max(1, s / 14);
+      ctx.beginPath(); ctx.moveTo(0, s * 1.2); ctx.quadraticCurveTo(s * 0.3, s * 2.2, 0, s * 3.2); ctx.stroke();
+      ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(0, 0, s, s * 1.2, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-s * 0.15, s * 1.15); ctx.lineTo(s * 0.15, s * 1.15); ctx.lineTo(0, s * 1.35); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.beginPath(); ctx.ellipse(-s * 0.35, -s * 0.45, s * 0.2, s * 0.35, -0.5, 0, 7); ctx.fill();
+    }
+
+    // One reindeer, facing right, at its hooves' level. a = gallop phase.
+    function reindeer(x, y, u, a, rudolph) {
+      ctx.save(); ctx.translate(x, y);
+      ctx.strokeStyle = "#5b3a1e"; ctx.lineCap = "round"; ctx.lineWidth = u * 0.32;
+      var legs = [[-1.1, 0], [-0.7, 1.6], [0.8, 0.8], [1.2, 2.4]];
+      legs.forEach(function (l) { var sw = Math.sin(a + l[1]) * 0.6; ctx.beginPath(); ctx.moveTo(l[0] * u, -1.6 * u); ctx.lineTo((l[0] + sw) * u, 0); ctx.stroke(); });
+      ctx.fillStyle = "#8b5a2b";
+      ctx.beginPath(); ctx.ellipse(0, -2.1 * u, 1.9 * u, 0.85 * u, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = "#f5e6d3"; ctx.beginPath(); ctx.ellipse(-1.9 * u, -2.3 * u, 0.35 * u, 0.3 * u, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = "#8b5a2b";
+      ctx.beginPath(); ctx.moveTo(1.3 * u, -2.6 * u); ctx.lineTo(2.1 * u, -3.9 * u); ctx.lineTo(2.6 * u, -3.6 * u); ctx.lineTo(1.9 * u, -2.2 * u); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(2.6 * u, -3.9 * u, 0.75 * u, 0.45 * u, 0.25, 0, 7); ctx.fill();
+      ctx.strokeStyle = "#e8d5b5"; ctx.lineWidth = u * 0.18;
+      ctx.beginPath(); ctx.moveTo(2.3 * u, -4.2 * u); ctx.lineTo(1.9 * u, -5.3 * u); ctx.moveTo(2.05 * u, -4.8 * u); ctx.lineTo(1.5 * u, -5.1 * u);
+      ctx.moveTo(2.6 * u, -4.25 * u); ctx.lineTo(2.9 * u, -5.4 * u); ctx.moveTo(2.8 * u, -4.9 * u); ctx.lineTo(3.3 * u, -5.2 * u); ctx.stroke();
+      ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(2.75 * u, -4.05 * u, 0.12 * u, 0, 7); ctx.fill();
+      if (rudolph) {
+        ctx.shadowColor = "#ff2a2a"; ctx.shadowBlur = u * 2;
+        ctx.fillStyle = "#ff2a2a"; ctx.beginPath(); ctx.arc(3.35 * u, -3.75 * u, 0.32 * u, 0, 7); ctx.fill();
+        ctx.shadowBlur = 0;
+      } else { ctx.fillStyle = "#3b2414"; ctx.beginPath(); ctx.arc(3.3 * u, -3.75 * u, 0.2 * u, 0, 7); ctx.fill(); }
+      ctx.restore();
+    }
+    // Santa in his sleigh, facing right; (x, y) = bottom of the runners.
+    function sleigh(x, y, u) {
+      ctx.save(); ctx.translate(x, y);
+      ctx.strokeStyle = "#d4af37"; ctx.lineWidth = u * 0.3; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(-3.6 * u, 0); ctx.lineTo(3.2 * u, 0); ctx.quadraticCurveTo(4.6 * u, 0, 4.4 * u, -1.4 * u); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-2.4 * u, 0); ctx.lineTo(-2.4 * u, -0.9 * u); ctx.moveTo(2 * u, 0); ctx.lineTo(2 * u, -0.9 * u); ctx.stroke();
+      ctx.fillStyle = "#b91c1c";
+      ctx.beginPath(); ctx.moveTo(-3.8 * u, -4 * u); ctx.quadraticCurveTo(-3.4 * u, -0.9 * u, -1.6 * u, -0.9 * u); ctx.lineTo(2.4 * u, -0.9 * u);
+      ctx.quadraticCurveTo(3.6 * u, -1.2 * u, 3.4 * u, -2.6 * u); ctx.lineTo(-2.6 * u, -2.6 * u); ctx.quadraticCurveTo(-2.9 * u, -3.6 * u, -3.8 * u, -4 * u); ctx.fill();
+      ctx.strokeStyle = "#d4af37"; ctx.lineWidth = u * 0.15;
+      ctx.beginPath(); ctx.moveTo(-2.6 * u, -1.7 * u); ctx.lineTo(3.2 * u, -1.7 * u); ctx.stroke();
+      ctx.fillStyle = "#7c4a1f"; ctx.beginPath(); ctx.ellipse(-2.2 * u, -3.3 * u, 1.1 * u, 1.2 * u, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = "#16a34a"; ctx.fillRect(-2.6 * u, -4.2 * u, 0.8 * u, 0.6 * u);
+      ctx.fillStyle = "#facc15"; ctx.fillRect(-2.3 * u, -4.2 * u, 0.2 * u, 0.6 * u);
+      ctx.fillStyle = "#dc2626"; ctx.beginPath(); ctx.ellipse(0.4 * u, -3.4 * u, 1.3 * u, 1.2 * u, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = "#dc2626"; ctx.lineWidth = u * 0.45;
+      ctx.beginPath(); ctx.moveTo(1.2 * u, -3.6 * u); ctx.lineTo(2.6 * u, -3.1 * u); ctx.stroke();
+      ctx.fillStyle = "#f8d7b8"; ctx.beginPath(); ctx.arc(0.7 * u, -5 * u, 0.7 * u, 0, 7); ctx.fill();
+      ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.ellipse(0.85 * u, -4.5 * u, 0.75 * u, 0.6 * u, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = "#dc2626"; ctx.beginPath(); ctx.moveTo(-0.1 * u, -5.4 * u); ctx.lineTo(1.4 * u, -5.4 * u); ctx.lineTo(-0.6 * u, -6.6 * u); ctx.fill();
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(-0.15 * u, -5.6 * u, 1.6 * u, 0.35 * u);
+      ctx.beginPath(); ctx.arc(-0.65 * u, -6.6 * u, 0.3 * u, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    // Santa's sleigh and reindeer fly across the whole wall every `every` seconds, with a sparkle trail.
+    function santa(t) {
+      var u = H / 40, speed = W * 0.2, team = 4, gap = 7.2 * u;
+      var len = 9 * u + team * gap;
+      var flight = (VW + len * 2) / speed;
+      var every = Math.max(ef.every || 30, flight + 2);
+      var c = Math.floor(t / every), ph = t - c * every;
+      if (ph > flight) return;
+      var y0 = VH * (0.18 + 0.32 * rnd(c, 1));
+      var x = -len + ph * speed;
+      var yAt = function (xx) { return y0 + Math.sin(xx / W * 2.2 + c) * H * 0.05 - (xx / VW) * H * 0.08; };
+      for (var i = 1; i <= 26; i++) {
+        var tx = x - 4.5 * u - i * u * 1.1, a = 1 - i / 27;
+        ctx.globalAlpha = a * (0.5 + 0.5 * Math.sin(t * 12 + i));
+        ctx.fillStyle = i % 3 ? "#fff7c2" : "#ffffff";
+        ctx.beginPath(); ctx.arc(tx + Math.sin(i * 3.1 + t * 4) * u * 0.6, yAt(tx) - 1.5 * u + Math.cos(i * 2.3) * u, u * 0.28 * a + u * 0.08, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#d4af37"; ctx.lineWidth = Math.max(1, u * 0.12);
+      ctx.beginPath(); ctx.moveTo(x + 2.6 * u, yAt(x) - 3.1 * u);
+      for (var j = 0; j < team; j++) { var rx = x + 6.5 * u + j * gap; ctx.lineTo(rx, yAt(rx) - 2.2 * u); }
+      ctx.stroke();
+      for (var k = team - 1; k >= 0; k--) { var px = x + 6.5 * u + k * gap; reindeer(px, yAt(px), u, t * 9 + k * 0.9, k === team - 1); }
+      sleigh(x, yAt(x), u);
+    }
+    // Fireworks bursting all over the wall.
+    function fireworks(t) {
+      var slot = ef.intensity === "heavy" ? 0.45 : ef.intensity === "light" ? 1.4 : 0.8;
+      var cur = Math.floor(t / slot), u = W / 100;
+      for (var b = cur - 5; b <= cur; b++) {
+        var age = t - b * slot;
+        if (age < 0 || age > 2.8) continue;
+        var cx = VW * (0.05 + 0.9 * rnd(b, 1)), cy = VH * (0.12 + 0.45 * rnd(b, 2));
+        var col = FIREWORKS[Math.floor(rnd(b, 3) * FIREWORKS.length)];
+        if (age < 0.6) {
+          var p = age / 0.6, ry = VH + (cy - VH) * (1 - (1 - p) * (1 - p));
+          ctx.globalAlpha = 1; ctx.fillStyle = "#fff3c4";
+          ctx.beginPath(); ctx.arc(cx, ry, u * 0.35, 0, 7); ctx.fill();
+          continue;
+        }
+        var a = age - 0.6, fade = Math.max(0, 1 - a / 2.2), n = 40;
+        for (var i = 0; i < n; i++) {
+          var ang = i / n * 6.283 + rnd(b, 4), sp = u * (14 + 6 * rnd(b * 7 + i, 5));
+          var r = sp * a * (1 - a * 0.18);
+          var px = cx + Math.cos(ang) * r, py = cy + Math.sin(ang) * r + 0.5 * u * 9 * a * a;
+          ctx.globalAlpha = fade * (0.6 + 0.4 * Math.sin(t * 30 + i));
+          ctx.fillStyle = i % 5 ? col : "#ffffff";
+          ctx.beginPath(); ctx.arc(px, py, u * 0.5 * (0.4 + fade), 0, 7); ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+    // Shooting stars streaking across the wall over a field of twinkling stars.
+    function shooting(t) {
+      particles("sparkles", t, base * 0.4, ef.color);
+      var slot = ef.intensity === "heavy" ? 0.9 : ef.intensity === "light" ? 3 : 1.7;
+      var cur = Math.floor(t / slot), u = W / 100;
+      for (var b = cur - 3; b <= cur; b++) {
+        var age = t - b * slot, dur = 1.6;
+        if (age < 0 || age > dur) continue;
+        var sx = VW * (rnd(b, 1) * 0.8 - 0.1), sy = VH * rnd(b, 2) * 0.45;
+        var dx = W * 1.6, dy = W * 0.55;
+        var x = sx + dx * age, y = sy + dy * age, f = Math.sin(age / dur * Math.PI);
+        var g = ctx.createLinearGradient(x, y, x - dx * 0.18, y - dy * 0.18);
+        g.addColorStop(0, "rgba(255,255,255," + f + ")"); g.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.strokeStyle = g; ctx.lineWidth = u * 0.35; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - dx * 0.18, y - dy * 0.18); ctx.stroke();
+        ctx.globalAlpha = f; ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(x, y, u * 0.4, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+      }
+    }
+
+    function frame() {
+      var t = now() / 1000;
+      ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      ctx.translate(-OX, -OY);
+      if (type === "santa") { if (ef.snow) particles("snow", t, base, "#ffffff"); santa(t); }
+      else if (type === "fireworks") fireworks(t);
+      else if (type === "shooting") shooting(t);
+      else if (type === "balloons") particles("balloons", t, base * 0.35, ef.color);
+      else particles(type, t, base, ef.color);
+      raf = requestAnimationFrame(frame);
+    }
+    size();
+    raf = requestAnimationFrame(frame);
+    var onResize = function () { size(); };
+    global.addEventListener("resize", onResize);
+    var ro = global.ResizeObserver ? new ResizeObserver(onResize) : null;
+    if (ro) ro.observe(root);
+    return function () { cancelAnimationFrame(raf); global.removeEventListener("resize", onResize); if (ro) ro.disconnect(); };
+  }
+
+  global.SignageOverlay = { render: render, activeNow: activeNow, REGIONS: REGIONS, FONTS: FONTS, SCENES: SCENES };
 })(window);

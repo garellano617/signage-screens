@@ -5,7 +5,8 @@
 const REGIONS = ["full", "left70", "right70", "top85", "left70top85"];
 const POSITIONS = ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"];
 const SIZES = ["s", "m", "l", "xl"];
-const EFFECTS = ["snow", "confetti", "sparkles", "bubbles", "hearts", "leaves", "stars"];
+// The last four are animated scenes (Santa's sleigh, fireworks…). On a video wall every effect spans all its screens.
+const EFFECTS = ["snow", "confetti", "sparkles", "bubbles", "hearts", "leaves", "stars", "santa", "fireworks", "shooting", "balloons"];
 const SPECIAL_POSITIONS = ["right", "left", "bottom-right", "bottom-left", "top-right", "center"];
 
 const clip = (v, n) => String(v == null ? "" : v).slice(0, n);
@@ -22,7 +23,7 @@ function defaultLayers() {
     video: { enabled: true, region: "full" },
     specials: { enabled: false, heading: "Today's specials", position: "right", seconds: 8, accent: "#f59e0b", bg: "#111827", color: "#ffffff", items: [] },
     text: { enabled: false, cycle: 0, blocks: [], ticker: { enabled: false, text: "", position: "bottom", speed: "normal", size: "m", color: "#ffffff", bg: "#111827" } },
-    effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff" }
+    effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff", every: 30, snow: true }
   };
 }
 
@@ -108,7 +109,10 @@ function sanitizeLayers(input, checkImage) {
       enabled: !!ef.enabled,
       type: pick(ef.type, EFFECTS, d.effects.type),
       intensity: pick(ef.intensity, ["light", "medium", "heavy"], "medium"),
-      color: color(ef.color, "#ffffff")
+      color: color(ef.color, "#ffffff"),
+      // Santa: seconds between fly-bys, and falling snow behind him.
+      every: Math.min(300, Math.max(10, Math.round(Number(ef.every)) || 30)),
+      snow: ef.snow === undefined ? true : !!ef.snow
     }
   };
 }

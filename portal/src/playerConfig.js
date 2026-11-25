@@ -1,7 +1,10 @@
 "use strict";
 const crypto = require("node:crypto");
 const { all, get, now } = require("./db");
-const { parseLayers, withImages } = require("./layers");
+const { parseLayers, withImages, sanitizeLayers } = require("./layers");
+
+/** A video wall's effects layer (snow, Santa's sleigh…), cleaned like any layers. */
+const wallEffects = w => { let raw = null; try { raw = JSON.parse(w.effects_json || "null"); } catch (_) {} return sanitizeLayers({ effects: raw || {} }, () => false).effects; };
 
 const imageMedia = id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image'", id);
 
@@ -50,7 +53,8 @@ function buildConfig(screen) {
       screen: { id: screen.id, name: screen.name, orientation: 0, volume: first ? screen.volume : 0 },
       defaultPlaylist: playlistForPlayer(wall.playlist_id),
       schedules: [],
-      layers: parseLayers(null),
+      // Only the effects layer, drawn across the whole wall (view = this screen's part of it).
+      layers: Object.assign(parseLayers(null), { effects: wallEffects(wall), view: { cols: wall.cols, rows: wall.rows, col: screen.wall_col, row: screen.wall_row, gap: wall.bezel / 100 } }),
       wall: { id: wall.id, cols: wall.cols, rows: wall.rows, col: screen.wall_col, row: screen.wall_row, bezel: wall.bezel, fit: wall.fit }
     };
     cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
@@ -69,4 +73,4 @@ function buildConfig(screen) {
   return cfg;
 }
 
-module.exports = { buildConfig, isOnline, ONLINE_WINDOW_MS, imageMedia };
+module.exports = { buildConfig, isOnline, ONLINE_WINDOW_MS, imageMedia, wallEffects };

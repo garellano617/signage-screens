@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS walls (
   updated_at INTEGER NOT NULL
 );
 `);
+if (!hasColumn("walls", "effects_json")) db.exec("ALTER TABLE walls ADD COLUMN effects_json TEXT");
 for (const [col, type] of [["wall_id", "INTEGER REFERENCES walls(id) ON DELETE SET NULL"], ["wall_col", "INTEGER"], ["wall_row", "INTEGER"]])
   if (!hasColumn("screens", col)) db.exec("ALTER TABLE screens ADD COLUMN " + col + " " + type);
 

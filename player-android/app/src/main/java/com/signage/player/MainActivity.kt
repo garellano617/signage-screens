@@ -177,6 +177,7 @@ class MainActivity : ComponentActivity() {
                 val sentAt = SystemClock.elapsedRealtime()
                 val hb = api.heartbeat(statusJson().put("plays", JSONArray(batch)))
                 ServerClock.sample(sentAt, SystemClock.elapsedRealtime(), hb.optLong("serverTime"))
+                overlay.syncClock()
                 repeat(batch.size) { if (plays.isNotEmpty()) plays.removeFirst() }
                 lastNetError = ""
                 if (!hb.optBoolean("paired")) {

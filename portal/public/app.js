@@ -689,6 +689,8 @@ const POSITION_LABELS = [["top-left", "Top left"], ["top", "Top"], ["top-right",
 const SPECIAL_POSITIONS = [["right", "Right panel"], ["left", "Left panel"], ["bottom-right", "Card, bottom right"], ["bottom-left", "Card, bottom left"],
   ["top-right", "Card, top right"], ["center", "Big card, center"]];
 const SIZE_LABELS = [["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Extra large"]];
+const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"]];
+const EVERY_OPTIONS = [[15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"], [45, "Every 45 seconds"], [60, "Every minute"], [120, "Every 2 minutes"], [300, "Every 5 minutes"]];
 const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
   ["leaves", "🍂 Falling leaves"], ["stars", "★ Twinkling stars"]];
 
@@ -1014,10 +1016,16 @@ async function renderLayers(main, id, kind) {
       const ef = L.effects;
       kids.push(h("div", { class: "ed-fx" },
         h("button", { type: "button", class: ef.enabled ? "" : "on", onclick: () => { ef.enabled = false; change(); drawSide(); drawToolbar(); } }, "None"),
-        EFFECT_LABELS.map(([v, l]) => h("button", { type: "button", class: ef.enabled && ef.type === v ? "on" : "",
+        EFFECT_LABELS.concat(SCENE_LABELS).map(([v, l]) => h("button", { type: "button", class: ef.enabled && ef.type === v ? "on" : "",
           onclick: () => { ef.enabled = true; ef.type = v; change(); drawSide(); drawToolbar(); } }, l))),
+        ef.enabled && ef.type === "santa" ? h("div", { class: "row" },
+          field("Santa flies by", h("select", { onchange: e => { ef.every = Number(e.target.value); change(); } }, opts(EVERY_OPTIONS, ef.every))),
+          h("label", { class: "check-row", style: "align-self:flex-end" }, h("input", { type: "checkbox", checked: ef.snow, onchange: e => { ef.snow = e.target.checked; change(); } }), "Falling snow too")) : null,
         field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
-        h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")));
+        h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")),
+        h("div", { class: "sub-item" }, h("strong", { class: "small" }, "🧱 Video wall effects"),
+          h("p", { class: "small muted", style: "margin:.25rem 0 .5rem" }, "On a video wall, effects fly across all its screens: Santa's sleigh enters on one TV and leaves on the next. Set them on the wall's page."),
+          h("a", { class: "btn small", href: base() + "/walls" }, "Open video walls")));
     } else {
       kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Video layer"), sw(L.video.enabled, v => { L.video.enabled = v; drawVideo(true); change(); drawToolbar(); })),
         field("Area on the screen", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(true); change(); } }, opts(REGION_LABELS, L.video.region))),
@@ -1525,10 +1533,46 @@ async function renderWall(main, id) {
   colsSel.addEventListener("change", drawGrid);
   rowsSel.addEventListener("change", drawGrid);
   drawGrid();
+  // ---- wall effects: one animation across every screen of the wall ----
+  const fx = Object.assign({}, w.effects);
+  const fxBox = h("div", {}), preview = h("div", { class: "wall-preview" });
+  let renders = [];
+  function drawPreview() {
+    renders.forEach(r => r.destroy()); renders = [];
+    const cols = Number(colsSel.value), rows = Number(rowsSel.value), gap = Math.max(0, Number(bezelIn.value) || 0) / 100;
+    preview.style.gridTemplateColumns = "repeat(" + cols + ", minmax(0, 1fr))";
+    preview.style.gap = "calc(" + (gap * 100 / cols) + "% + 3px)";
+    const tiles = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const ov = h("div", { class: "pv-overlay" });
+      tiles.push(h("div", { class: "wall-tile" }, ov));
+      if (fx.enabled) requestAnimationFrame(() => { if (ov.isConnected) renders.push(SignageOverlay.render(ov, { video: { enabled: true, region: "full" }, specials: { enabled: false }, text: { enabled: false }, effects: fx, view: { cols, rows, col: c, row: r, gap } })); });
+    }
+    preview.replaceChildren(...tiles);
+  }
+  function drawFx() {
+    const all = EFFECT_LABELS.concat(SCENE_LABELS);
+    fxBox.replaceChildren(
+      h("div", { class: "small muted ed-cat" }, "Templates"),
+      h("div", { class: "ed-fx" }, WALL_FX_TEMPLATES.map(tp => h("button", { type: "button", title: tp.desc,
+        class: fx.enabled && fx.type === tp.fx.type && fx.intensity === tp.fx.intensity ? "on" : "",
+        onclick: () => { Object.assign(fx, tp.fx, { enabled: true }); drawFx(); drawPreview(); } }, tp.name))),
+      h("div", { class: "small muted ed-cat" }, "Or pick an effect"),
+      h("div", { class: "ed-fx" },
+        h("button", { type: "button", class: fx.enabled ? "" : "on", onclick: () => { fx.enabled = false; drawFx(); drawPreview(); } }, "None"),
+        all.map(([v, l]) => h("button", { type: "button", class: fx.enabled && fx.type === v ? "on" : "", onclick: () => { fx.enabled = true; fx.type = v; drawFx(); drawPreview(); } }, l))),
+      fx.enabled ? h("div", { class: "row" },
+        field("Amount", h("select", { onchange: e => { fx.intensity = e.target.value; drawPreview(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], fx.intensity))),
+        fx.type === "santa" ? field("Santa flies by", h("select", { onchange: e => { fx.every = Number(e.target.value); drawPreview(); } }, opts(EVERY_OPTIONS, fx.every))) : null) : null,
+      fx.enabled && fx.type === "santa" ? h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: fx.snow, onchange: e => { fx.snow = e.target.checked; drawPreview(); } }), "Falling snow too") : null,
+      fx.enabled && ["snow", "sparkles", "bubbles", "hearts", "stars", "shooting", "balloons"].includes(fx.type) ? h("div", { class: "colors" }, colorIn(fx.color, v => { fx.color = v; drawPreview(); }, "Color")) : null);
+  }
+  [colsSel, rowsSel].forEach(x => x.addEventListener("change", drawPreview));
+  bezelIn.addEventListener("input", drawPreview);
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
-      await api("PATCH", "/walls/" + id, { name: nameIn.value, playlistId: plSel.value || null, cols: colsSel.value, rows: rowsSel.value, bezel: bezelIn.value || 0, fit: fitSel.value });
+      await api("PATCH", "/walls/" + id, { name: nameIn.value, playlistId: plSel.value || null, cols: colsSel.value, rows: rowsSel.value, bezel: bezelIn.value || 0, fit: fitSel.value, effects: fx });
       await api("PUT", "/walls/" + id + "/screens", { tiles: [...spots].map(([k, screenId]) => { const [col, row] = k.split(":").map(Number); return { screenId, col, row }; }) });
       toast("Video wall saved. Its screens update within 30 seconds."); route();
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
@@ -1548,8 +1592,23 @@ async function renderWall(main, id) {
       h("div", { class: "card" }, h("h2", {}, "Where each screen hangs"),
         h("p", { class: "small muted" }, "As seen from the front. Pick the screen in each spot."),
         screens.length ? gridBox : h("p", { class: "muted" }, "No screens yet."),
-        h("p", { class: "small muted", style: "margin-bottom:0" }, "Screens play in step using the portal's clock. While in a wall, a screen's own playlist, channel, schedule and layers are not used. Click Save to apply."))));
+        h("p", { class: "small muted", style: "margin-bottom:0" }, "Screens play in step using the portal's clock. While in a wall, a screen's own playlist, channel, schedule and layers are not used. Click Save to apply."))),
+    h("div", { class: "card" }, h("h2", {}, "Wall effects"),
+      h("p", { class: "small muted" }, "An animation on top of the wall's playlist that moves across all its screens, like Santa's sleigh flying from one TV to the next. Preview of the whole wall:"),
+      preview, fxBox,
+      h("p", { class: "small muted", style: "margin-bottom:0" }, "Click Save to send it to the screens.")));
+  drawFx(); drawPreview();
 }
+const WALL_FX_TEMPLATES = [
+  { name: "🎅 Santa & reindeer", desc: "Santa's sleigh and reindeer fly across every screen, with falling snow.", fx: { type: "santa", intensity: "medium", every: 20, snow: true, color: "#ffffff" } },
+  { name: "🎆 New Year fireworks", desc: "Fireworks bursting all over the wall.", fx: { type: "fireworks", intensity: "medium", color: "#ffffff" } },
+  { name: "🌠 Starry night", desc: "Shooting stars streak from screen to screen over twinkling stars.", fx: { type: "shooting", intensity: "medium", color: "#ffffff" } },
+  { name: "🎈 Party balloons", desc: "Colorful balloons float up across the wall.", fx: { type: "balloons", intensity: "medium", color: "#ffffff" } },
+  { name: "❄ Snow storm", desc: "Heavy snow falling across every screen.", fx: { type: "snow", intensity: "heavy", color: "#ffffff" } },
+  { name: "🎉 Confetti party", desc: "Confetti raining down across the wall.", fx: { type: "confetti", intensity: "medium", color: "#ffffff" } },
+  { name: "💕 Valentine hearts", desc: "Pink hearts floating up.", fx: { type: "hearts", intensity: "medium", color: "#fb7185" } },
+  { name: "🍂 Autumn leaves", desc: "Falling autumn leaves.", fx: { type: "leaves", intensity: "medium", color: "#ffffff" } }
+];
 
 // ---------- inside a client: widgets ----------
 const WIDGET_TYPES = {

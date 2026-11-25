@@ -6,7 +6,7 @@ const express = require("express");
 const multer = require("multer");
 const { all, get, run, tx, now, DATA_DIR } = require("./db");
 const auth = require("./auth");
-const { isOnline } = require("./playerConfig");
+const { isOnline, wallEffects } = require("./playerConfig");
 const { sanitizeLayers, parseLayers, withImages } = require("./layers");
 const widgets = require("./widgets");
 
@@ -376,7 +376,7 @@ function loadWall(req, id) {
 function wallOut(w) {
   return {
     id: w.id, name: w.name, customerId: w.customer_id, customerName: w.customer_name,
-    cols: w.cols, rows: w.rows, bezel: w.bezel, fit: w.fit,
+    cols: w.cols, rows: w.rows, bezel: w.bezel, fit: w.fit, effects: wallEffects(w),
     playlistId: w.playlist_id, playlistName: w.playlist_name || null, updatedAt: w.updated_at,
     tiles: all("SELECT id, name, wall_col, wall_row, last_seen, planned FROM screens WHERE wall_id = ? AND paired_at IS NOT NULL ORDER BY wall_row, wall_col", w.id)
       .map(s => ({ screenId: s.id, name: s.name, col: s.wall_col, row: s.wall_row, online: !s.planned && isOnline(s), planned: !!s.planned }))
@@ -413,8 +413,9 @@ router.patch("/walls/:id", (req, res) => {
   const w = loadWall(req, intId(req.params.id));
   const f = wallFields(req.body || {}, w);
   const pl = req.body.playlistId !== undefined ? checkPlaylist(req.body.playlistId, w.customer_id) : w.playlist_id;
+  const fx = req.body.effects !== undefined ? JSON.stringify(sanitizeLayers({ effects: req.body.effects || {} }, () => false).effects) : w.effects_json;
   tx(() => {
-    run("UPDATE walls SET name = ?, cols = ?, rows = ?, playlist_id = ?, bezel = ?, fit = ?, updated_at = ? WHERE id = ?", f.name, f.cols, f.rows, pl, f.bezel, f.fit, now(), w.id);
+    run("UPDATE walls SET name = ?, cols = ?, rows = ?, playlist_id = ?, bezel = ?, fit = ?, effects_json = ?, updated_at = ? WHERE id = ?", f.name, f.cols, f.rows, pl, f.bezel, f.fit, fx, now(), w.id);
     // A smaller grid lets go of the screens that no longer fit.
     run("UPDATE screens SET wall_id = NULL, wall_col = NULL, wall_row = NULL WHERE wall_id = ? AND (wall_col >= ? OR wall_row >= ?)", w.id, f.cols, f.rows);
   });

@@ -147,6 +147,18 @@ const RAW = [
     }
   },
   {
+    id: "santa-sleigh", name: "Santa's sleigh", category: "Seasonal",
+    description: "Santa and his reindeer fly across the screen every 20 seconds over falling snow, with your holiday message.",
+    layers: {
+      video: { enabled: true, region: "full" },
+      specials: noSpecials,
+      text: { enabled: true, cycle: 0, ticker: ticker("Merry Christmas from all of us · Holiday hours: Dec 24 close at 3 PM · Closed Dec 25", { bg: "#7f1d1d" }), blocks: [
+        t("Merry Christmas", { position: "bottom-left", fs: 6, font: "script", bold: false, color: "#ffffff", bg: "#14532d", bgOpacity: 80 })
+      ] },
+      effects: { enabled: true, type: "santa", intensity: "medium", color: "#ffffff", every: 20, snow: true }
+    }
+  },
+  {
     id: "valentines", name: "Valentine's Day", category: "Seasonal",
     description: "Floating hearts, a pink heading and a special for two.",
     layers: {

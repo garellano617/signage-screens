@@ -888,3 +888,37 @@ test("video walls: tiles, cropped config per screen, sound from the first screen
   assert.equal((await call("GET", "/api/player/config", undefined, extra.auth)).body.wall, undefined);
   scopeId = null;
 });
+
+test("wall effects: saved, cleaned, sent to each screen with its part of the wall", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const A = (await call("POST", "/api/customers", { name: "Santa Shop" })).body;
+  scopeId = A.id;
+  const pair = async dev => {
+    const reg = (await call("POST", "/api/player/register", { deviceId: dev })).body;
+    const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode })).body;
+    return { s, auth: { authorization: "Bearer " + reg.token } };
+  };
+  const a = await pair("android-wallfx-0001"), b = await pair("android-wallfx-0002");
+  const w = (await call("POST", "/api/walls", { name: "Xmas", cols: 2, rows: 1, bezel: 1.5 })).body;
+  assert.equal(w.effects.enabled, false);
+  await call("PUT", "/api/walls/" + w.id + "/screens", { tiles: [{ screenId: a.s.id, col: 0, row: 0 }, { screenId: b.s.id, col: 1, row: 0 }] });
+  // Unknown values are cleaned: bad type -> default, "every" kept within 10..300 seconds.
+  const saved = (await call("PATCH", "/api/walls/" + w.id, { effects: { enabled: true, type: "santa", every: 5, snow: false, intensity: "loud" } })).body;
+  assert.deepEqual(saved.effects, { enabled: true, type: "santa", intensity: "medium", color: "#ffffff", every: 10, snow: false });
+  const cb = (await call("GET", "/api/player/config", undefined, b.auth)).body;
+  assert.equal(cb.layers.effects.type, "santa");
+  assert.deepEqual(cb.layers.view, { cols: 2, rows: 1, col: 1, row: 0, gap: 0.015 });
+  assert.equal(cb.layers.text.enabled, false);
+  // Changing other settings keeps the effects.
+  await call("PATCH", "/api/walls/" + w.id, { name: "Christmas" });
+  assert.equal((await call("GET", "/api/walls/" + w.id)).body.effects.type, "santa");
+  assert.equal((await call("PATCH", "/api/walls/" + w.id, { effects: { enabled: true, type: "nonsense" } })).body.effects.type, "snow");
+  // Single screens can use the new scene effects too.
+  await call("PUT", "/api/walls/" + w.id + "/screens", { tiles: [] });
+  await call("PUT", "/api/screens/" + a.s.id + "/layers", { effects: { enabled: true, type: "fireworks" } });
+  const ca = (await call("GET", "/api/player/config", undefined, a.auth)).body;
+  assert.equal(ca.layers.effects.type, "fireworks");
+  assert.equal(ca.layers.view, undefined);
+  scopeId = null;
+});

@@ -74,7 +74,13 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         web = wv
     }
 
+    /** Tells the page the difference between the portal clock and this TV clock (for video wall effects). */
+    fun syncClock() {
+        web?.evaluateJavascript("window.clockOffset = ${ServerClock.now() - System.currentTimeMillis()}", null)
+    }
+
     private fun push(json: String) {
+        syncClock()
         // JSON is valid JavaScript except for these two characters.
         val js = json.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
         web?.evaluateJavascript("window.showLayers($js)") { r -> if (r != null && r.contains("Error")) Log.w("Overlay", r) }
