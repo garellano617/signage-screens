@@ -75,6 +75,8 @@ data class Config(
             layers?.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { b ->
                 b.optJSONObject("image")?.let { specialImages += imageItem(it) }
             }
+            // The logo on the plane's banner.
+            layers?.optJSONObject("effects")?.optJSONObject("image")?.let { specialImages += imageItem(it) }
             return Config(
                 paired = o.optBoolean("paired", false),
                 screen = screen,

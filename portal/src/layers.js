@@ -6,7 +6,7 @@ const REGIONS = ["full", "left70", "right70", "top85", "left70top85"];
 const POSITIONS = ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"];
 const SIZES = ["s", "m", "l", "xl"];
 // The last four are animated scenes (Santa's sleigh, fireworks…). On a video wall every effect spans all its screens.
-const EFFECTS = ["snow", "confetti", "sparkles", "bubbles", "hearts", "leaves", "stars", "santa", "fireworks", "shooting", "balloons"];
+const EFFECTS = ["snow", "confetti", "sparkles", "bubbles", "hearts", "leaves", "stars", "santa", "fireworks", "shooting", "balloons", "plane"];
 const SPECIAL_POSITIONS = ["right", "left", "bottom-right", "bottom-left", "top-right", "center"];
 
 const clip = (v, n) => String(v == null ? "" : v).slice(0, n);
@@ -23,7 +23,7 @@ function defaultLayers() {
     video: { enabled: true, region: "full" },
     specials: { enabled: false, heading: "Today's specials", position: "right", seconds: 8, accent: "#f59e0b", bg: "#111827", color: "#ffffff", items: [] },
     text: { enabled: false, cycle: 0, blocks: [], ticker: { enabled: false, text: "", position: "bottom", speed: "normal", size: "m", color: "#ffffff", bg: "#111827" } },
-    effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff", every: 30, snow: true }
+    effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff", every: 30, snow: true, banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c" }
   };
 }
 
@@ -112,7 +112,12 @@ function sanitizeLayers(input, checkImage) {
       color: color(ef.color, "#ffffff"),
       // Santa: seconds between fly-bys, and falling snow behind him.
       every: Math.min(300, Math.max(10, Math.round(Number(ef.every)) || 30)),
-      snow: ef.snow === undefined ? true : !!ef.snow
+      snow: ef.snow === undefined ? true : !!ef.snow,
+      // Plane: the banner it pulls (text and/or a small logo picture) and its colors.
+      banner: clip(ef.banner, 60),
+      mediaId: ef.mediaId && Number.isInteger(Number(ef.mediaId)) && checkImage(Number(ef.mediaId)) ? Number(ef.mediaId) : null,
+      bannerBg: color(ef.bannerBg, "#ffffff"),
+      bannerColor: color(ef.bannerColor, "#b91c1c")
     }
   };
 }
@@ -125,16 +130,20 @@ function parseLayers(json) {
 }
 
 /** Adds each special's and image block's image (src, sha256, size) so the portal can preview it and the player can cache it. */
+/** x with its picture attached as x.image (or no picture if it is gone). */
+function attachImage(x, getMedia) {
+  const m = x.mediaId ? getMedia(x.mediaId) : null;
+  return { ...x, mediaId: m ? x.mediaId : null, image: m ? { mediaId: m.id, src: "/media/" + m.file, sha256: m.sha256, size: m.size, name: m.name } : null };
+}
 function withImages(layers, getMedia) {
   const out = JSON.parse(JSON.stringify(layers));
-  const attach = x => {
-    const m = x.mediaId ? getMedia(x.mediaId) : null;
-    return { ...x, mediaId: m ? x.mediaId : null, image: m ? { mediaId: m.id, src: "/media/" + m.file, sha256: m.sha256, size: m.size, name: m.name } : null };
-  };
+  const attach = x => attachImage(x, getMedia);
+  // The logo on the plane's banner.
+  if (out.effects) out.effects = attach(out.effects);
   out.specials.items = out.specials.items.map(attach);
   // An image block whose picture was deleted is dropped.
   out.text.blocks = out.text.blocks.map(b => (b.kind === "image" ? attach(b) : b)).filter(b => b.kind !== "image" || b.image);
   return out;
 }
 
-module.exports = { defaultLayers, sanitizeLayers, parseLayers, withImages, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };
+module.exports = { defaultLayers, sanitizeLayers, parseLayers, withImages, attachImage, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };

@@ -905,7 +905,7 @@ test("wall effects: saved, cleaned, sent to each screen with its part of the wal
   await call("PUT", "/api/walls/" + w.id + "/screens", { tiles: [{ screenId: a.s.id, col: 0, row: 0 }, { screenId: b.s.id, col: 1, row: 0 }] });
   // Unknown values are cleaned: bad type -> default, "every" kept within 10..300 seconds.
   const saved = (await call("PATCH", "/api/walls/" + w.id, { effects: { enabled: true, type: "santa", every: 5, snow: false, intensity: "loud" } })).body;
-  assert.deepEqual(saved.effects, { enabled: true, type: "santa", intensity: "medium", color: "#ffffff", every: 10, snow: false });
+  assert.deepEqual(saved.effects, { enabled: true, type: "santa", intensity: "medium", color: "#ffffff", every: 10, snow: false, banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c", image: null });
   const cb = (await call("GET", "/api/player/config", undefined, b.auth)).body;
   assert.equal(cb.layers.effects.type, "santa");
   assert.deepEqual(cb.layers.view, { cols: 2, rows: 1, col: 1, row: 0, gap: 0.015 });
@@ -920,5 +920,47 @@ test("wall effects: saved, cleaned, sent to each screen with its part of the wal
   const ca = (await call("GET", "/api/player/config", undefined, a.auth)).body;
   assert.equal(ca.layers.effects.type, "fireworks");
   assert.equal(ca.layers.view, undefined);
+  scopeId = null;
+});
+
+test("plane effect: banner text and the client's own logo reach the screens", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000a49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
+  const upload = async name => { const fd = new FormData(); fd.append("files", new Blob([png], { type: "image/png" }), name + ".png"); return (await call("POST", "/api/media", fd)).body[0]; };
+  const other = (await call("POST", "/api/customers", { name: "Other Shop" })).body;
+  scopeId = other.id;
+  const foreign = await upload("Not yours");
+  const A = (await call("POST", "/api/customers", { name: "Plane Shop" })).body;
+  scopeId = A.id;
+  const logo = await upload("Logo");
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-plane-0001" })).body;
+  const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode })).body;
+  const auth = { authorization: "Bearer " + reg.token };
+  // Single screen: banner text is trimmed to 60 characters, the logo is attached for preview and caching.
+  await call("PUT", "/api/screens/" + s.id + "/layers", { effects: { enabled: true, type: "plane", banner: "x".repeat(80), mediaId: logo.id, bannerBg: "#000000", bannerColor: "#ffff00" } });
+  let ef = (await call("GET", "/api/player/config", undefined, auth)).body.layers.effects;
+  assert.equal(ef.type, "plane");
+  assert.equal(ef.banner.length, 60);
+  assert.equal(ef.bannerBg, "#000000");
+  assert.equal(ef.image.sha256, logo.sha256);
+  // Another client's picture is refused.
+  await call("PUT", "/api/screens/" + s.id + "/layers", { effects: { enabled: true, type: "plane", banner: "Hi", mediaId: foreign.id } });
+  ef = (await call("GET", "/api/player/config", undefined, auth)).body.layers.effects;
+  assert.equal(ef.mediaId, null);
+  assert.equal(ef.image, null);
+  // Video wall: same banner, across the screens.
+  const w = (await call("POST", "/api/walls", { name: "Front", cols: 1, rows: 1 })).body;
+  await call("PUT", "/api/walls/" + w.id + "/screens", { tiles: [{ screenId: s.id, col: 0, row: 0 }] });
+  assert.equal((await call("PATCH", "/api/walls/" + w.id, { effects: { enabled: true, type: "plane", banner: "Sale", mediaId: foreign.id } })).body.effects.mediaId, null);
+  const saved = (await call("PATCH", "/api/walls/" + w.id, { effects: { enabled: true, type: "plane", banner: "Sale", mediaId: logo.id } })).body;
+  assert.equal(saved.effects.image.name, "Logo");
+  ef = (await call("GET", "/api/player/config", undefined, auth)).body.layers.effects;
+  assert.equal(ef.banner, "Sale");
+  assert.equal(ef.image.sha256, logo.sha256);
+  // Deleting the picture drops it from the banner.
+  await call("DELETE", "/api/media/" + logo.id);
+  ef = (await call("GET", "/api/player/config", undefined, auth)).body.layers.effects;
+  assert.equal(ef.image, null);
   scopeId = null;
 });

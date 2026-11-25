@@ -1,10 +1,15 @@
 "use strict";
 const crypto = require("node:crypto");
 const { all, get, now } = require("./db");
-const { parseLayers, withImages, sanitizeLayers } = require("./layers");
+const { parseLayers, withImages, sanitizeLayers, attachImage } = require("./layers");
 
 /** A video wall's effects layer (snow, Santa's sleigh…), cleaned like any layers. */
-const wallEffects = w => { let raw = null; try { raw = JSON.parse(w.effects_json || "null"); } catch (_) {} return sanitizeLayers({ effects: raw || {} }, () => false).effects; };
+const wallEffects = w => {
+  let raw = null; try { raw = JSON.parse(w.effects_json || "null"); } catch (_) {}
+  // The banner logo must be one of the wall's client's pictures.
+  return attachImage(sanitizeLayers({ effects: raw || {} }, () => true).effects,
+    id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image' AND customer_id = ?", id, w.customer_id));
+};
 
 const imageMedia = id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image'", id);
 

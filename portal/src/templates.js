@@ -159,6 +159,16 @@ const RAW = [
     }
   },
   {
+    id: "plane-banner", name: "Plane with banner", category: "Promotions",
+    description: "A small plane flies across the screen every 30 seconds pulling a banner with your message or logo.",
+    layers: {
+      video: { enabled: true, region: "full" },
+      specials: noSpecials,
+      text: { enabled: true, cycle: 0, ticker: ticker("Grand opening this Saturday · Free coffee for the first 50 guests · Doors open at 9 AM", { bg: "#1e3a8a" }), blocks: [] },
+      effects: { enabled: true, type: "plane", intensity: "medium", color: "#ffffff", every: 30, banner: "Grand opening this Saturday!", bannerBg: "#ffffff", bannerColor: "#b91c1c" }
+    }
+  },
+  {
     id: "valentines", name: "Valentine's Day", category: "Seasonal",
     description: "Floating hearts, a pink heading and a special for two.",
     layers: {

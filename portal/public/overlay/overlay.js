@@ -279,7 +279,7 @@
   // ---- clock-driven effects: the same on every screen of a video wall ----
   // Every position is worked out from the time alone (no randomness that differs between screens), in the
   // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
-  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1 };
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1 };
   var BALLOONS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#facc15"];
   var FIREWORKS = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#c084fc", "#f472b6", "#ffffff"];
   function rnd(a, b) { var x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); }
@@ -475,6 +475,81 @@
       }
     }
 
+    // A small plane pulling a banner (text and/or a logo picture) across the whole wall every `every` seconds.
+    var logo = null, logoOk = false, bannerCv = null, bannerKey = "";
+    var logoSrc = ef.image ? (ef.image.localSrc || ef.image.src) : null;
+    if (logoSrc && type === "plane") {
+      logo = new Image();
+      logo.onload = function () { logoOk = true; bannerKey = ""; };
+      logo.src = logoSrc;
+    }
+    function bannerImage(bh) {
+      var key = bh + "|" + logoOk;
+      if (bannerCv && bannerKey === key) return bannerCv;
+      var r = window.devicePixelRatio || 1, pad = bh * 0.22;
+      var text = ef.banner || (logoOk ? "" : "Your message here");
+      var font = "bold " + Math.round(bh * 0.56) + "px sans-serif";
+      ctx.save(); ctx.font = font; var tw = text ? ctx.measureText(text).width : 0; ctx.restore();
+      var lh = bh - pad * 1.2, lw = 0;
+      if (logoOk) { lw = Math.min(bh * 3, lh * (logo.naturalWidth || 1) / (logo.naturalHeight || 1)); }
+      var bw = Math.max(bh * 2, pad * 2 + lw + (lw && tw ? pad : 0) + tw);
+      var c = document.createElement("canvas");
+      c.width = Math.ceil(bw * r); c.height = Math.ceil(bh * r);
+      var g = c.getContext("2d"); g.scale(r, r);
+      g.fillStyle = ef.bannerBg || "#ffffff"; g.fillRect(0, 0, bw, bh);
+      g.strokeStyle = "rgba(0,0,0,.25)"; g.lineWidth = Math.max(1, bh * 0.04); g.strokeRect(0, 0, bw, bh);
+      var x = pad;
+      if (logoOk) { var lhh = lw * (logo.naturalHeight || 1) / (logo.naturalWidth || 1); g.drawImage(logo, x, (bh - lhh) / 2, lw, lhh); x += lw + pad; }
+      if (text) { g.font = font; g.fillStyle = ef.bannerColor || "#b91c1c"; g.textBaseline = "middle"; g.fillText(text, x, bh / 2 + bh * 0.03); }
+      c.bw = bw; bannerCv = c; bannerKey = key;
+      return c;
+    }
+    // The plane, facing right; (0, 0) = middle of its body. t spins the propeller.
+    function airplane(x, y, u, t) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(-0.03);
+      ctx.fillStyle = "#b91c1c";
+      ctx.beginPath(); ctx.moveTo(-3.2 * u, -0.4 * u); ctx.lineTo(-4.4 * u, -2.7 * u); ctx.lineTo(-3.6 * u, -2.7 * u); ctx.lineTo(-2.2 * u, -0.5 * u); ctx.fill();
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath(); ctx.moveTo(-4.4 * u, -0.5 * u); ctx.quadraticCurveTo(-1 * u, -1.3 * u, 3.6 * u, -0.9 * u);
+      ctx.quadraticCurveTo(4.4 * u, -0.6 * u, 4.4 * u, 0); ctx.quadraticCurveTo(4.4 * u, 0.7 * u, 3.4 * u, 0.9 * u);
+      ctx.quadraticCurveTo(-1 * u, 1 * u, -4.4 * u, 0.1 * u); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#b91c1c"; ctx.fillRect(-3.6 * u, -0.15 * u, 7.4 * u, 0.35 * u);
+      ctx.fillStyle = "#93c5fd"; ctx.beginPath(); ctx.ellipse(1.7 * u, -0.85 * u, 1 * u, 0.55 * u, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = "#7f1d1d"; ctx.beginPath(); ctx.ellipse(-3.6 * u, -0.2 * u, 1 * u, 0.22 * u, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = "#dc2626"; ctx.beginPath(); ctx.ellipse(0.4 * u, 0.25 * u, 1.6 * u, 0.4 * u, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = "#334155"; ctx.lineWidth = u * 0.18;
+      ctx.beginPath(); ctx.moveTo(1 * u, 0.8 * u); ctx.lineTo(1.3 * u, 1.6 * u); ctx.stroke();
+      ctx.fillStyle = "#111827"; ctx.beginPath(); ctx.arc(1.3 * u, 1.7 * u, 0.38 * u, 0, 7); ctx.fill();
+      ctx.fillStyle = "#475569"; ctx.beginPath(); ctx.arc(4.45 * u, 0, 0.3 * u, 0, 7); ctx.fill();
+      ctx.globalAlpha = 0.45; ctx.fillStyle = "#cbd5e1";
+      ctx.beginPath(); ctx.ellipse(4.6 * u, 0, 0.18 * u, 1.7 * u * (0.55 + 0.45 * Math.abs(Math.sin(t * 25))), 0, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    function plane(t) {
+      var u = H / 34, speed = W * 0.2, bh = 4.6 * u, rope = 4 * u;
+      var bc = bannerImage(bh), bw = bc.bw, r = window.devicePixelRatio || 1;
+      var len = 9 * u + rope + bw;
+      var flight = (VW + len + 5 * u) / speed;
+      var every = Math.max(ef.every || 30, flight + 2);
+      var c = Math.floor(t / every), ph = t - c * every;
+      if (ph > flight) return;
+      var y0 = VH * (0.12 + 0.3 * rnd(c, 1)) + bh;
+      var x = -5 * u + ph * speed;
+      var y = y0 + Math.sin(t * 1.3) * u * 0.6;
+      var tail = x - 4.4 * u, front = tail - rope, top = y - bh / 2 + u * 0.3;
+      // Ropes from the tail to the banner's front corners.
+      ctx.strokeStyle = "#334155"; ctx.lineWidth = Math.max(1, u * 0.1);
+      ctx.beginPath(); ctx.moveTo(tail, y - 0.2 * u); ctx.lineTo(front, top); ctx.moveTo(tail, y - 0.2 * u); ctx.lineTo(front, top + bh); ctx.stroke();
+      // The banner, drawn in strips that wave more towards its far end.
+      var sw = Math.max(4, bh * 0.2);
+      for (var sx = 0; sx < bw; sx += sw) {
+        var w = Math.min(sw, bw - sx), d = (bw - sx) / bw;
+        var dy = Math.sin(t * 7 - sx / bh * 1.6) * bh * 0.1 * d;
+        ctx.drawImage(bc, sx * r, 0, w * r, bh * r, front - bw + sx, top + dy, w + 0.6, bh);
+      }
+      airplane(x, y, u, t);
+    }
+
     function frame() {
       var t = now() / 1000;
       ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
@@ -484,6 +559,7 @@
       else if (type === "fireworks") fireworks(t);
       else if (type === "shooting") shooting(t);
       else if (type === "balloons") particles("balloons", t, base * 0.35, ef.color);
+      else if (type === "plane") plane(t);
       else particles(type, t, base, ef.color);
       raf = requestAnimationFrame(frame);
     }

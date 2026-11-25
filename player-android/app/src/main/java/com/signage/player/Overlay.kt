@@ -35,6 +35,7 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         }
         layers.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { localize(it) }
         layers.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { localize(it) }
+        layers.optJSONObject("effects")?.let { localize(it) }
         val json = layers.toString()
         if (json == shown && web != null) return
         shown = json

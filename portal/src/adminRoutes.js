@@ -413,7 +413,7 @@ router.patch("/walls/:id", (req, res) => {
   const w = loadWall(req, intId(req.params.id));
   const f = wallFields(req.body || {}, w);
   const pl = req.body.playlistId !== undefined ? checkPlaylist(req.body.playlistId, w.customer_id) : w.playlist_id;
-  const fx = req.body.effects !== undefined ? JSON.stringify(sanitizeLayers({ effects: req.body.effects || {} }, () => false).effects) : w.effects_json;
+  const fx = req.body.effects !== undefined ? JSON.stringify(sanitizeLayers({ effects: req.body.effects || {} }, id => !!clientImage(w.customer_id)(id)).effects) : w.effects_json;
   tx(() => {
     run("UPDATE walls SET name = ?, cols = ?, rows = ?, playlist_id = ?, bezel = ?, fit = ?, effects_json = ?, updated_at = ? WHERE id = ?", f.name, f.cols, f.rows, pl, f.bezel, f.fit, fx, now(), w.id);
     // A smaller grid lets go of the screens that no longer fit.

@@ -689,12 +689,28 @@ const POSITION_LABELS = [["top-left", "Top left"], ["top", "Top"], ["top-right",
 const SPECIAL_POSITIONS = [["right", "Right panel"], ["left", "Left panel"], ["bottom-right", "Card, bottom right"], ["bottom-left", "Card, bottom left"],
   ["top-right", "Card, top right"], ["center", "Big card, center"]];
 const SIZE_LABELS = [["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Extra large"]];
-const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"]];
+const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"], ["plane", "✈ Plane & banner"]];
 const EVERY_OPTIONS = [[15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"], [45, "Every 45 seconds"], [60, "Every minute"], [120, "Every 2 minutes"], [300, "Every 5 minutes"]];
 const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
   ["leaves", "🍂 Falling leaves"], ["stars", "★ Twinkling stars"]];
 
 const opts = (list, val) => list.map(([v, l]) => h("option", { value: v, selected: v === val }, l));
+// Options for the plane's banner: words, a small logo picture, colors, how often it flies by.
+function planeFields(ef, images, onchange) {
+  return h("div", { class: "sub-item" },
+    h("strong", { class: "small" }, "✈ Banner"),
+    field("Banner text", h("input", { value: ef.banner || "", maxlength: 60, placeholder: "e.g. Grand opening Saturday!", oninput: e => { ef.banner = e.target.value; onchange(); } })),
+    field("Logo or small picture (optional)", h("select", { onchange: e => {
+      const m = images.find(x => x.id === Number(e.target.value));
+      ef.mediaId = m ? m.id : null; ef.image = m ? { src: m.src, name: m.name } : null; onchange();
+    } }, h("option", { value: "" }, images.length ? "— no picture —" : "— upload a picture in Media first —"),
+      images.map(m => h("option", { value: m.id, selected: m.id === ef.mediaId }, m.name)))),
+    field("Plane flies by", h("select", { onchange: e => { ef.every = Number(e.target.value); onchange(); } }, opts(EVERY_OPTIONS, ef.every))),
+    h("div", { class: "colors" },
+      colorIn(ef.bannerBg || "#ffffff", v => { ef.bannerBg = v; onchange(); }, "Banner"),
+      colorIn(ef.bannerColor || "#b91c1c", v => { ef.bannerColor = v; onchange(); }, "Text")),
+    h("p", { class: "small muted", style: "margin:.25rem 0 0" }, "Tip: a logo with a see-through (PNG) background looks best. Keep the text short so it's easy to read as it flies by."));
+}
 const colorIn = (val, onchange, label) => h("label", { class: "color-in" }, h("input", { type: "color", value: val, oninput: e => onchange(e.target.value) }), label);
 
 const FONT_LABELS = [["sans", "Sans"], ["serif", "Serif"], ["condensed", "Condensed"], ["mono", "Typewriter"], ["script", "Script"]];
@@ -1021,10 +1037,11 @@ async function renderLayers(main, id, kind) {
         ef.enabled && ef.type === "santa" ? h("div", { class: "row" },
           field("Santa flies by", h("select", { onchange: e => { ef.every = Number(e.target.value); change(); } }, opts(EVERY_OPTIONS, ef.every))),
           h("label", { class: "check-row", style: "align-self:flex-end" }, h("input", { type: "checkbox", checked: ef.snow, onchange: e => { ef.snow = e.target.checked; change(); } }), "Falling snow too")) : null,
-        field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
-        h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")),
+        ef.enabled && ef.type === "plane" ? planeFields(ef, images, change) : null,
+        ef.enabled && ef.type === "plane" ? null : field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
+        ef.enabled && ef.type === "plane" ? null : h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")),
         h("div", { class: "sub-item" }, h("strong", { class: "small" }, "🧱 Video wall effects"),
-          h("p", { class: "small muted", style: "margin:.25rem 0 .5rem" }, "On a video wall, effects fly across all its screens: Santa's sleigh enters on one TV and leaves on the next. Set them on the wall's page."),
+          h("p", { class: "small muted", style: "margin:.25rem 0 .5rem" }, "On a video wall, effects fly across all its screens: Santa's sleigh or the plane enters on one TV and leaves on the next. Set them on the wall's page."),
           h("a", { class: "btn small", href: base() + "/walls" }, "Open video walls")));
     } else {
       kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Video layer"), sw(L.video.enabled, v => { L.video.enabled = v; drawVideo(true); change(); drawToolbar(); })),
@@ -1495,7 +1512,8 @@ async function renderWalls(main) {
 }
 
 async function renderWall(main, id) {
-  const [w, playlists, screens] = await Promise.all([api("GET", "/walls/" + id), api("GET", "/playlists"), api("GET", "/screens")]);
+  const [w, playlists, screens, media] = await Promise.all([api("GET", "/walls/" + id), api("GET", "/playlists"), api("GET", "/screens"), api("GET", "/media")]);
+  const images = media.filter(m => m.kind === "image");
   const nameIn = h("input", { value: w.name, maxlength: 100 });
   const plSel = h("select", {}, playlistOptions(playlists, w.playlistId, "— none —"));
   const num = (v, max) => h("select", {}, Array.from({ length: max }, (_, i) => i + 1).map(n => h("option", { value: n, selected: n === v }, n)));
@@ -1556,12 +1574,13 @@ async function renderWall(main, id) {
       h("div", { class: "small muted ed-cat" }, "Templates"),
       h("div", { class: "ed-fx" }, WALL_FX_TEMPLATES.map(tp => h("button", { type: "button", title: tp.desc,
         class: fx.enabled && fx.type === tp.fx.type && fx.intensity === tp.fx.intensity ? "on" : "",
-        onclick: () => { Object.assign(fx, tp.fx, { enabled: true }); drawFx(); drawPreview(); } }, tp.name))),
+        onclick: () => { Object.assign(fx, tp.fx, { enabled: true }, tp.fx.type === "plane" && fx.banner ? { banner: fx.banner } : {}); drawFx(); drawPreview(); } }, tp.name))),
       h("div", { class: "small muted ed-cat" }, "Or pick an effect"),
       h("div", { class: "ed-fx" },
         h("button", { type: "button", class: fx.enabled ? "" : "on", onclick: () => { fx.enabled = false; drawFx(); drawPreview(); } }, "None"),
         all.map(([v, l]) => h("button", { type: "button", class: fx.enabled && fx.type === v ? "on" : "", onclick: () => { fx.enabled = true; fx.type = v; drawFx(); drawPreview(); } }, l))),
-      fx.enabled ? h("div", { class: "row" },
+      fx.enabled && fx.type === "plane" ? planeFields(fx, images, drawPreview) : null,
+      fx.enabled && fx.type !== "plane" ? h("div", { class: "row" },
         field("Amount", h("select", { onchange: e => { fx.intensity = e.target.value; drawPreview(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], fx.intensity))),
         fx.type === "santa" ? field("Santa flies by", h("select", { onchange: e => { fx.every = Number(e.target.value); drawPreview(); } }, opts(EVERY_OPTIONS, fx.every))) : null) : null,
       fx.enabled && fx.type === "santa" ? h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: fx.snow, onchange: e => { fx.snow = e.target.checked; drawPreview(); } }), "Falling snow too") : null,
@@ -1601,6 +1620,7 @@ async function renderWall(main, id) {
 }
 const WALL_FX_TEMPLATES = [
   { name: "🎅 Santa & reindeer", desc: "Santa's sleigh and reindeer fly across every screen, with falling snow.", fx: { type: "santa", intensity: "medium", every: 20, snow: true, color: "#ffffff" } },
+  { name: "✈ Plane with banner", desc: "A small plane pulls your message or logo across every screen.", fx: { type: "plane", intensity: "medium", every: 30, banner: "Grand opening this Saturday!", bannerBg: "#ffffff", bannerColor: "#b91c1c", color: "#ffffff" } },
   { name: "🎆 New Year fireworks", desc: "Fireworks bursting all over the wall.", fx: { type: "fireworks", intensity: "medium", color: "#ffffff" } },
   { name: "🌠 Starry night", desc: "Shooting stars streak from screen to screen over twinkling stars.", fx: { type: "shooting", intensity: "medium", color: "#ffffff" } },
   { name: "🎈 Party balloons", desc: "Colorful balloons float up across the wall.", fx: { type: "balloons", intensity: "medium", color: "#ffffff" } },
