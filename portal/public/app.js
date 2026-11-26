@@ -765,6 +765,11 @@ async function renderLayers(main, id, kind) {
   let dirty = false, overlay = null, rt = 0, sel = null, tab = blank ? "templates" : "text", playhead = 0, playing = false, raf = 0, lastTs = 0, shownItem = null;
   let blockNodes = [];
   const isSel = (type, i) => !!sel && sel.type === type && (i === undefined || sel.i === i);
+  // Several texts / pictures selected at once (block objects). Empty unless 2 or more.
+  let multi = new Set(), multiMode = false;
+  const grpOf = b => b.grp ? L.text.blocks.filter(x => x.grp === b.grp) : [b];
+  const isSelB = i => isSel("block", i) || multi.has(L.text.blocks[i]);
+  const selectedBlocks = () => multi.size ? L.text.blocks.filter(x => multi.has(x)) : isSel("block") ? [L.text.blocks[sel.i]] : [];
   // Dragging doesn't move the keyboard focus by itself; drop it so Delete works on the selected item.
   const unfocus = () => { const a = document.activeElement; if (a && a !== document.body && a.blur) a.blur(); };
 
@@ -798,9 +803,10 @@ async function renderLayers(main, id, kind) {
     blockNodes[i] = node;
     node.style.pointerEvents = "auto";
     node.style.cursor = "move";
-    node.classList.toggle("ed-selected", isSel("block", i));
+    node.classList.toggle("ed-selected", isSelB(i));
     node.addEventListener("pointerdown", e => {
       e.preventDefault(); e.stopPropagation(); unfocus();
+      if (e.ctrlKey || e.metaKey || e.shiftKey || multiMode) { select({ type: "block", i }, false, true); return; }
       if (!isSel("block", i)) select({ type: "block", i });
       const box = pvOverlay.getBoundingClientRect(), r = node.getBoundingClientRect();
       const sx = e.clientX, sy = e.clientY;
@@ -831,9 +837,20 @@ async function renderLayers(main, id, kind) {
   const change = () => { dirty = true; saveBtn.textContent = "Save changes"; refresh(); drawTimeline(); };
 
   // ---------- selection ----------
-  function select(next, keepTimeline) {
+  // additive: add / remove this item to the multi-selection (a locked group comes along as a whole).
+  function select(next, keepTimeline, additive) {
+    if (additive && next && next.type === "block") {
+      const b = L.text.blocks[next.i], mem = grpOf(b);
+      if (!multi.size && isSel("block")) grpOf(L.text.blocks[sel.i]).forEach(x => multi.add(x));
+      if (multi.has(b)) {
+        mem.forEach(x => multi.delete(x));
+        const rest = L.text.blocks.filter(x => multi.has(x));
+        next = rest.length ? { type: "block", i: L.text.blocks.indexOf(rest[rest.length - 1]) } : null;
+      } else mem.forEach(x => multi.add(x));
+    } else multi = new Set(next && next.type === "block" ? grpOf(L.text.blocks[next.i]) : []);
+    if (multi.size < 2) multi.clear();
     sel = next;
-    blockNodes.forEach((n, i) => n && n.classList.toggle("ed-selected", isSel("block", i)));
+    blockNodes.forEach((n, i) => n && n.classList.toggle("ed-selected", isSelB(i)));
     pvVideo.classList.toggle("ed-selected", isSel("video"));
     if (sel) {
       const b = sel.type === "block" ? L.text.blocks[sel.i] : null;
@@ -867,6 +884,26 @@ async function renderLayers(main, id, kind) {
       enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1, fx: prev.fx || "none", fxColor: prev.fxColor });
   }
   function removeBlock(i) { L.text.blocks.splice(i, 1); sel = null; change(); select(null); }
+  function removeSelected() {
+    const del = new Set(selectedBlocks());
+    for (let k = L.text.blocks.length - 1; k >= 0; k--) if (del.has(L.text.blocks[k])) L.text.blocks.splice(k, 1);
+    sel = null; change(); select(null);
+  }
+  function lockGroup(on) {
+    const list = selectedBlocks();
+    const id = on ? L.text.blocks.reduce((m, x) => Math.max(m, x.grp || 0), 0) + 1 : 0;
+    list.forEach(x => { x.grp = id; });
+    change(); drawToolbar();
+    toast(on ? "Locked: these " + list.length + " move and stretch together on the timeline." : "Unlocked. Each one moves on its own again.");
+  }
+  function lineUp(edge) {
+    const len = T(), list = selectedBlocks();
+    if (!L.text.cycle) L.text.cycle = len;
+    if (edge === "start") { const f = Math.min(...list.map(x => x.from || 0)); list.forEach(x => { const d = (x.to || len) - (x.from || 0); x.from = f; x.to = Math.min(len, f + d); }); }
+    else { const t = Math.max(...list.map(x => x.to || len)); list.forEach(x => { x.to = Math.max((x.from || 0) + 0.5, t); }); }
+    list.forEach(x => { if (x.to >= len) x.to = 0; if (x.to && x.to <= x.from) x.to = 0; });
+    change(); drawSide();
+  }
 
   // ---------- toolbar ----------
   const toolbar = h("div", { class: "card ed-toolbar" });
@@ -874,7 +911,19 @@ async function renderLayers(main, id, kind) {
   const sw = (checked, onchange) => h("label", { class: "switch", title: "On / off" }, h("input", { type: "checkbox", checked, onchange: e => onchange(e.target.checked) }), h("span", {}));
   function drawToolbar() {
     const kids = [];
-    if (isSel("block")) {
+    if (multi.size >= 2) {
+      const list = selectedBlocks(), locked = !!list[0].grp && list.every(x => x.grp === list[0].grp);
+      kids.push(h("strong", { class: "small" }, list.length + " selected"),
+        locked ? tbBtn("🔓 Unlock group", false, () => lockGroup(false), "Let them move on their own again")
+          : h("button", { type: "button", class: "small primary", title: "Keep them together: dragging one moves or stretches all of them", onclick: () => lockGroup(true) }, "🔒 Lock as group"),
+        tbBtn("⇤ Same start", false, () => lineUp("start"), "Start them all at the same time"),
+        tbBtn("⇥ Same end", false, () => lineUp("end"), "End them all at the same time"),
+        tbBtn("Clear selection", false, () => select(null)),
+        h("button", { type: "button", class: "small danger", onclick: async () => {
+          if (await confirmDlg("Delete " + list.length + " items?", "You can still leave without saving to get them back.", "Delete")) removeSelected();
+        } }, "Delete all"),
+        h("span", { class: "small muted" }, "Drag any of their bars to move them together; drag an end to stretch them all."));
+    } else if (isSel("block")) {
       const i = sel.i, b = L.text.blocks[i];
       const upd = fn => e => { fn(e); change(); };
       if (b.kind === "text") {
@@ -906,7 +955,7 @@ async function renderLayers(main, id, kind) {
         tbBtn("Duplicate", false, () => {
           const c = JSON.parse(JSON.stringify(b));
           if (typeof c.x === "number") { c.x += 2; c.y += 2; }
-          c.track = nextTrack();
+          c.track = nextTrack(); c.grp = 0;
           L.text.blocks.splice(i + 1, 0, c); change(); select({ type: "block", i: i + 1 });
         }),
         h("button", { type: "button", class: "small danger", onclick: () => removeBlock(i) }, "Delete"));
@@ -1182,8 +1231,10 @@ async function renderLayers(main, id, kind) {
   const cycleIn = h("input", { type: "number", min: 5, max: 3600, step: 1, style: "width:80px",
     onchange: e => { const v = Math.round(Number(e.target.value)); L.text.cycle = v >= 5 ? Math.min(3600, v) : 0;
       L.text.blocks.forEach(b => { if (b.from >= T()) b.from = 0; if (b.to > T()) b.to = 0; }); playhead = playhead % T(); change(); } });
+  const multiBtn = h("button", { type: "button", class: "small", title: "Tap bars to pick several (or hold Ctrl / Shift and click)",
+    onclick: () => { multiMode = !multiMode; multiBtn.classList.toggle("on", multiMode); multiBtn.textContent = multiMode ? "☑ Selecting several: tap bars" : "☐ Select several"; } }, "☐ Select several");
   const timeline = h("div", { class: "card ed-timeline" },
-    h("div", { class: "tl-head" }, playBtn, timeLabel,
+    h("div", { class: "tl-head" }, playBtn, timeLabel, multiBtn,
       h("label", { class: "tb-num" }, "Timeline length (s)", cycleIn),
       h("span", { class: "small muted" }, "On the TV, timed text and pictures repeat every " + "this many seconds.")),
     tlBody);
@@ -1223,18 +1274,36 @@ async function renderLayers(main, id, kind) {
         h("span", {}, name)),
       lane);
   }
+  const markBars = () => tlBody.querySelectorAll(".tl-clip[data-i]").forEach(x => x.classList.toggle("sel", isSelB(Number(x.dataset.i))));
   function barDrag(e, b, i, mode) {
     e.preventDefault(); e.stopPropagation(); unfocus();
     const bar = e.currentTarget.closest(".tl-clip"), lane = bar.parentNode;
-    if (!isSel("block", i)) { select({ type: "block", i }, true); tlBody.querySelectorAll(".tl-clip.sel").forEach(x => x.classList.remove("sel")); bar.classList.add("sel"); }
+    const add = e.ctrlKey || e.metaKey || e.shiftKey || multiMode;
+    let toggleOff = false;
+    if (add) { if (isSelB(i)) toggleOff = true; else { select({ type: "block", i }, true, true); markBars(); } }
+    else if (!isSelB(i)) { select({ type: "block", i }, true); markBars(); }
+    else if (!isSel("block", i)) { sel = { type: "block", i }; drawSide(); }
     const len = T();
     const w = lane.getBoundingClientRect().width, sx = e.clientX;
     const f0 = b.from || 0, t0 = b.to || len, sy = e.clientY;
+    // Everything selected (or the locked group) moves / stretches by the same amount.
+    const group = (multi.has(b) ? L.text.blocks.filter(x => multi.has(x)) : grpOf(b)).map(x => ({ x, f: x.from || 0, t: x.to || len, bar: tlBody.querySelector('.tl-clip[data-i="' + L.text.blocks.indexOf(x) + '"]') }));
+    const lo = mode === "move" ? Math.max(...group.map(g => -g.f)) : mode === "l" ? Math.max(...group.map(g => -g.f)) : Math.max(...group.map(g => g.f + 0.5 - g.t));
+    const hi = mode === "move" ? Math.min(...group.map(g => len - g.t)) : mode === "l" ? Math.min(...group.map(g => g.t - 0.5 - g.f)) : Math.min(...group.map(g => len - g.t));
     let moved = false, dropRow = null;
     const mv = ev => {
       const d = (ev.clientX - sx) / w * len;
       if (!moved && Math.abs(ev.clientX - sx) < 3 && Math.abs(ev.clientY - sy) < 6) return;
       moved = true;
+      if (group.length > 1) {
+        const dd = clampN(snapH(d), lo, hi);
+        group.forEach(g => {
+          const f = mode === "r" ? g.f : g.f + dd, t = mode === "l" ? g.t : g.t + dd;
+          g.x.from = f; g.x.to = t;
+          if (g.bar) { g.bar.style.left = (f / len * 100) + "%"; g.bar.style.width = ((t - f) / len * 100) + "%"; g.bar.title = fmtT(f) + " – " + fmtT(t); }
+        });
+        return;
+      }
       if (mode === "move") {
         // Up or down: onto another timeline row.
         const hit = document.elementFromPoint(ev.clientX, ev.clientY);
@@ -1253,10 +1322,10 @@ async function renderLayers(main, id, kind) {
     };
     const up = () => {
       window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
-      if (!moved) return;
+      if (!moved) { if (toggleOff) { select({ type: "block", i }, true, true); markBars(); } return; }
       if (dropRow) b.track = Number(dropRow.dataset.track);
       if (!L.text.cycle) L.text.cycle = len;
-      if (b.from <= 0 && b.to >= len) { b.from = 0; b.to = 0; }
+      group.forEach(g => { if (g.x.from <= 0 && g.x.to >= len) { g.x.from = 0; g.x.to = 0; } });
       change(); drawSide();
     };
     window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
@@ -1299,8 +1368,10 @@ async function renderLayers(main, id, kind) {
       const clips = [];
       idx.forEach(i => {
         const b = L.text.blocks[i], from = b.from || 0, to = b.to || len, label = blockLabel(b);
-        const bar = tlClip((b.kind === "image" ? "tl-image" : "tl-text") + (L.text.enabled ? "" : " off") + (isSel("block", i) ? " sel" : ""),
-          from, to, label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
+        const bar = tlClip((b.kind === "image" ? "tl-image" : "tl-text") + (L.text.enabled ? "" : " off") + (isSelB(i) ? " sel" : "") + (b.grp ? " tl-grp" : ""),
+          from, to, (b.grp ? "🔒 " : "") + label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
+        bar.dataset.i = i;
+        if (b.grp) bar.style.setProperty("--gh", String((b.grp * 67) % 360));
         // Light ends: the entrance and exit transitions.
         const pct = d => Math.min(50, d / Math.max(0.1, to - from) * 100) + "%";
         if (b.enter && b.enter !== "none") bar.append(h("span", { class: "tl-tr in", style: "width:" + pct(b.td || 1), title: "Entrance" }));
@@ -1357,8 +1428,9 @@ async function renderLayers(main, id, kind) {
   } }, "Save");
 
   const onKey = e => {
-    if (!isSel("block") || /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ""))) return;
-    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeBlock(sel.i); }
+    if (!isSel("block") && !multi.size || /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ""))) return;
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSelected(); }
+    if (e.key === "Escape") select(null);
   };
   document.addEventListener("keydown", onKey);
 

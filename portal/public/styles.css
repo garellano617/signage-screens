@@ -328,6 +328,8 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .tl-effects { background: #64748b; }
 .tl-clip.off { opacity: .35; }
 .tl-clip.sel { box-shadow: 0 0 0 2px var(--text); z-index: 1; }
+.tl-clip.tl-grp { border: 2px solid hsl(var(--gh, 45) 95% 60%); }
+.tl-head button.on { background: var(--accent, #2563eb); color: #fff; border-color: transparent; }
 .tl-h { position: absolute; top: 0; bottom: 0; width: 9px; cursor: ew-resize; }
 .tl-h.l { left: 0; } .tl-h.r { right: 0; }
 .tl-clip.sel .tl-h { background: rgba(255,255,255,.35); }

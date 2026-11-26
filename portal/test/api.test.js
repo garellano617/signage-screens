@@ -901,6 +901,9 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
     [[2, 0, 6, "small", "left", 0.8], [2, 5, 11, "none", "big", 5], [2, 0, 0, "none", "none", 1]]);
   const fx = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "OPEN", fx: "neon", fxColor: "#ec4899" }, { kind: "text", text: "x", fx: "lasers", fxColor: "red" }] } }, () => true).text.blocks;
   assert.deepEqual(fx.map(b => [b.fx, b.fxColor]), [["neon", "#ec4899"], ["none", "#facc15"]]);
+  // Locked groups on the timeline.
+  const g = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "a", grp: 3 }, { kind: "text", text: "b", grp: "x" }, { kind: "text", text: "c", grp: 5000 }] } }, () => true).text.blocks;
+  assert.deepEqual(g.map(b => b.grp), [3, 0, 999]);
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {

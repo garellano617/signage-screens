@@ -84,6 +84,8 @@ function sanitizeLayers(input, checkImage) {
       to: to && to <= from ? 0 : to,
       // Timeline row: blocks on the same row play one after another; where they overlap, that is the transition.
       track: num(b.track, 0, 49, Math.min(49, index)),
+      // Locked group (0 = none): the timeline moves and stretches the group's bars together.
+      grp: num(b.grp, 0, 999, 0),
       enter: pick(b.enter, TRANSITIONS, "none"),
       exit: pick(b.exit, TRANSITIONS, "none"),
       // Transition length in seconds.
