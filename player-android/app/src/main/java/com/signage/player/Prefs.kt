@@ -38,4 +38,24 @@ class Prefs(context: Context) {
     var lastCrash: String?
         get() = sp.getString("lastCrash", null)
         set(v) = sp.edit().putString("lastCrash", v).commit().let { }
+
+    /** Set when the app keeps crashing: the error shown on screen instead of restarting again. */
+    var crashLoop: String?
+        get() = sp.getString("crashLoop", null)
+        set(v) = sp.edit().putString("crashLoop", v).commit().let { }
+
+    /** Records a crash; true when it is the 3rd within 2 minutes (then stop restarting). */
+    fun noteCrash(text: String): Boolean {
+        val now = System.currentTimeMillis()
+        val times = (sp.getString("crashTimes", "") ?: "").split(",").mapNotNull { it.toLongOrNull() }
+            .filter { now - it < 120_000 } + now
+        sp.edit().putString("crashTimes", times.takeLast(3).joinToString(",")).commit()
+        val loop = times.size >= 3
+        if (loop) crashLoop = text
+        return loop
+    }
+
+    fun clearCrashes() {
+        sp.edit().remove("crashTimes").remove("crashLoop").commit()
+    }
 }

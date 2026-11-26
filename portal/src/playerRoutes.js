@@ -45,6 +45,24 @@ router.post("/register", (req, res) => {
   res.json({ token, paired: !!screen.paired_at, pairingCode: screen.paired_at ? null : screen.pairing_code });
 });
 
+/** The app crashed: it sends what went wrong (no login, it may not be paired yet). A few per device per hour. */
+const crashHits = new Map();
+router.post("/crash", (req, res) => {
+  const b = req.body || {};
+  const deviceId = clip(b.deviceId, 128).trim();
+  if (!/^[\w.:-]{8,128}$/.test(deviceId)) return res.status(400).json({ error: "deviceId required" });
+  const key = (req.ip || "") + "|" + deviceId, t = now();
+  const hits = (crashHits.get(key) || []).filter(x => t - x < 3600_000);
+  if (hits.length >= 10) return res.status(429).json({ error: "Too many reports" });
+  hits.push(t); crashHits.set(key, hits);
+  if (crashHits.size > 5000) crashHits.clear();
+  run("INSERT INTO app_crashes (device_id, app_version, android, model, error, trace, stopped, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    deviceId, clip(b.appVersion, 40), clip(b.android, 60), clip(b.model, 120), clip(b.error, 600), clip(b.trace, 4000), b.stopped ? 1 : 0, req.ip || "", t);
+  run("DELETE FROM app_crashes WHERE id NOT IN (SELECT id FROM app_crashes ORDER BY id DESC LIMIT 300)");
+  console.warn("Player app crash:", deviceId, clip(b.model, 120), clip(b.android, 60), clip(b.error, 300));
+  res.json({ ok: true });
+});
+
 router.get("/config", requirePlayer, (req, res) => {
   res.json(buildConfig(req.screen));
 });

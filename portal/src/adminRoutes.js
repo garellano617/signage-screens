@@ -978,6 +978,14 @@ router.delete("/branding/logo", auth.requireStaff, auth.requireAdmin, (req, res)
 
 // ---------- player app download info ----------
 const { latestApk, installApk } = require("./apk");
+// Crashes the player apps reported (newest first), with the screen's name when the device is paired.
+router.get("/app-crashes", auth.requireStaff, auth.requireAdmin, (req, res) => {
+  res.json(all(`SELECT c.*, s.name AS screen_name, cu.name AS customer_name FROM app_crashes c
+    LEFT JOIN screens s ON s.device_id = c.device_id LEFT JOIN customers cu ON cu.id = s.customer_id ORDER BY c.id DESC LIMIT 30`)
+    .map(c => ({ id: c.id, deviceId: c.device_id, appVersion: c.app_version, android: c.android, model: c.model, error: c.error, trace: c.trace,
+      stopped: !!c.stopped, at: c.created_at, screenName: c.screen_name || null, customerName: c.customer_name || null })));
+});
+
 router.get("/apk", (req, res) => {
   const a = latestApk();
   res.json(a ? { available: true, file: a.file, size: a.size, updatedAt: a.updatedAt, url: "/download/player.apk" } : { available: false });

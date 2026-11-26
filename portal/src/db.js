@@ -228,6 +228,22 @@ const all = (sql, ...p) => db.prepare(sql).all(...p);
 const get = (sql, ...p) => db.prepare(sql).get(...p);
 const run = (sql, ...p) => db.prepare(sql).run(...p);
 
+// Crash reports sent by the player app (also before a TV is paired), newest kept.
+db.exec(`
+CREATE TABLE IF NOT EXISTS app_crashes (
+  id INTEGER PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  app_version TEXT NOT NULL DEFAULT '',
+  android TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  trace TEXT NOT NULL DEFAULT '',
+  stopped INTEGER NOT NULL DEFAULT 0,
+  ip TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+`);
+
 /** Runs fn inside a transaction (rolls back if it throws). */
 function tx(fn) {
   db.exec("BEGIN IMMEDIATE");

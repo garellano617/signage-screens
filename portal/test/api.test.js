@@ -903,6 +903,25 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   assert.deepEqual(fx.map(b => [b.fx, b.fxColor]), [["neon", "#ec4899"], ["none", "#facc15"]]);
 });
 
+test("player app crashes are reported, even before pairing, and listed for admins", async () => {
+  cookie = ""; scopeId = null;
+  const bad = await call("POST", "/api/player/crash", { deviceId: "x" });
+  assert.equal(bad.status, 400);
+  const ok = await call("POST", "/api/player/crash", { deviceId: "android-crash-0001", appVersion: "1.2.9", android: "9 (SDK 28)", model: "Amazon AFTMM",
+    error: "java.lang.NoSuchMethodError: boom", trace: "at com.signage.player.MainActivity.onCreate", stopped: true });
+  assert.equal(ok.status, 200);
+  assert.equal((await call("GET", "/api/app-crashes")).status, 401);
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const list = (await call("GET", "/api/app-crashes")).body;
+  assert.equal(list[0].model, "Amazon AFTMM");
+  assert.equal(list[0].stopped, true);
+  assert.equal(list[0].screenName, null);
+  // Too many from one device are refused.
+  let last;
+  for (let i = 0; i < 12; i++) last = await call("POST", "/api/player/crash", { deviceId: "android-crash-0002", error: "x" });
+  assert.equal(last.status, 429);
+});
+
 test("wall effects: saved, cleaned, sent to each screen with its part of the wall", async () => {
   cookie = ""; scopeId = null;
   await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });

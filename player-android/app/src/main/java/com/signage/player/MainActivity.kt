@@ -73,6 +73,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // It kept crashing: show what went wrong instead of closing again (the portal got a report too).
+        Prefs(this).crashLoop?.let { showCrashScreen(it); return }
         setContentView(R.layout.activity_main)
         hideSystemBars()
 
@@ -425,7 +427,7 @@ class MainActivity : ComponentActivity() {
     // ---------- menu (long-press, MENU key, or BACK three times) ----------
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (setup.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
+        if (!::setup.isInitialized || setup.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
         if (event.action == KeyEvent.ACTION_UP) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> { showMenu(); return true }
@@ -498,13 +500,34 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         // Keep unsent plays if the app is closed or the TV turns off.
-        prefs.pendingPlays = if (plays.isEmpty()) null else JSONArray(plays.toList()).toString()
+        if (::prefs.isInitialized) prefs.pendingPlays = if (plays.isEmpty()) null else JSONArray(plays.toList()).toString()
     }
 
     override fun onDestroy() {
         if (::engine.isInitialized) engine.release()
         if (::overlay.isInitialized) overlay.hide()
         super.onDestroy()
+    }
+
+    private fun showCrashScreen(error: String) {
+        val msg = "The Signage Player keeps stopping on this device.\n\n" + error +
+            "\n\nApp " + BuildConfig.VERSION_NAME + " · Android " + Build.VERSION.RELEASE + " · " + Build.MANUFACTURER + " " + Build.MODEL +
+            "\n\nThis was reported to the portal (Download App page).\nPress OK / Select on the remote to try again."
+        val tv = TextView(this).apply {
+            text = msg
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xFF7F1D1D.toInt())
+            textSize = 20f
+            setPadding(60, 60, 60, 60)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setOnClickListener {
+                Prefs(this@MainActivity).clearCrashes()
+                recreate()
+            }
+        }
+        setContentView(tv)
+        tv.requestFocus()
     }
 
     private fun hideSystemBars() {

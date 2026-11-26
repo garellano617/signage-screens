@@ -2115,6 +2115,7 @@ async function renderProfile(main) {
 // ---------- download app ----------
 async function renderDownload(main) {
   const apk = await api("GET", "/apk");
+  const crashes = isAdmin() && isStaff() ? await api("GET", "/app-crashes").catch(() => []) : [];
   const portalUrl = location.origin;
   main.replaceChildren(
     pageHead("Download App", "The Signage Player app for Android TVs, TV boxes and tablets"),
@@ -2152,7 +2153,24 @@ async function renderDownload(main) {
           h("li", {}, "Press BACK three times on the remote for the player menu (portal address, kiosk mode, exit)."),
           h("li", {}, "Kiosk mode makes the player the home screen, so it can't be closed by accident."),
           h("li", {}, "Content is saved on the device and keeps playing if the internet drops."),
-          h("li", {}, "Wired internet is more reliable than Wi-Fi for screens.")))));
+          h("li", {}, "Wired internet is more reliable than Wi-Fi for screens."))),
+      h("div", { class: "card" }, h("h2", {}, "Fire TV Stick"),
+        h("ol", { class: "small", style: "padding-left:1.2rem;margin:0;line-height:1.7" },
+          h("li", {}, "Install the free Downloader app from the Amazon app store."),
+          h("li", {}, "Settings → My Fire TV → Developer options → Install unknown apps → turn on Downloader. (No Developer options? Settings → My Fire TV → About → click the device name 7 times.)"),
+          h("li", {}, "In Downloader, type ", h("span", { class: "mono" }, portalUrl + "/download/player.apk"), " and install."),
+          h("li", {}, "Updates need a press on Install with the remote.")))),
+    crashes.length ? h("div", { class: "card" }, h("h2", {}, "App problems reported by TVs"),
+      h("p", { class: "small muted" }, "When the player app crashes it sends the error here, even before the TV is paired. Show this to whoever maintains the app."),
+      h("div", { class: "table-wrap" }, h("table", {},
+        h("thead", {}, h("tr", {}, h("th", {}, "When"), h("th", {}, "Device"), h("th", {}, "Error"))),
+        h("tbody", {}, crashes.map(c => h("tr", {},
+          h("td", { class: "small", style: "white-space:nowrap" }, ago(c.at)),
+          h("td", { class: "small" }, h("strong", {}, c.screenName ? c.screenName + (c.customerName ? " · " + c.customerName : "") : "Not paired yet"),
+            h("div", { class: "muted" }, c.model), h("div", { class: "muted" }, "Android " + c.android + " · app " + c.appVersion)),
+          h("td", { class: "small" }, c.stopped ? h("span", { class: "pill danger" }, "kept crashing, stopped") : null,
+            h("div", { class: "mono", style: "word-break:break-word" }, c.error),
+            h("details", {}, h("summary", { class: "muted" }, "Details"), h("pre", { class: "mono", style: "white-space:pre-wrap;font-size:.72rem;max-height:240px;overflow:auto" }, c.trace))))))))) : null);
 }
 
 // ---------- start ----------
