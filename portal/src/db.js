@@ -228,6 +228,19 @@ const all = (sql, ...p) => db.prepare(sql).all(...p);
 const get = (sql, ...p) => db.prepare(sql).get(...p);
 const run = (sql, ...p) => db.prepare(sql).run(...p);
 
+// Designs saved as templates. customer_id NULL = shared with every client (made by staff, without pictures).
+db.exec(`
+CREATE TABLE IF NOT EXISTS saved_templates (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  layers_json TEXT NOT NULL,
+  created_by INTEGER,
+  created_at INTEGER NOT NULL
+);
+`);
+
 // Crash reports sent by the player app (also before a TV is paired), newest kept.
 db.exec(`
 CREATE TABLE IF NOT EXISTS app_crashes (

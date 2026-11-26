@@ -373,6 +373,10 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .ed-template { display: block; padding: .35rem; text-align: left; white-space: normal; border-radius: 8px; }
 .ed-template:hover { border-color: var(--accent); }
 .ed-template .preview { margin-bottom: .3rem; border-radius: 5px; }
+.ed-template-wrap { position: relative; }
+.ed-template-wrap .ed-template { width: 100%; height: 100%; }
+.ed-template-del { position: absolute; top: .3rem; right: .3rem; width: 1.7rem; height: 1.7rem; padding: 0; border-radius: 50%; line-height: 1; font-size: 1rem; background: rgba(15,23,42,.75); color: #fff; border: 0; z-index: 1; }
+.ed-template-del:hover { background: #dc2626; }
 .ed-thumb .pv-overlay { pointer-events: none; }
 .ed-thumb-video { background: linear-gradient(135deg, #64748b, #1e293b); }
 .ed-undo { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .45rem .6rem; margin-bottom: .6rem; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }

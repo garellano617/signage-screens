@@ -744,7 +744,7 @@ const snapH = v => Math.round(v * 2) / 2;
 async function renderLayers(main, id, kind) {
   const isCh = kind === "channel";
   const path = (isCh ? "/channels/" : "/screens/") + id;
-  const [s, media, templates, aiStatus] = await Promise.all([api("GET", path), api("GET", "/media"),
+  let [s, media, templates, aiStatus] = await Promise.all([api("GET", path), api("GET", "/media"),
     api("GET", "/layer-templates").catch(() => []), api("GET", "/ai/status").catch(() => ({ enabled: false }))]);
   if (!isCh && s.channelId) {
     // This screen's layers come from its channel.
@@ -944,8 +944,22 @@ async function renderLayers(main, id, kind) {
         sel = null; drawVideo(true); change(); select(null);
       } }, "Undo"));
   }
+  async function saveAsTemplate() {
+    const r = await dialog("Save as template",
+      h("div", {}, field("Template name", h("input", { name: "name", required: true, maxlength: 60, placeholder: "e.g. Lunch specials" })),
+        field("Description (optional)", h("input", { name: "description", maxlength: 200, placeholder: "What it's for" })),
+        isStaff() ? h("label", { class: "check-row" }, h("input", { type: "checkbox", name: "shared" }), "Share with all clients (their pictures are left out)") : null,
+        h("p", { class: "small muted", style: "margin:.5rem 0 0" }, "Saves the layers as they are now (text, pictures, specials, effects, timing). The screen itself doesn't change.")),
+      { submit: "Save template", onSubmit: f => api("POST", "/layer-templates", { name: f.get("name"), description: f.get("description"), shared: f.get("shared") === "on", layers: L }) });
+    if (!r) return;
+    templates = await api("GET", "/layer-templates").catch(() => templates);
+    tab = "templates"; drawSide();
+    toast("Saved as template “" + r.name + "”. It's in the Templates tab" + (r.shared ? " for every client." : "."));
+  }
   function templatesPanel() {
-    const out = [undoBar(), h("p", { class: "small muted" }, "Pick a design to start from, then change the words, colors and positions. Your playlist keeps playing in the video area.")];
+    const out = [undoBar(),
+      h("button", { type: "button", class: "primary", style: "width:100%;margin-bottom:.6rem", onclick: saveAsTemplate }, "💾 Save this design as a template"),
+      h("p", { class: "small muted" }, "Pick a design to start from, then change the words, colors and positions. Your playlist keeps playing in the video area.")];
     const byCat = {};
     templates.forEach(tp => (byCat[tp.category] = byCat[tp.category] || []).push(tp));
     for (const [cat, list] of Object.entries(byCat)) {
@@ -959,12 +973,18 @@ async function renderLayers(main, id, kind) {
         const still = JSON.parse(JSON.stringify(tp.layers)); still.effects.enabled = false;
         requestAnimationFrame(() => { if (ov.isConnected) thumbs.push(SignageOverlay.render(ov, still, { time: () => 2 })); });
         const fx = tp.layers.effects.enabled ? (EFFECT_LABELS.find(e => e[0] === tp.layers.effects.type) || [, ""])[1] : "";
-        return h("button", { type: "button", class: "ed-template", title: tp.description, onclick: async () => {
+        const btn = h("button", { type: "button", class: "ed-template", title: tp.description, onclick: async () => {
           const has = L.specials.enabled || L.text.enabled || L.effects.enabled;
           if (has && !await confirmDlg("Use the “" + tp.name + "” template?", "It replaces this design. You can undo it until you save.", "Use template")) return;
           applyDesign(tp.layers, "Template “" + tp.name + "”");
           toast("Template applied. Change the words, then save.");
         } }, box, h("strong", { class: "small" }, tp.name), fx ? h("span", { class: "small muted" }, " · " + fx) : null);
+        if (!tp.canDelete) return btn;
+        // Saved templates can be deleted.
+        return h("div", { class: "ed-template-wrap" }, btn, h("button", { type: "button", class: "ed-template-del", title: "Delete this template", onclick: async () => {
+          if (!await confirmDlg("Delete the template “" + tp.name + "”?", tp.shared ? "It disappears for every client. Screens that used it keep their design." : "Screens that used it keep their design.", "Delete")) return;
+          try { await api("DELETE", "/layer-templates/" + tp.savedId); templates = templates.filter(x => x.id !== tp.id); drawSide(); toast("Template deleted."); } catch (e) { fail(e); }
+        } }, "×"));
       })));
     }
     return out;

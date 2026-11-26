@@ -922,6 +922,46 @@ test("player app crashes are reported, even before pairing, and listed for admin
   assert.equal(last.status, 429);
 });
 
+test("designs saved as templates: per client with pictures, or shared without", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000a49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
+  const A = (await call("POST", "/api/customers", { name: "Tpl Shop A" })).body, B = (await call("POST", "/api/customers", { name: "Tpl Shop B" })).body;
+  scopeId = A.id;
+  const fd = new FormData(); fd.append("files", new Blob([png], { type: "image/png" }), "A logo.png");
+  const logo = (await call("POST", "/api/media", fd)).body[0];
+  const layers = { text: { enabled: true, cycle: 0, blocks: [{ kind: "text", text: "Lunch", fx: "neon" }, { kind: "image", mediaId: logo.id, w: 20 }] }, effects: { enabled: true, type: "plane", mediaId: logo.id } };
+  assert.equal((await call("POST", "/api/layer-templates", { name: "", layers })).status, 400);
+  const mine = await call("POST", "/api/layer-templates", { name: "Lunch board", description: "Weekdays", layers });
+  assert.equal(mine.status, 201);
+  assert.equal(mine.body.category, "My templates");
+  assert.equal(mine.body.layers.text.blocks[1].image.name, "A logo");
+  const shared = (await call("POST", "/api/layer-templates", { name: "Shared lunch", shared: true, layers })).body;
+  assert.equal(shared.category, "Shared templates");
+  assert.equal(shared.layers.text.blocks.length, 1, "pictures left out");
+  assert.equal(shared.layers.effects.mediaId, null);
+  let list = (await call("GET", "/api/layer-templates")).body;
+  assert.deepEqual(list.slice(0, 2).map(t => t.name).sort(), ["Lunch board", "Shared lunch"]);
+  assert.ok(list.length > 10, "ready-made templates still there");
+  // Client B sees the shared one but not A's.
+  scopeId = B.id;
+  list = (await call("GET", "/api/layer-templates")).body;
+  assert.ok(list.some(t => t.name === "Shared lunch"));
+  assert.ok(!list.some(t => t.name === "Lunch board"));
+  // A client login can't remove another client's template, only its own.
+  const pw = "client-pass-123";
+  const u = await call("POST", "/api/users", { email: "tplb@test.local", password: pw, role: "admin", customerId: B.id });
+  assert.ok(u.status < 300, JSON.stringify(u.body));
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "tplb@test.local", password: pw });
+  assert.equal((await call("DELETE", "/api/layer-templates/" + mine.body.savedId)).status, 404);
+  const own = (await call("POST", "/api/layer-templates", { name: "B board", layers: { text: { enabled: true, blocks: [{ kind: "text", text: "Hi" }] } } })).body;
+  assert.equal(own.canDelete, true);
+  assert.equal((await call("GET", "/api/layer-templates")).body.find(t => t.name === "Shared lunch").canDelete, false);
+  assert.equal((await call("DELETE", "/api/layer-templates/" + own.savedId)).status, 200);
+  cookie = ""; scopeId = null;
+});
+
 test("wall effects: saved, cleaned, sent to each screen with its part of the wall", async () => {
   cookie = ""; scopeId = null;
   await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });

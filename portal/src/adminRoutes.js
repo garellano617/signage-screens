@@ -1014,7 +1014,46 @@ router.post("/apk", auth.requireStaff, auth.requireAdmin, apkUpload.single("file
 // ---------- layout templates and the AI designer ----------
 const ai = require("./ai");
 const { TEMPLATES } = require("./templates");
-router.get("/layer-templates", (req, res) => res.json(TEMPLATES));
+// Ready-made templates, plus designs saved as templates: the client's own and the ones shared with every client.
+function savedTemplateOut(t, req) {
+  const layers = parseLayers(t.layers_json);
+  return {
+    id: "saved-" + t.id, savedId: t.id, name: t.name, description: t.description,
+    category: t.customer_id ? "My templates" : "Shared templates",
+    shared: !t.customer_id, canDelete: req.isStaff || (!!t.customer_id && t.customer_id === req.cid),
+    layers: t.customer_id ? withImages(layers, clientImage(t.customer_id)) : layers
+  };
+}
+router.get("/layer-templates", (req, res) => {
+  const saved = all("SELECT * FROM saved_templates WHERE customer_id IS NULL OR customer_id = ? ORDER BY customer_id IS NULL, name COLLATE NOCASE", req.cid || -1);
+  res.json([...saved.map(t => savedTemplateOut(t, req)), ...TEMPLATES]);
+});
+
+/** Save a design as a template: for this client, or (staff) shared with every client. Shared ones drop the client's pictures. */
+router.post("/layer-templates", (req, res) => {
+  const b = req.body || {};
+  const name = str(b.name, 60, "Name");
+  if (!name) throw bad("Give the template a name.");
+  const shared = req.isStaff && !!b.shared;
+  const cid = shared ? null : targetCustomer(req);
+  let layers = sanitizeLayers(b.layers, shared ? () => false : id => !!clientImage(cid)(id));
+  if (shared) {
+    layers.specials.items.forEach(x => { x.mediaId = null; });
+    layers.text.blocks = layers.text.blocks.filter(x => x.kind !== "image");
+    layers.effects.mediaId = null;
+  }
+  if (!shared && get("SELECT COUNT(*) AS n FROM saved_templates WHERE customer_id = ?", cid).n >= 100) throw bad("This client already has 100 saved templates. Delete some first.");
+  const r = run("INSERT INTO saved_templates (customer_id, name, description, layers_json, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    cid, name, String(b.description || "").slice(0, 200), JSON.stringify(layers), req.user.id, now());
+  res.status(201).json(savedTemplateOut(get("SELECT * FROM saved_templates WHERE id = ?", r.lastInsertRowid), req));
+});
+
+router.delete("/layer-templates/:id", (req, res) => {
+  const t = get("SELECT * FROM saved_templates WHERE id = ?", intId(req.params.id));
+  if (!t || !(req.isStaff || (t.customer_id && t.customer_id === req.cid))) throw notFound("Template");
+  run("DELETE FROM saved_templates WHERE id = ?", t.id);
+  res.json({ ok: true });
+});
 
 const today = () => new Date().toISOString().slice(0, 10);
 const aiUsed = cid => (get("SELECT count FROM ai_usage WHERE customer_id = ? AND day = ?", cid, today()) || { count: 0 }).count;
