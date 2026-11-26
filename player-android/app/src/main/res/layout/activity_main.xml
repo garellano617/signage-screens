@@ -28,42 +28,98 @@
             android:layout_height="match_parent" />
     </FrameLayout>
 
+    <!-- Pairing screen: a Premier Signage advert on top (white, logo + name), the pairing code below. -->
     <LinearLayout
         android:id="@+id/pairing"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#0f172a"
-        android:gravity="center"
         android:orientation="vertical"
-        android:padding="32dp"
         android:visibility="gone">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/pair_title"
-            android:textColor="#cbd5e1"
-            android:textSize="28sp" />
-
-        <TextView
-            android:id="@+id/pairCode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:fontFamily="monospace"
-            android:letterSpacing="0.15"
-            android:textColor="#ffffff"
-            android:textSize="96sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/pairHint"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="#ffffff"
             android:gravity="center"
-            android:textColor="#94a3b8"
-            android:textSize="18sp" />
+            android:orientation="vertical"
+            android:paddingLeft="32dp"
+            android:paddingTop="20dp"
+            android:paddingRight="32dp"
+            android:paddingBottom="16dp">
+
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:adjustViewBounds="true"
+                android:contentDescription="@string/app_name"
+                android:maxHeight="260dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/premier_logo" />
+
+            <TextView
+                xmlns:tools="http://schemas.android.com/tools"
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:layout_marginTop="4dp"
+                android:autoSizeMaxTextSize="64sp"
+                android:autoSizeMinTextSize="24sp"
+                android:autoSizeTextType="uniform"
+                android:gravity="center"
+                android:letterSpacing="0.08"
+                android:maxLines="1"
+                android:text="@string/brand_name"
+                android:textColor="#1a72b4"
+                android:textSize="56sp"
+                android:textStyle="bold"
+                tools:targetApi="o" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/brand_tagline"
+                android:textColor="#475569"
+                android:textSize="20sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingLeft="32dp"
+            android:paddingTop="16dp"
+            android:paddingRight="32dp"
+            android:paddingBottom="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/pair_title"
+                android:textColor="#cbd5e1"
+                android:textSize="24sp" />
+
+            <TextView
+                android:id="@+id/pairCode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.15"
+                android:textColor="#ffffff"
+                android:textSize="80sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/pairHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="#94a3b8"
+                android:textSize="16sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
