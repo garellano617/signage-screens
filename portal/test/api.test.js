@@ -823,6 +823,32 @@ test("layout templates and the AI designer (fake AI client, no paid calls)", asy
   ai.setClient(null); delete process.env.AI_DAILY_LIMIT;
 });
 
+test("AI help: answers from the guide, keeps the chat, daily limit per login", async () => {
+  const ai = require("../src/ai");
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  ai.setClient(null); delete process.env.ANTHROPIC_API_KEY;
+  assert.equal((await call("GET", "/api/ai/help")).body.enabled, false);
+  assert.equal((await call("POST", "/api/ai/help", { question: "How do I pair a TV?" })).status, 503);
+  let sent = null;
+  ai.setClient({ beta: { messages: { create: async p => { sent = p; return { stop_reason: "end_turn", content: [{ type: "text", text: "1. Go to **Screens → Add screen**." }] }; } } } });
+  process.env.AI_HELP_DAILY_LIMIT = "2";
+  assert.equal((await call("POST", "/api/ai/help", { question: "  " })).status, 400);
+  const r = await call("POST", "/api/ai/help", { question: "How do I pair a TV?", page: "Screens · /screens",
+    history: [{ role: "assistant", content: "skipped: must start with the user" }, { role: "user", content: "Hi" }, { role: "assistant", content: "Hello!" }, { role: "user", content: "unanswered, dropped" }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.answer, /Add screen/);
+  assert.equal(r.body.left, 1);
+  assert.match(sent.system[0].text, /Video walls/, "the guide is in the system prompt");
+  assert.deepEqual(sent.system[0].cache_control, { type: "ephemeral" });
+  assert.deepEqual(sent.messages.map(m => m.role), ["user", "assistant", "user"]);
+  assert.match(sent.messages[2].content, /Screens · \/screens/);
+  assert.match(sent.messages[2].content, /staff/);
+  assert.equal((await call("POST", "/api/ai/help", { question: "Another" })).status, 200);
+  assert.equal((await call("POST", "/api/ai/help", { question: "Third" })).status, 429);
+  ai.setClient(null); delete process.env.AI_HELP_DAILY_LIMIT;
+});
+
 test("video walls: tiles, cropped config per screen, sound from the first screen, per client", async () => {
   cookie = ""; scopeId = null;
   await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });

@@ -241,6 +241,16 @@ CREATE TABLE IF NOT EXISTS saved_templates (
 );
 `);
 
+// AI help questions per login per day (each one costs money, so there's a daily limit).
+db.exec(`
+CREATE TABLE IF NOT EXISTS ai_help_usage (
+  user_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+);
+`);
+
 // Crash reports sent by the player app (also before a TV is paired), newest kept.
 db.exec(`
 CREATE TABLE IF NOT EXISTS app_crashes (

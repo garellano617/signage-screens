@@ -1082,6 +1082,37 @@ router.post("/ai/design", async (req, res) => {
   res.json({ layers: withImages(clean, img), summary: String(out.summary || "").slice(0, 500), left: Math.max(0, ai.dailyLimit() - aiUsed(cid)) });
 });
 
+// ---------- AI help (the ? button on every page) ----------
+const helpUsed = uid => (get("SELECT count FROM ai_help_usage WHERE user_id = ? AND day = ?", uid, today()) || { count: 0 }).count;
+router.get("/ai/help", (req, res) => {
+  const limit = ai.helpDailyLimit();
+  res.json({ enabled: ai.enabled(), limit, left: Math.max(0, limit - helpUsed(req.user.id)) });
+});
+router.post("/ai/help", async (req, res) => {
+  const b = req.body || {};
+  const question = str(b.question, 1500, "Question").trim();
+  if (!question) throw bad("Type a question.");
+  if (!ai.enabled()) throw new ai.AiError(503, "AI help isn't set up yet. Add ANTHROPIC_API_KEY on the server.");
+  const limit = ai.helpDailyLimit();
+  if (helpUsed(req.user.id) >= limit) throw new HttpError(429, `You've asked ${limit} questions today, the daily limit. Try again tomorrow.`);
+  // Earlier turns of this chat: user / assistant taking turns, starting with the user, last 10 at most.
+  const raw = Array.isArray(b.history) ? b.history.slice(-10) : [];
+  const history = [];
+  for (const m of raw) {
+    const role = m && m.role === "assistant" ? "assistant" : "user";
+    const content = String((m && m.content) || "").slice(0, 3000).trim();
+    if (!content || (history.length ? history[history.length - 1].role === role : role !== "user")) continue;
+    history.push({ role, content });
+  }
+  if (history.length && history[history.length - 1].role === "user") history.pop();
+  run(`INSERT INTO ai_help_usage (user_id, day, count) VALUES (?, ?, 1)
+    ON CONFLICT (user_id, day) DO UPDATE SET count = count + 1`, req.user.id, today());
+  const role = req.isStaff ? "staff of the signage company" : "a client login" + (req.user.role === "admin" ? " (client admin)" : "");
+  const clientName = req.cid ? (get("SELECT name FROM customers WHERE id = ?", req.cid) || {}).name : null;
+  const answer = await ai.help({ question, history, context: { page: String(b.page || "").slice(0, 80), role, clientName } });
+  res.json({ answer: answer.slice(0, 6000), left: Math.max(0, limit - helpUsed(req.user.id)) });
+});
+
 // ---------- errors ----------
 router.use((req, res) => res.status(404).json({ error: "Not found." }));
 // eslint-disable-next-line no-unused-vars

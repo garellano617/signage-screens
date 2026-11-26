@@ -132,4 +132,57 @@ function mergeWords(current, ai) {
   return out;
 }
 
-module.exports = { enabled, dailyLimit, design, mergeWords, setClient, AiError, MODEL, Design };
+// ---------- AI help: answers questions about using the portal, from the guide in helpGuide.md ----------
+const helpDailyLimit = () => Math.max(0, Number(process.env.AI_HELP_DAILY_LIMIT) || 50);
+let guide = null;
+const helpGuide = () => guide || (guide = require("fs").readFileSync(require("path").join(__dirname, "helpGuide.md"), "utf8"));
+
+const HELP_RULES = `You are the help assistant inside a digital signage portal (a website for managing TV screens in businesses). People ask how to do things in the portal or the TV player app, or why something isn't working.
+
+How to answer:
+- Answer only from the guide below. If the guide doesn't cover it, say you're not sure and suggest contacting the signage company's support. Never invent buttons, menus, settings or features.
+- The person is usually a business owner, not technical, often on a phone. Use plain words, short sentences, and numbered steps for "how do I" questions. Use the exact button and menu names from the guide, in **bold**.
+- Keep it short: usually under 150 words. One clear way to do it, not every option.
+- Take into account the page they are on and whether they are staff or a client login (clients can't see other clients, Clients, White Label or Download App uploads).
+- Questions not about the portal, signage or the TVs: politely say you can only help with the portal.
+- Answer in the language the person writes in.
+- Never ask for or repeat passwords, card numbers or keys.
+
+The guide:
+
+`;
+
+/**
+ * Answers a help question. history: earlier turns [{ role: "user"|"assistant", content }], oldest first.
+ * context: { page, role, clientName }. Returns the answer text.
+ */
+async function help({ question, history, context }) {
+  if (!enabled()) throw new AiError(503, "AI help isn't set up yet. Add ANTHROPIC_API_KEY on the server.");
+  const Anthropic = require("@anthropic-ai/sdk").default;
+  const where = `[The person is on the page: ${context.page || "unknown"}. They are ${context.role}${context.clientName ? " (client: " + context.clientName + ")" : ""}.]`;
+  let res;
+  try {
+    res = await getClient().beta.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { effort: "low" },
+      // The rules and the guide are the same on every question: cached, so repeat questions cost much less.
+      system: [{ type: "text", text: HELP_RULES + helpGuide(), cache_control: { type: "ephemeral" } }],
+      messages: [...history, { role: "user", content: where + "\n\n" + question }]
+    });
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw new AiError(503, "The AI key on the server isn't working. Check ANTHROPIC_API_KEY.");
+    if (e instanceof Anthropic.RateLimitError) throw new AiError(429, "The AI is busy right now. Try again in a minute.");
+    if (e instanceof Anthropic.BadRequestError) { console.error("AI help request rejected:", e.message); throw new AiError(502, "The AI couldn't handle that question. Try wording it differently."); }
+    if (e instanceof Anthropic.APIError || e instanceof Anthropic.APIConnectionError) { console.error("AI help error:", e.message); throw new AiError(502, "The AI service didn't answer. Try again in a minute."); }
+    throw e;
+  }
+  if (res.stop_reason === "refusal") throw new AiError(422, "The AI couldn't answer that. Try asking differently.");
+  const text = (res.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+  if (!text) throw new AiError(502, "The AI didn't give an answer. Try again.");
+  return text;
+}
+
+module.exports = { enabled, dailyLimit, design, mergeWords, setClient, AiError, MODEL, Design, help, helpDailyLimit };

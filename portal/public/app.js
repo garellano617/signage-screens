@@ -199,6 +199,7 @@ const CONTENT_SECTIONS = ["media", "widgets"];
 let contentOpen = null; // null = open when a content page is shown
 
 function shell(section, inClient) {
+  state.section = section; helpButton();
   const link = (href, key, label, cls) => h("a", { href, class: (section === key ? "active " : "") + (cls || ""), html: ICONS[key] + "<span>" + label + "</span>" });
   const contentGroup = () => {
     const open = contentOpen === null ? CONTENT_SECTIONS.includes(section) : contentOpen;
@@ -286,9 +287,103 @@ function poll(fn, ms) {
   state.timer = setInterval(() => { if (location.hash === here) fn(); }, ms);
 }
 
+// ---------- AI help: the ? button on every page ----------
+const HELP_SUGGEST = {
+  dashboard: ["How do I connect a new TV?", "Why is a screen offline?", "How do I change what a TV shows?"],
+  screens: ["How do I connect a new TV?", "How do I play a different playlist in the morning?", "How do I rotate a screen to portrait?"],
+  screen: ["How do I set a schedule?", "How do I replace a broken TV?", "The TV doesn't show my changes"],
+  layers: ["How do I add a price list?", "How do pictures take turns as a slideshow?", "How do I make text glow like neon?", "How do I move several items together on the timeline?"],
+  playlists: ["How do I make a playlist?", "How long does each picture show?", "How do I add a video?"],
+  playlist: ["How do I change the order?", "How long does each picture show?"],
+  media: ["Which video format works best?", "How do I add a web page?"],
+  widgets: ["How do I add a clock or weather?", "How do I add a QR code?"],
+  walls: ["How do I set up a video wall?", "How do I line up the picture across TV frames?"],
+  wall: ["How do I add Santa flying across the wall?", "Why doesn't my widget show on the wall?"],
+  channels: ["What is a channel?", "How do I put several screens on one channel?"],
+  download: ["How do I install the app on a Fire TV Stick?", "How do TVs get app updates?"],
+  monitoring: ["What does offline mean?", "How do I take a screenshot of every TV?"],
+  reports: ["How do I see how many times something played?", "How do I export a report?"],
+  clients: ["How do I add a client?", "What happens when I pause a client?"]
+};
+let helpChat = [], helpBusy = false, helpInfo = null;
+try { helpChat = JSON.parse(sessionStorage.getItem("helpChat") || "[]"); } catch (_) { helpChat = []; }
+const helpKeep = () => { try { sessionStorage.setItem("helpChat", JSON.stringify(helpChat.slice(-30))); } catch (_) {} };
+function helpRemove() { const f = document.getElementById("help-fab"), p = document.getElementById("help-panel"); if (f) f.remove(); if (p) p.remove(); }
+/** Answer text → safe HTML: **bold**, `code`, numbered and bulleted lists, paragraphs. */
+function helpHtml(text) {
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  const out = []; let list = null;
+  for (const line of text.split(/\n/)) {
+    const m = line.match(/^\s*(?:(\d+)[.)]|[-*•])\s+(.*)$/);
+    if (m) { const tag = m[1] ? "ol" : "ul"; if (!list || list.tag !== tag) { list = { tag, items: [] }; out.push(list); } list.items.push(inline(m[2])); continue; }
+    list = null;
+    if (line.trim()) out.push("<p>" + inline(line.replace(/^#+\s*/, "")) + "</p>");
+  }
+  return out.map(x => typeof x === "string" ? x : "<" + x.tag + ">" + x.items.map(i => "<li>" + i + "</li>").join("") + "</" + x.tag + ">").join("");
+}
+function helpButton() {
+  if (document.getElementById("help-fab")) return;
+  document.body.append(h("button", { type: "button", id: "help-fab", title: "Help", "aria-label": "Help", onclick: helpOpen }, h("span", {}, "?"), h("span", { class: "help-fab-label" }, "Help")));
+}
+function helpPageName() {
+  const t = document.querySelector("main h1");
+  return (t ? t.textContent.trim() + " · " : "") + (location.hash.replace(/^#/, "").replace(/^\/c\/\d+/, "") || "/");
+}
+async function helpOpen() {
+  let panel = document.getElementById("help-panel");
+  if (panel) { panel.remove(); return; }
+  const list = h("div", { class: "help-list" });
+  const input = h("textarea", { rows: 2, maxlength: 1500, placeholder: "Ask anything about using the portal or the TVs…",
+    onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } } });
+  const sendBtn = h("button", { type: "button", class: "primary", onclick: () => send() }, "Ask");
+  const note = h("div", { class: "help-note small muted" });
+  panel = h("div", { id: "help-panel", role: "dialog", "aria-label": "Help" },
+    h("div", { class: "help-head" }, h("strong", {}, "✨ Help"),
+      h("button", { type: "button", class: "small", title: "Start over", onclick: () => { helpChat = []; helpKeep(); draw(); } }, "New chat"),
+      h("button", { type: "button", class: "small help-x", title: "Close", "aria-label": "Close", onclick: () => panel.remove() }, "×")),
+    list, h("div", { class: "help-input" }, input, sendBtn), note);
+  document.body.append(panel);
+  function draw() {
+    const kids = [];
+    if (!helpChat.length) {
+      kids.push(h("div", { class: "help-msg bot" }, h("p", {}, "Hi! Ask me how to do anything in the portal: connecting TVs, playlists, designing screens, schedules, video walls, the TV app, and more.")));
+      const sug = HELP_SUGGEST[state.section] || HELP_SUGGEST.dashboard;
+      kids.push(h("div", { class: "help-sug" }, sug.map(q => h("button", { type: "button", class: "small", onclick: () => send(q) }, q))));
+    }
+    helpChat.forEach(m => kids.push(m.role === "user" ? h("div", { class: "help-msg me" }, m.content)
+      : h("div", { class: "help-msg bot" + (m.error ? " err" : ""), html: m.error ? "" : helpHtml(m.content) }, m.error ? m.content : null)));
+    if (helpBusy) kids.push(h("div", { class: "help-msg bot help-typing" }, h("span"), h("span"), h("span")));
+    list.replaceChildren(...kids);
+    list.scrollTop = list.scrollHeight;
+    sendBtn.disabled = helpBusy;
+    note.textContent = helpInfo && !helpInfo.enabled ? "AI help isn't turned on yet: it needs the AI key on the server (the same one as the ✨ AI designer)."
+      : helpInfo ? "Answers come from AI and can be wrong. " + helpInfo.left + " questions left today." : "";
+  }
+  async function send(q) {
+    const question = (q || input.value).trim();
+    if (!question || helpBusy) return;
+    input.value = "";
+    const history = helpChat.filter(m => !m.error).map(m => ({ role: m.role, content: m.content }));
+    helpChat.push({ role: "user", content: question }); helpBusy = true; draw();
+    try {
+      const r = await api("POST", "/ai/help", { question, history, page: helpPageName() });
+      helpChat.push({ role: "assistant", content: r.answer });
+      if (helpInfo) helpInfo.left = r.left;
+    } catch (e) {
+      helpChat.pop();
+      helpChat.push({ role: "user", content: question }, { role: "assistant", content: e.message || "Something went wrong. Try again.", error: true });
+    } finally { helpBusy = false; helpKeep(); if (panel.isConnected) draw(); }
+  }
+  draw();
+  input.focus();
+  if (!helpInfo) { helpInfo = await api("GET", "/ai/help").catch(() => null); if (panel.isConnected) draw(); }
+}
+
 // ---------- login ----------
 function renderLogin() {
   clearInterval(state.timer);
+  helpRemove();
   const err = h("div", { class: "form-error" });
   const btn = h("button", { type: "submit", class: "primary", style: "width:100%;justify-content:center" }, "Log in");
   const form = h("form", { class: "card login" },
