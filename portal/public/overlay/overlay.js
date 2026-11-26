@@ -73,9 +73,14 @@
     return { o: 1, t: "" };
   }
 
+  // Shadow and glow sizes for big text stop growing past what they'd be on 6%-of-the-width text.
+  // Huge blurs get drawn at low resolution by TV graphics chips and look blocky around the letters.
+  function shadowScale(b) { var fs = b.fs || SIZE[b.size] || SIZE.m; return Math.min(1, 6 / fs); }
+  function em(v, k) { return Math.round(v * k * 1000) / 1000 + "em"; }
+
   /** Glow, neon, shadow, shine or grow on a text or picture block (b.fx, colored b.fxColor). */
   function textFx(t, b) {
-    var c = b.fxColor || "#facc15", img = t.querySelector("img");
+    var c = b.fxColor || "#facc15", img = t.querySelector("img"), k = shadowScale(b);
     t.className += " so-fx-" + b.fx;
     if (b.fx === "glow" || b.fx === "neon" || b.fx === "shadow") {
       if (img) {
@@ -83,9 +88,9 @@
           : b.fx === "glow" ? "drop-shadow(0 0 .3em " + c + ") drop-shadow(0 0 .8em " + c + ")"
           : "drop-shadow(0 0 .15em #fff) drop-shadow(0 0 .4em " + c + ") drop-shadow(0 0 1em " + c + ")";
       } else {
-        t.style.textShadow = b.fx === "shadow" ? ".06em .06em 0 " + c + ", .1em .12em .3em rgba(0,0,0,.6)"
-          : b.fx === "glow" ? "0 0 .1em " + c + ", 0 0 .3em " + c + ", 0 0 .6em " + c
-          : "0 0 .04em #fff, 0 0 .1em " + c + ", 0 0 .25em " + c + ", 0 0 .5em " + c + ", 0 0 1em " + c;
+        t.style.textShadow = b.fx === "shadow" ? em(.06, k) + " " + em(.06, k) + " 0 " + c + ", " + em(.1, k) + " " + em(.12, k) + " " + em(.3, k) + " rgba(0,0,0,.6)"
+          : b.fx === "glow" ? "0 0 " + em(.1, k) + " " + c + ", 0 0 " + em(.3, k) + " " + c + ", 0 0 " + em(.6, k) + " " + c
+          : "0 0 " + em(.04, k) + " #fff, 0 0 " + em(.1, k) + " " + c + ", 0 0 " + em(.25, k) + " " + c + ", 0 0 " + em(.5, k) + " " + c + ", 0 0 " + em(1, k) + " " + c;
       }
       return;
     }
@@ -96,6 +101,7 @@
     if (b.fx === "shine" && !img) {
       var col = b.color || "#ffffff";
       inner.style.backgroundImage = "linear-gradient(110deg, " + col + " 42%, " + c + " 50%, " + col + " 58%)";
+      inner.style.filter = "drop-shadow(0 " + em(.06, k) + " " + em(.15, k) + " rgba(0,0,0,.55))";
     }
     if (b.fx === "shine" && img) {
       // The light band stays inside the picture (not over its see-through parts).
@@ -188,7 +194,7 @@
           if (b.italic) t.style.fontStyle = "italic";
           t.style.fontFamily = FONTS[b.font] || FONTS.sans;
           t.style.color = b.color;
-          if (!b.bgOpacity && (!b.fx || b.fx === "none" || b.fx === "shine" || b.fx === "grow")) t.style.textShadow = "0 0.08em 0.3em rgba(0,0,0,.7)";
+          if (!b.bgOpacity && (!b.fx || b.fx === "none" || b.fx === "shine" || b.fx === "grow")) { var k0 = shadowScale(b); t.style.textShadow = "0 " + em(.08, k0) + " " + em(.3, k0) + " rgba(0,0,0,.7)"; }
           if (b.w) { t.style.width = b.w + "em"; t.style.maxWidth = "none"; }
         }
         if (b.align) t.style.textAlign = b.align;

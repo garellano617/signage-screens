@@ -392,9 +392,10 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 val jpeg = withContext(Dispatchers.Default) {
-                    val scale = minOf(1f, 1280f / full.width)
+                    // Full HD and good JPEG quality, so big text in the portal's screenshot isn't blocky.
+                    val scale = minOf(1f, 1920f / full.width)
                     val small = if (scale < 1f) Bitmap.createScaledBitmap(full, (full.width * scale).toInt(), (full.height * scale).toInt(), true) else full
-                    ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 75, it) }.toByteArray()
+                    ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
                 }
                 api.screenshot(jpeg)
             } catch (e: CancellationException) {

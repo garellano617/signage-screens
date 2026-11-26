@@ -3,7 +3,7 @@
 .so-root * { box-sizing: border-box; }
 
 /* text blocks */
-.so-text { position: absolute; max-width: 90%; padding: .25em .5em; border-radius: .15em; white-space: pre-wrap; }
+.so-text { position: absolute; max-width: 90%; padding: .25em .5em; border-radius: .15em; white-space: pre-wrap; text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased; }
 .so-pos-top-left { top: 4%; left: 3%; }
 .so-pos-top { top: 4%; left: 50%; transform: translateX(-50%); text-align: center; }
 .so-pos-top-right { top: 4%; right: 3%; text-align: right; }
