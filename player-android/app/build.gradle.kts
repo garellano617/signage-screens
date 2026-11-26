@@ -70,7 +70,7 @@ android {
         val variant = this
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-                "signage-player-${variant.versionName}-${variant.buildType.name}.apk"
+                "PremierSignage-${variant.versionName}-${variant.buildType.name}.apk"
         }
     }
 }

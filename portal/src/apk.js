@@ -25,7 +25,7 @@ function installApk(tmpPath, originalName) {
   const head = Buffer.alloc(4);
   const fd = fs.openSync(tmpPath, "r"); fs.readSync(fd, head, 0, 4, 0); fs.closeSync(fd);
   if (head.toString("latin1") !== "PK\x03\x04") { fs.rmSync(tmpPath, { force: true }); return null; }
-  const name = path.basename(String(originalName || "signage-player.apk")).replace(/[^\w.-]/g, "_").replace(/(\.apk)?$/i, ".apk");
+  const name = path.basename(String(originalName || "PremierSignage.apk")).replace(/[^\w.-]/g, "_").replace(/(\.apk)?$/i, ".apk");
   for (const old of fs.readdirSync(DIR)) if (old.toLowerCase().endsWith(".apk")) fs.rmSync(path.join(DIR, old), { force: true });
   fs.renameSync(tmpPath, path.join(DIR, name));
   return latestApk();

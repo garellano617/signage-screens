@@ -479,7 +479,7 @@ class MainActivity : ComponentActivity() {
             PackageManager.DONT_KILL_APP,
         )
         if (enable) {
-            // Ask Android to pick a home app; the user chooses Signage Player and "Always".
+            // Ask Android to pick a home app; the user chooses Premier Signage and "Always".
             runCatching { startActivity(Intent(Settings.ACTION_HOME_SETTINGS)) }.onFailure {
                 startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
@@ -511,7 +511,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showCrashScreen(error: String) {
-        val msg = "The Signage Player keeps stopping on this device.\n\n" + error +
+        val msg = "The Premier Signage keeps stopping on this device.\n\n" + error +
             "\n\nApp " + BuildConfig.VERSION_NAME + " · Android " + Build.VERSION.RELEASE + " · " + Build.MANUFACTURER + " " + Build.MODEL +
             "\n\nThis was reported to the portal (Download App page).\nPress OK / Select on the remote to try again."
         val tv = TextView(this).apply {

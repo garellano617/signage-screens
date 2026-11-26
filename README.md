@@ -3,7 +3,7 @@
 Two parts:
 
 - **`portal/`**: website to manage TV screens. Pair TVs with a code, upload images, videos and web pages, build playlists, set schedules, rotate screens, take live screenshots and send remote commands.
-- **`player-android/`**: the **Signage Player** Android app for TVs, Android TV boxes and tablets (Android 5.0+). It shows a pairing code, downloads content for offline playback, follows schedules, starts on boot and restarts itself after a crash.
+- **`player-android/`**: the **Premier Signage** Android app for TVs, Android TV boxes and tablets (Android 5.0+). It shows a pairing code, downloads content for offline playback, follows schedules, starts on boot and restarts itself after a crash.
 
 ## Clients
 
@@ -112,14 +112,14 @@ Double-click `player-android\build-apk.cmd`.
 
 TVs keep their app up to date on their own (app 1.2 and later). Each check-in, the portal tells the TV which APK is current (by its SHA-256 fingerprint). If the TV's own app differs, it downloads the new one, checks it and installs it, then the player restarts. The portal's screen page shows the progress under **App updates**.
 
-- **Who presses Install:** on most boxes Android asks once per update ("Do you want to install this update?"), and someone presses **Install** with the remote. The first update may also ask to allow **Install unknown apps** for Signage Player. For updates with no prompt at all, make the player the device owner once, on a freshly reset box with no Google account, from a PC with adb: `adb shell dpm set-device-owner com.signage.player/.AdminReceiver`.
+- **Who presses Install:** on most boxes Android asks once per update ("Do you want to install this update?"), and someone presses **Install** with the remote. The first update may also ask to allow **Install unknown apps** for Premier Signage. For updates with no prompt at all, make the player the device owner once, on a freshly reset box with no Google account, from a PC with adb: `adb shell dpm set-device-owner com.signage.player/.AdminReceiver`.
 - **Safety:** Android only installs a build signed with the same key and with a higher version number. Every build gets a higher number automatically. A file that can't install is not tried again.
 - **Publishing a build:** uploading an APK under **Settings → Download player app** publishes it to every TV. The GitHub workflow `.github/workflows/player-app.yml` does this automatically: whenever player code is pushed to `main`, GitHub builds the app and uploads it to the portal. It needs two secrets in GitHub (**Settings → Secrets and variables → Actions**): `PLAYER_KEYSTORE_B64` (the signing key, base64) and `PLAYER_UPLOAD_KEY`. The same `PLAYER_UPLOAD_KEY` (at least 32 characters) goes in Render → signage-portal → Environment. Without that setting, the upload address is off.
 
 ## Set up a TV
 
 1. Install the APK. You may need to allow installing from unknown sources.
-2. Open **Signage Player** and enter the portal address.
+2. Open **Premier Signage** and enter the portal address.
 3. The TV shows a 6-character code. In the portal, go to **Screens → Add screen** and enter it.
    - **Set up before the TV is installed:** in **Add screen**, choose **Set up now, connect the TV later**. Give the screen a name, then pick its playlist and schedule and design its layers. It shows **No TV yet** (not counted as offline). When the TV is installed, open the screen and click **Connect TV** (or pick it under **Connect it to** in **Add screen**) and type the TV's code. The TV plays the prepared design right away. Prepared screens count toward the client's screen limit.
    - **Replace a TV:** on the screen's page, click **Replace TV** and type the new TV's code. It takes over the screen's playlist, schedule and layers, and the old TV goes back to showing a code.

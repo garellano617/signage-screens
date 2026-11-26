@@ -44,7 +44,7 @@ function createApp() {
     if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ error: "Send the .apk file as the request body." });
     const tmp = path.join(apk.DIR, "ci-" + Date.now() + ".apk.part");
     fs.writeFileSync(tmp, req.body);
-    const a = apk.installApk(tmp, req.get("x-file-name") || "signage-player.apk");
+    const a = apk.installApk(tmp, req.get("x-file-name") || "PremierSignage.apk");
     if (!a) return res.status(400).json({ error: "That file isn't a valid Android app." });
     console.log("New player app uploaded by the build: " + a.file + " (" + a.sha256.slice(0, 12) + ")");
     res.status(201).json({ file: a.file, size: a.size, sha256: a.sha256 });
@@ -56,11 +56,12 @@ function createApp() {
   // Media files are named by random id, so they never change: cache forever. Players fetch these without login.
   app.use("/media", express.static(path.join(DATA_DIR, "media"), { immutable: true, maxAge: "365d", index: false }));
 
-  app.get("/download/player.apk", (req, res) => {
+  // TVs update from /download/player.apk (keep it); /download/PremierSignage.apk is the same file with a nicer name to type.
+  app.get(["/download/player.apk", "/download/PremierSignage.apk"], (req, res) => {
     const a = latestApk();
     if (!a) return res.status(404).type("text").send("No player app has been uploaded yet.");
     res.set("Content-Type", "application/vnd.android.package-archive");
-    res.download(a.path, a.file);
+    res.download(a.path, "PremierSignage.apk");
   });
 
   // Screenshots: logged-in users only, and a customer's users only see their own screens.

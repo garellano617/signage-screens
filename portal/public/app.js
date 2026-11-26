@@ -615,7 +615,7 @@ async function pairDialog() {
   const details = h("div", {}, field("Screen name", name),
     field("Location", h("input", { name: "location", placeholder: "e.g. Main St store", maxlength: 200 })),
     field("Playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— none yet —"))));
-  const codeBox = h("div", {}, h("p", { class: "muted small" }, "Install the Signage Player app on the TV and open it. It shows a 6-character code. Type it here."),
+  const codeBox = h("div", {}, h("p", { class: "muted small" }, "Install the Premier Signage app on the TV and open it. It shows a 6-character code. Type it here."),
     field("Pairing code", code), planned.length ? field("Connect it to", into) : null);
   const later = h("p", { class: "muted small hidden" }, "The screen is created now without a TV, so you can pick its playlist and schedule and design its layers ahead of time. When the TV is installed, open the screen and click Connect TV, then type the code the TV shows.");
   const sync = () => {
@@ -646,8 +646,8 @@ async function pairDialog() {
 async function connectTvDialog(s) {
   const r = await dialog(s.planned ? "Connect the TV for " + s.name : "Replace the TV for " + s.name, h("div", {},
     h("p", { class: "muted small" }, s.planned
-      ? "Open the Signage Player app on the TV. It shows a 6-character code. Type it here. The TV starts playing this screen's playlist and layers right away."
-      : "Open the Signage Player app on the new TV and type the code it shows. It takes over this screen's playlist, schedule and layers. The old TV goes back to showing a pairing code."),
+      ? "Open the Premier Signage app on the TV. It shows a 6-character code. Type it here. The TV starts playing this screen's playlist and layers right away."
+      : "Open the Premier Signage app on the new TV and type the code it shows. It takes over this screen's playlist, schedule and layers. The old TV goes back to showing a pairing code."),
     field("Pairing code", codeInput())),
   { submit: "Connect TV", onSubmit: f => api("POST", "/screens/pair", { code: f.get("code"), screenId: s.id }) });
   if (r) { loadCustomers().catch(() => {}); toast("TV connected. It will start playing within a few seconds."); route(); }
@@ -768,7 +768,7 @@ async function renderScreen(main, id) {
 
   const deviceCards = s.planned ? [
     h("div", { class: "card" }, h("h2", {}, "TV"),
-      h("p", { class: "muted small" }, "No TV is connected yet. Set up the playlist, schedule and layers now. When the TV is installed, open the Signage Player app on it and type the code it shows."),
+      h("p", { class: "muted small" }, "No TV is connected yet. Set up the playlist, schedule and layers now. When the TV is installed, open the Premier Signage app on it and type the code it shows."),
       h("button", { class: "primary", onclick: () => connectTvDialog(s) }, "Connect TV"))
   ] : [
     h("div", { class: "card" }, h("h2", {}, "Live view"), shotBox,
@@ -2361,7 +2361,7 @@ async function renderDownload(main) {
   const crashes = isAdmin() && isStaff() ? await api("GET", "/app-crashes").catch(() => []) : [];
   const portalUrl = location.origin;
   main.replaceChildren(
-    pageHead("Download App", "The Signage Player app for Android TVs, TV boxes and tablets"),
+    pageHead("Download App", "The Premier Signage app for Android TVs, TV boxes and tablets"),
     h("div", { class: "grid two" },
       h("div", { class: "card" }, h("h2", {}, "Player app (Android)"),
         apk.available
@@ -2401,7 +2401,7 @@ async function renderDownload(main) {
         h("ol", { class: "small", style: "padding-left:1.2rem;margin:0;line-height:1.7" },
           h("li", {}, "Install the free Downloader app from the Amazon app store."),
           h("li", {}, "Settings → My Fire TV → Developer options → Install unknown apps → turn on Downloader. (No Developer options? Settings → My Fire TV → About → click the device name 7 times.)"),
-          h("li", {}, "In Downloader, type ", h("span", { class: "mono" }, portalUrl + "/download/player.apk"), " and install."),
+          h("li", {}, "In Downloader, type ", h("span", { class: "mono" }, portalUrl + "/download/PremierSignage.apk"), " and install."),
           h("li", {}, "Updates need a press on Install with the remote.")))),
     crashes.length ? h("div", { class: "card" }, h("h2", {}, "App problems reported by TVs"),
       h("p", { class: "small muted" }, "When the player app crashes it sends the error here, even before the TV is paired. Show this to whoever maintains the app."),

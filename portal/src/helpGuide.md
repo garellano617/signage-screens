@@ -1,6 +1,6 @@
 # How to use the signage portal
 
-This portal runs digital signage: TVs in businesses (restaurants, shops, offices) that show pictures, videos, web pages, widgets, specials and text. You manage everything from this website, on a computer or a phone. The TVs run the free **Signage Player** app and check in with the portal about every 30 seconds, so changes reach a TV within about 30 seconds of clicking Save.
+This portal runs digital signage: TVs in businesses (restaurants, shops, offices) that show pictures, videos, web pages, widgets, specials and text. You manage everything from this website, on a computer or a phone. The TVs run the free **Premier Signage** app and check in with the portal about every 30 seconds, so changes reach a TV within about 30 seconds of clicking Save.
 
 ## Who sees what
 
@@ -40,7 +40,7 @@ Clock (digital or analog, 12/24 hours, date), weather (no account needed), news 
 ## Screens
 
 ### Connect a TV
-1. Install the Signage Player app on the TV (see Download App below).
+1. Install the Premier Signage app on the TV (see Download App below).
 2. Open the app; it asks for the portal address the first time, then shows a 6-character code.
 3. In the portal: **Screens → Add screen**, type the code and a name.
 
@@ -109,8 +109,8 @@ Shows each client's plan, monthly amount and paid / overdue status from the bill
 
 ## Download App (installing the player)
 
-- **Android TV, Google TV, Android boxes and tablets (Android 5.0 or newer):** one app works on all of them. Download the APK from the Download App page (or type the portal address followed by /download/player.apk in the TV's browser or the Downloader app) and install it. Allow "install unknown apps" when asked.
-- **Amazon Fire TV Stick:** install the free **Downloader** app from the Amazon app store; Settings → My Fire TV → Developer options → Install unknown apps → turn on Downloader (no Developer options? Settings → My Fire TV → About → click the device name 7 times); in Downloader type the portal address followed by /download/player.apk and install.
+- **Android TV, Google TV, Android boxes and tablets (Android 5.0 or newer):** one app works on all of them. Download the APK from the Download App page (or type the portal address followed by /download/PremierSignage.apk in the TV's browser or the Downloader app) and install it. Allow "install unknown apps" when asked.
+- **Amazon Fire TV Stick:** install the free **Downloader** app from the Amazon app store; Settings → My Fire TV → Developer options → Install unknown apps → turn on Downloader (no Developer options? Settings → My Fire TV → About → click the device name 7 times); in Downloader type the portal address followed by /download/PremierSignage.apk and install.
 - **Updates** reach the TVs on their own; on most boxes someone presses **Install** with the remote once per update.
 - Staff see **App problems reported by TVs** on this page when a player app crashes.
 - Not supported: Samsung (Tizen) and LG (webOS) smart TVs' own systems, Roku, Apple TV. Use an Android TV box or Fire TV Stick plugged into those TVs.
@@ -126,7 +126,7 @@ The **? Help** button (bottom right of every page) answers questions about the p
 ## Common problems
 
 - **The TV doesn't show my changes:** did you click Save? Wait 30 seconds. Check the screen is online (Screen Monitoring). Use Remote control → Reload content, or Clear cache & re-download.
-- **Screen shows offline:** check the TV has power and internet, and that the Signage Player app is open. Turn on auto-start and kiosk mode in the player menu (BACK three times).
+- **Screen shows offline:** check the TV has power and internet, and that the Premier Signage app is open. Turn on auto-start and kiosk mode in the player menu (BACK three times).
 - **The TV shows a code again:** the screen was removed or replaced in the portal; add it again with Screens → Add screen.
 - **A video doesn't play or stutters:** use MP4 (H.264), 1080p. Very big files take time to download first.
 - **A web page is blank:** some websites refuse to be shown inside other apps; use a screenshot picture or a widget instead.
