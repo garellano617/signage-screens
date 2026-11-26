@@ -860,11 +860,11 @@ async function renderLayers(main, id, kind) {
     if ((prev.from || 0) <= 0 && pt >= len) { pt = Math.max(2, Math.min(5, snapH(len / 2))); prev.to = pt; }
     const dur = pt - (prev.from || 0), ov = Math.min(prev.td || 1, dur / 2);
     const from = snapH(Math.max(0, pt - ov));
-    if (from >= len - 1) return addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: prev.w || 30, x: 35, y: 30, text: "" });
+    if (from >= len - 1) return addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: prev.w || 30, x: 35, y: 30, text: "", fx: prev.fx || "none", fxColor: prev.fxColor });
     const to = Math.min(len, from + dur);
     addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, text: "", w: prev.w, x: prev.x, y: prev.y, position: prev.position,
       bg: prev.bg, bgOpacity: prev.bgOpacity, track: prev.track || 0, from, to: to >= len ? 0 : to,
-      enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1 });
+      enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1, fx: prev.fx || "none", fxColor: prev.fxColor });
   }
   function removeBlock(i) { L.text.blocks.splice(i, 1); sel = null; change(); select(null); }
 
@@ -927,6 +927,9 @@ async function renderLayers(main, id, kind) {
   // ---------- side panel ----------
   const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Video"]];
   let chainNext = true;
+  // Effect for pictures when none is selected: applied to every picture in the design and to the ones added next.
+  const firstPic = L.text.blocks.find(x => x.kind === "image" && x.fx && x.fx !== "none");
+  const picFx = { kind: "image", fx: firstPic ? firstPic.fx : "none", fxColor: firstPic ? firstPic.fxColor : "#facc15" };
   let thumbs = [], undo = null, aiBusy = false, aiNote = "", aiPrompt = "";
   const LAYER_KEYS = ["video", "specials", "text", "effects"];
   /** Replace the whole design (template or AI). The previous one is kept for Undo until saved or replaced again. */
@@ -1032,13 +1035,14 @@ async function renderLayers(main, id, kind) {
   const tabsBar = h("div", { class: "ed-tabs" });
   const panel = h("div", { class: "ed-panel" });
   const side = h("div", { class: "card ed-side" }, tabsBar, panel);
-  function looksFields(b) {
+  function looksFields(b, title, after) {
     const on = b.fx && b.fx !== "none";
+    const done = () => { if (after) after(); change(); };
     return h("div", {},
-      h("div", { class: "small muted ed-cat" }, b.kind === "image" ? "Picture effect" : "Text effect"),
+      h("div", { class: "small muted ed-cat" }, title || (b.kind === "image" ? "Picture effect" : "Text effect")),
       h("div", { class: "ed-fx" }, TEXT_FX_LABELS.map(([v, l]) => h("button", { type: "button", class: (b.fx || "none") === v ? "on" : "",
-        onclick: () => { if (b.fx !== v && TEXT_FX_COLORS[v]) b.fxColor = TEXT_FX_COLORS[v]; b.fx = v; change(); drawSide(); } }, l))),
-      on && b.fx !== "grow" ? h("div", { class: "colors" }, colorIn(b.fxColor || "#facc15", v => { b.fxColor = v; change(); },
+        onclick: () => { if (b.fx !== v && TEXT_FX_COLORS[v]) b.fxColor = TEXT_FX_COLORS[v]; b.fx = v; done(); drawSide(); } }, l))),
+      on && b.fx !== "grow" ? h("div", { class: "colors" }, colorIn(b.fxColor || "#facc15", v => { b.fxColor = v; done(); },
         b.fx === "shadow" ? "Shadow color" : b.fx === "shine" ? "Shine color" : "Glow color")) : null,
       b.fx === "neon" && b.kind !== "image" ? h("p", { class: "small muted", style: "margin:.25rem 0 0" }, "Tip: neon looks best with white or light text and no box.") : null);
   }
@@ -1069,12 +1073,16 @@ async function renderLayers(main, id, kind) {
     const kids = [];
     if (tab === "media") {
       const b = isSel("block") && L.text.blocks[sel.i].kind === "image" ? L.text.blocks[sel.i] : null;
-      if (b) kids.push(h("div", { class: "sub-item" }, h("strong", { class: "small" }, "Selected picture"), looksFields(b), timingFields(b)));
+      if (b) kids.push(h("div", { class: "sub-item" }, h("div", { class: "layer-head" }, h("strong", { class: "small" }, "Selected picture"),
+        h("button", { type: "button", class: "small", onclick: () => { sel = null; select(null); drawSide(); } }, "Unselect")), looksFields(b), timingFields(b)));
+      else kids.push(h("div", { class: "sub-item" }, looksFields(picFx, "Picture effect (all pictures)", () =>
+        L.text.blocks.forEach(x => { if (x.kind === "image") { x.fx = picFx.fx; x.fxColor = picFx.fxColor; } })),
+        h("p", { class: "small muted", style: "margin:.25rem 0 0" }, "Applies to every picture on this design and the ones you add. Tap one picture first to give it its own effect.")));
       if (b) kids.push(h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: chainNext, onchange: e => { chainNext = e.target.checked; drawSide(); } }),
         "Add the next picture after this one (same spot, same row: a slideshow)"));
       kids.push(h("p", { class: "small muted" }, b && chainNext ? "Click a picture to show it after the selected one." : "Click a picture to place it on the screen (logos, food photos, price boards)."));
       kids.push(images.length ? h("div", { class: "ed-imgs" }, images.map(m => h("button", { type: "button", title: m.name,
-        onclick: () => b && chainNext ? addAfter(b, m) : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 30, x: 35, y: 30, text: "" }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
+        onclick: () => b && chainNext ? addAfter(b, m) : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 30, x: 35, y: 30, text: "", fx: picFx.fx, fxColor: picFx.fxColor }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
         : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
       kids.push(h("p", { class: "small muted" }, "Videos and the main slideshow play in the Video layer (the playlist)."));
     } else if (tab === "text") {
