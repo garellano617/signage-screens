@@ -889,6 +889,18 @@ test("video walls: tiles, cropped config per screen, sound from the first screen
   scopeId = null;
 });
 
+test("text and pictures: timeline rows and entrance/exit transitions are kept and cleaned", () => {
+  const { sanitizeLayers } = require("../src/layers");
+  const img = { kind: "image", mediaId: 5, w: 30 };
+  const out = sanitizeLayers({ text: { enabled: true, cycle: 20, blocks: [
+    { ...img, track: 2, from: 0, to: 6, enter: "small", exit: "left", td: 0.8 },
+    { ...img, track: 2, from: 5, to: 11, enter: "warp", exit: "big", td: 99 },
+    { kind: "text", text: "Old block" }
+  ] } }, () => true).text.blocks;
+  assert.deepEqual(out.map(b => [b.track, b.from, b.to, b.enter, b.exit, b.td]),
+    [[2, 0, 6, "small", "left", 0.8], [2, 5, 11, "none", "big", 5], [2, 0, 0, "none", "none", 1]]);
+});
+
 test("wall effects: saved, cleaned, sent to each screen with its part of the wall", async () => {
   cookie = ""; scopeId = null;
   await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });

@@ -16,6 +16,8 @@ const num = (v, min, max, d) => { const n = Math.round(Number(v)); return Number
 const numf = (v, min, max, d) => { const n = Math.round(Number(v) * 10) / 10; return v !== null && v !== "" && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d; };
 const FONTS = ["sans", "serif", "condensed", "mono", "script"];
 const MAX_BLOCKS = 30;
+// How a text or picture comes in and goes out. small = small to big on the way in, big to small on the way out; big = the opposite.
+const TRANSITIONS = ["none", "fade", "small", "big", "left", "right", "top", "bottom", "spin", "pop"];
 const time = v =>(/^([01]\d|2[0-3]):[0-5]\d$/.test(v || "") ? v : "");
 
 function defaultLayers() {
@@ -48,7 +50,7 @@ function sanitizeLayers(input, checkImage) {
     };
   }).filter(x => x.title || x.price || x.description || x.mediaId);
   const cycle = num(tx.cycle, 0, 3600, 0);
-  const blocks = (Array.isArray(tx.blocks) ? tx.blocks : []).slice(0, MAX_BLOCKS).map(raw => {
+  const blocks = (Array.isArray(tx.blocks) ? tx.blocks : []).slice(0, MAX_BLOCKS).map((raw, index) => {
     const b = raw && typeof raw === "object" ? raw : {};
     const kind = b.kind === "image" ? "image" : "text";
     const mediaId = kind === "image" && b.mediaId ? Number(b.mediaId) : null;
@@ -77,7 +79,13 @@ function sanitizeLayers(input, checkImage) {
       bgOpacity: num(b.bgOpacity, 0, 100, kind === "image" ? 0 : 50),
       // Shown from..to seconds into each cycle (to = 0: until the end).
       from: to && to <= from ? 0 : from,
-      to: to && to <= from ? 0 : to
+      to: to && to <= from ? 0 : to,
+      // Timeline row: blocks on the same row play one after another; where they overlap, that is the transition.
+      track: num(b.track, 0, 49, Math.min(49, index)),
+      enter: pick(b.enter, TRANSITIONS, "none"),
+      exit: pick(b.exit, TRANSITIONS, "none"),
+      // Transition length in seconds.
+      td: numf(b.td, 0.2, 5, 1)
     };
   }).filter(b => (b.kind === "text" ? b.text.trim() : b.mediaId));
   return {
@@ -146,4 +154,4 @@ function withImages(layers, getMedia) {
   return out;
 }
 
-module.exports = { defaultLayers, sanitizeLayers, parseLayers, withImages, attachImage, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };
+module.exports = { TRANSITIONS, defaultLayers, sanitizeLayers, parseLayers, withImages, attachImage, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };

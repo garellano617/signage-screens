@@ -690,6 +690,11 @@ const SPECIAL_POSITIONS = [["right", "Right panel"], ["left", "Left panel"], ["b
   ["top-right", "Card, top right"], ["center", "Big card, center"]];
 const SIZE_LABELS = [["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Extra large"]];
 const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"], ["plane", "✈ Plane & banner"]];
+const ENTER_LABELS = [["none", "None (just appears)"], ["fade", "Fade in"], ["small", "Small → big (zoom in)"], ["big", "Big → small (zoom down)"],
+  ["left", "Slide in from the left"], ["right", "Slide in from the right"], ["top", "Drop down from the top"], ["bottom", "Rise up from the bottom"], ["spin", "Spin in"], ["pop", "Pop in (bounce)"]];
+const EXIT_LABELS = [["none", "None (just disappears)"], ["fade", "Fade out"], ["small", "Big → small (shrink away)"], ["big", "Small → big (grow away)"],
+  ["left", "Slide out to the left"], ["right", "Slide out to the right"], ["top", "Fly up and out"], ["bottom", "Drop down and out"], ["spin", "Spin out"], ["pop", "Pop out"]];
+const TD_OPTIONS = [[0.3, "0.3 s (fast)"], [0.5, "0.5 s"], [0.8, "0.8 s"], [1, "1 s"], [1.5, "1.5 s"], [2, "2 s"], [3, "3 s (slow)"]];
 const EVERY_OPTIONS = [[15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"], [45, "Every 45 seconds"], [60, "Every minute"], [120, "Every 2 minutes"], [300, "Every 5 minutes"]];
 const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
   ["leaves", "🍂 Falling leaves"], ["stars", "★ Twinkling stars"]];
@@ -832,12 +837,29 @@ async function renderLayers(main, id, kind) {
     drawToolbar(); drawSide();
     if (!keepTimeline) drawTimeline();
   }
+  // Timeline rows: a new text or picture gets a row of its own (drag it onto another row to share it).
+  const nextTrack = () => L.text.blocks.reduce((m, b) => Math.max(m, (b.track || 0) + 1), 0);
   function addBlock(b) {
     L.text.enabled = true;
     L.text.blocks.push(Object.assign({ kind: "text", text: "", position: "center", x: 30, y: 40, w: 0, size: "m", fs: 2.8, font: "sans", align: "",
-      bold: true, italic: false, color: "#ffffff", bg: "#000000", bgOpacity: 0, from: 0, to: 0, mediaId: null, image: null }, b));
+      bold: true, italic: false, color: "#ffffff", bg: "#000000", bgOpacity: 0, from: 0, to: 0, mediaId: null, image: null,
+      track: nextTrack(), enter: "none", exit: "none", td: 1 }, b));
     change();
     select({ type: "block", i: L.text.blocks.length - 1 });
+  }
+  function addAfter(prev, m) {
+    const len = T();
+    if (!L.text.cycle) L.text.cycle = len;
+    let pt = prev.to || len;
+    // A picture that fills the whole timeline becomes a 5-second slide.
+    if ((prev.from || 0) <= 0 && pt >= len) { pt = Math.max(2, Math.min(5, snapH(len / 2))); prev.to = pt; }
+    const dur = pt - (prev.from || 0), ov = Math.min(prev.td || 1, dur / 2);
+    const from = snapH(Math.max(0, pt - ov));
+    if (from >= len - 1) return addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: prev.w || 30, x: 35, y: 30, text: "" });
+    const to = Math.min(len, from + dur);
+    addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, text: "", w: prev.w, x: prev.x, y: prev.y, position: prev.position,
+      bg: prev.bg, bgOpacity: prev.bgOpacity, track: prev.track || 0, from, to: to >= len ? 0 : to,
+      enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1 });
   }
   function removeBlock(i) { L.text.blocks.splice(i, 1); sel = null; change(); select(null); }
 
@@ -879,6 +901,7 @@ async function renderLayers(main, id, kind) {
         tbBtn("Duplicate", false, () => {
           const c = JSON.parse(JSON.stringify(b));
           if (typeof c.x === "number") { c.x += 2; c.y += 2; }
+          c.track = nextTrack();
           L.text.blocks.splice(i + 1, 0, c); change(); select({ type: "block", i: i + 1 });
         }),
         h("button", { type: "button", class: "small danger", onclick: () => removeBlock(i) }, "Delete"));
@@ -898,6 +921,7 @@ async function renderLayers(main, id, kind) {
 
   // ---------- side panel ----------
   const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Video"]];
+  let chainNext = true;
   let thumbs = [], undo = null, aiBusy = false, aiNote = "", aiPrompt = "";
   const LAYER_KEYS = ["video", "specials", "text", "effects"];
   /** Replace the whole design (template or AI). The previous one is kept for Undo until saved or replaced again. */
@@ -985,11 +1009,24 @@ async function renderLayers(main, id, kind) {
   const side = h("div", { class: "card ed-side" }, tabsBar, panel);
   function timingFields(b) {
     const len = T();
-    return h("div", { class: "row" },
+    const tracks = [...new Set(L.text.blocks.map(x => x.track || 0))].sort((a, c) => c - a);
+    const timed = () => { if (!L.text.cycle) L.text.cycle = len; };
+    return h("div", {},
+      h("div", { class: "row" },
+        field("Entrance", h("select", { onchange: e => { b.enter = e.target.value; timed(); change(); } }, opts(ENTER_LABELS, b.enter || "none"))),
+        field("Exit", h("select", { onchange: e => { b.exit = e.target.value; timed(); change(); } }, opts(EXIT_LABELS, b.exit || "none")))),
+      h("div", { class: "row", style: "align-items:flex-end" },
+        field("Transition length", h("select", { onchange: e => { b.td = Number(e.target.value); change(); } }, opts(TD_OPTIONS, b.td || 1))),
+        field("Timeline row", h("select", { onchange: e => { b.track = e.target.value === "new" ? nextTrack() : Number(e.target.value); change(); } },
+          tracks.map((t, k) => h("option", { value: t, selected: t === (b.track || 0) }, "Row " + (k + 1))), h("option", { value: "new" }, "+ New row"))),
+        h("button", { type: "button", class: "small", style: "margin-bottom:.75rem", title: "Play this part of the timeline",
+          onclick: () => { playhead = Math.max(0, (b.from || 0) - 0.5); updatePlayhead(); setPlaying(true); } }, "▶ Preview")),
+      h("p", { class: "small muted", style: "margin:0 0 .5rem" }, "Tip: put pictures on the same timeline row and let their bars overlap. The overlap becomes the transition (a crossfade unless you pick one)."),
+      h("div", { class: "row" },
       h("div", { class: "field" }, h("label", {}, "Show from (s)"), h("input", { type: "number", min: 0, max: len, step: 0.5, value: b.from || 0,
         oninput: e => { if (!L.text.cycle) L.text.cycle = len; b.from = clampN(Number(e.target.value) || 0, 0, len); if (b.to && b.to <= b.from) b.to = 0; change(); } })),
       h("div", { class: "field" }, h("label", {}, "Until (s)"), h("input", { type: "number", min: 0, max: len, step: 0.5, value: b.to || len,
-        oninput: e => { if (!L.text.cycle) L.text.cycle = len; const v = clampN(Number(e.target.value) || len, 0, len); b.to = v >= len ? 0 : v; change(); } })));
+        oninput: e => { if (!L.text.cycle) L.text.cycle = len; const v = clampN(Number(e.target.value) || len, 0, len); b.to = v >= len ? 0 : v; change(); } }))));
   }
   function drawSide() {
     thumbs.forEach(o => o.destroy()); thumbs = [];
@@ -998,9 +1035,11 @@ async function renderLayers(main, id, kind) {
     if (tab === "media") {
       const b = isSel("block") && L.text.blocks[sel.i].kind === "image" ? L.text.blocks[sel.i] : null;
       if (b) kids.push(h("div", { class: "sub-item" }, h("strong", { class: "small" }, "Selected picture"), timingFields(b)));
-      kids.push(h("p", { class: "small muted" }, "Click a picture to place it on the screen (logos, food photos, price boards)."));
+      if (b) kids.push(h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: chainNext, onchange: e => { chainNext = e.target.checked; drawSide(); } }),
+        "Add the next picture after this one (same spot, same row: a slideshow)"));
+      kids.push(h("p", { class: "small muted" }, b && chainNext ? "Click a picture to show it after the selected one." : "Click a picture to place it on the screen (logos, food photos, price boards)."));
       kids.push(images.length ? h("div", { class: "ed-imgs" }, images.map(m => h("button", { type: "button", title: m.name,
-        onclick: () => addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 30, x: 35, y: 30, text: "" }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
+        onclick: () => b && chainNext ? addAfter(b, m) : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 30, x: 35, y: 30, text: "" }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
         : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
       kids.push(h("p", { class: "small muted" }, "Videos and the main slideshow play in the Video layer (the playlist)."));
     } else if (tab === "text") {
@@ -1147,12 +1186,20 @@ async function renderLayers(main, id, kind) {
     if (!isSel("block", i)) { select({ type: "block", i }, true); tlBody.querySelectorAll(".tl-clip.sel").forEach(x => x.classList.remove("sel")); bar.classList.add("sel"); }
     const len = T();
     const w = lane.getBoundingClientRect().width, sx = e.clientX;
-    const f0 = b.from || 0, t0 = b.to || len;
-    let moved = false;
+    const f0 = b.from || 0, t0 = b.to || len, sy = e.clientY;
+    let moved = false, dropRow = null;
     const mv = ev => {
       const d = (ev.clientX - sx) / w * len;
-      if (!moved && Math.abs(ev.clientX - sx) < 3) return;
+      if (!moved && Math.abs(ev.clientX - sx) < 3 && Math.abs(ev.clientY - sy) < 6) return;
       moved = true;
+      if (mode === "move") {
+        // Up or down: onto another timeline row.
+        const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+        const r = hit && hit.closest(".tl-row[data-track]");
+        if (dropRow && dropRow !== r) dropRow.classList.remove("tl-drop");
+        dropRow = r && Number(r.dataset.track) !== (b.track || 0) ? r : null;
+        if (dropRow) dropRow.classList.add("tl-drop");
+      }
       let f = f0, t = t0;
       if (mode === "move") { f = snapH(clampN(f0 + d, 0, len - (t0 - f0))); t = f + (t0 - f0); }
       else if (mode === "l") f = snapH(clampN(f0 + d, 0, t0 - 0.5));
@@ -1164,6 +1211,7 @@ async function renderLayers(main, id, kind) {
     const up = () => {
       window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
       if (!moved) return;
+      if (dropRow) b.track = Number(dropRow.dataset.track);
       if (!L.text.cycle) L.text.cycle = len;
       if (b.from <= 0 && b.to >= len) { b.from = 0; b.to = 0; }
       change(); drawSide();
@@ -1200,17 +1248,44 @@ async function renderLayers(main, id, kind) {
     rows.push(row("Specials", "specials", sp.enabled, v => { sp.enabled = v; }, spClips));
     // text and pictures: one row each, top of the stack first
     rows.push(row("Text & pictures", null, L.text.enabled, v => { L.text.enabled = v; }, [], true));
-    for (let i = L.text.blocks.length - 1; i >= 0; i--) {
-      const b = L.text.blocks[i];
-      const label = b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : (b.text.split("\n")[0] || "Text");
-      const bar = tlClip((b.kind === "image" ? "tl-image" : "tl-text") + (L.text.enabled ? "" : " off") + (isSel("block", i) ? " sel" : ""),
-        b.from || 0, b.to || len, label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
-      bar.append(h("span", { class: "tl-h l", onpointerdown: e => barDrag(e, b, i, "l") }), h("span", { class: "tl-h r", onpointerdown: e => barDrag(e, b, i, "r") }));
-      const r = row(label, null, false, null, [bar]);
-      r.querySelector(".tl-name").addEventListener("click", () => select({ type: "block", i }));
+    // One timeline row per track; several texts or pictures can share a row and take turns.
+    const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : (b.text.split("\n")[0] || "Text");
+    const tracks = [...new Set(L.text.blocks.map(b => b.track || 0))].sort((a, c) => c - a);
+    for (const tr of tracks) {
+      const idx = L.text.blocks.map((b, i) => i).filter(i => (L.text.blocks[i].track || 0) === tr);
+      const clips = [];
+      idx.forEach(i => {
+        const b = L.text.blocks[i], from = b.from || 0, to = b.to || len, label = blockLabel(b);
+        const bar = tlClip((b.kind === "image" ? "tl-image" : "tl-text") + (L.text.enabled ? "" : " off") + (isSel("block", i) ? " sel" : ""),
+          from, to, label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
+        // Light ends: the entrance and exit transitions.
+        const pct = d => Math.min(50, d / Math.max(0.1, to - from) * 100) + "%";
+        if (b.enter && b.enter !== "none") bar.append(h("span", { class: "tl-tr in", style: "width:" + pct(b.td || 1), title: "Entrance" }));
+        if (b.exit && b.exit !== "none") bar.append(h("span", { class: "tl-tr out", style: "width:" + pct(b.td || 1), title: "Exit" }));
+        bar.append(h("span", { class: "tl-h l", onpointerdown: e => barDrag(e, b, i, "l") }), h("span", { class: "tl-h r", onpointerdown: e => barDrag(e, b, i, "r") }));
+        clips.push(bar);
+      });
+      // Where two bars on the row overlap: a transition marker.
+      const spans = idx.map(i => [L.text.blocks[i].from || 0, L.text.blocks[i].to || len]).sort((a, c) => a[0] - c[0]);
+      for (let k = 1; k < spans.length; k++) {
+        const o0 = spans[k][0], o1 = Math.min(spans[k - 1][1], spans[k][1]);
+        if (o1 > o0) clips.push(tlClip("tl-overlap", o0, o1, "", len, { title: "Transition: these overlap for " + Math.round((o1 - o0) * 10) / 10 + " s" }));
+      }
+      const name = idx.length === 1 ? blockLabel(L.text.blocks[idx[0]]) : idx.length + " " + (idx.every(i => L.text.blocks[i].kind === "image") ? "pictures" : "items");
+      const r = row(name, null, false, null, clips);
+      r.dataset.track = tr;
+      r.querySelector(".tl-name").addEventListener("click", () => {
+        const cur = isSel("block") ? idx.indexOf(sel.i) : -1;
+        select({ type: "block", i: idx[(cur + 1) % idx.length] });
+      });
       rows.push(r);
     }
     if (!L.text.blocks.length) rows.push(row("", null, false, null, [h("span", { class: "tl-empty" }, "Empty. Add text or pictures in the Text tab.")]));
+    else {
+      const r = row("+ New row", null, false, null, [h("span", { class: "tl-empty" }, "Drag a bar here to give it a row of its own.")]);
+      r.dataset.track = nextTrack(); r.classList.add("tl-newrow");
+      rows.push(r);
+    }
     const tk = L.text.ticker;
     rows.push(row("Ticker", "ticker", tk.enabled, v => { tk.enabled = v; if (v) L.text.enabled = true; },
       tk.enabled || tk.text ? [tlClip("tl-ticker" + (tk.enabled && L.text.enabled ? "" : " off") + (isSel("ticker") ? " sel" : ""), 0, len, (tk.text || "").split("\n").join("  •  ") || "Ticker", len,

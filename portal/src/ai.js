@@ -2,7 +2,7 @@
 // AI screen designer: Claude writes a screen design (layers) or the words for an existing one.
 // Off unless ANTHROPIC_API_KEY is set. Every request costs money, so each client has a daily limit (AI_DAILY_LIMIT).
 const { z } = require("zod");
-const { REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS } = require("./layers");
+const { REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS, TRANSITIONS } = require("./layers");
 
 const MODEL = "claude-opus-5-5";
 let client = null;
@@ -42,7 +42,11 @@ const Design = z.object({
       font: z.enum(FONTS), align: z.enum(["left", "center", "right"]),
       bold: z.boolean(), italic: z.boolean(), color: hex, bg: hex,
       bgOpacity: z.number().describe("Box behind the text, 0 to 100"),
-      from: z.number(), to: z.number()
+      from: z.number(), to: z.number(),
+      track: z.number().describe("Timeline row, 0 and up. Blocks on the same row take turns; overlapping them by a second makes a smooth transition"),
+      enter: z.enum(TRANSITIONS).describe("Entrance: small = grows from small to full size, big = shrinks from big, left/right/top/bottom = slides in from that side, spin, pop = bounces in"),
+      exit: z.enum(TRANSITIONS).describe("Exit: small = shrinks away, big = grows away, left/right/top/bottom = slides out that side"),
+      td: z.number().describe("Transition length in seconds, 0.3 to 2")
     })),
     ticker: z.object({ enabled: z.boolean(), text: z.string(), position: z.enum(["top", "bottom"]), speed: z.enum(["slow", "normal", "fast"]),
       size: z.enum(SIZES), color: hex, bg: hex })
@@ -63,6 +67,7 @@ Rules:
 - Strong contrast. Text over the video needs a box (bgOpacity 50 or more) in a dark or brand color.
 - Leave the video visible: don't cover the middle of the screen with several boxes. When specials use a side panel, shrink the video region (left70 for a right panel, right70 for a left panel).
 - Two blocks must not share the same position unless they take turns in time.
+- Transitions (enter/exit) make it lively: e.g. a logo that pops in, a price that slides in from the right, pictures on one row that take turns with a 1 second overlap. Keep it tasteful: "none" or "fade" for body text.
 - Use only prices, dates, times and facts the user gave. Never invent prices: leave price empty if none was given. Never invent phone numbers, addresses or claims.
 - Pictures: use only the mediaId values from the list of the business's pictures, and only when the name fits (a logo, a dish). Never invent a mediaId; use null.
 - Write in the language the user writes in. Use the business's name when given.

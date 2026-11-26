@@ -332,6 +332,13 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .tl-h.l { left: 0; } .tl-h.r { right: 0; }
 .tl-clip.sel .tl-h { background: rgba(255,255,255,.35); }
 .tl-empty { position: absolute; left: .5rem; top: 0; line-height: 26px; font-size: .78rem; color: var(--muted); }
+.tl-tr { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+.tl-tr.in { left: 0; background: linear-gradient(90deg, rgba(255,255,255,.55), rgba(255,255,255,0)); }
+.tl-tr.out { right: 0; background: linear-gradient(270deg, rgba(255,255,255,.55), rgba(255,255,255,0)); }
+.tl-overlap { background: repeating-linear-gradient(135deg, rgba(250,204,21,.85) 0 4px, rgba(250,204,21,.35) 4px 8px); border: 1px solid #ca8a04; z-index: 2; pointer-events: none; padding: 0; }
+.tl-row.tl-drop .tl-lane { outline: 2px dashed #a855f7; outline-offset: -2px; background: rgba(168,85,247,.12); }
+.tl-newrow .tl-name { color: var(--muted); font-style: italic; }
+.tl-image, .tl-text { touch-action: none; }
 .tl-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ef4444; left: calc(var(--hw) + (100% - var(--hw)) * var(--p, 0)); pointer-events: none; z-index: 2; }
 @media (max-width: 900px) {
   .ed { grid-template-columns: minmax(0, 1fr); grid-template-areas: "tool" "stage" "side" "tl"; }

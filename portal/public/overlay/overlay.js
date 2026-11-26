@@ -50,6 +50,29 @@
     return (on(day) && min >= s) || (on(day - 1) && min < e);
   }
 
+  // The CSS transform each snap-to position already uses (kept under the transition's own movement).
+  var POS_TRANSFORM = { top: "translateX(-50%) ", bottom: "translateX(-50%) ", left: "translateY(-50%) ", right: "translateY(-50%) ", center: "translate(-50%, -50%) " };
+  function easeOut(p) { return 1 - Math.pow(1 - p, 3); }
+  function easeBack(p) { var c = 1.7; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); }
+  /** A transition at progress q (0 = gone, 1 = fully in). out = on the way out. Returns opacity and the extra transform. */
+  function motion(kind, q, out, W, H) {
+    if (q >= 1 || kind === "none") return { o: 1, t: "" };
+    q = Math.max(0, q);
+    var e = easeOut(q), fade = Math.min(1, q * 3);
+    switch (kind) {
+      case "fade": return { o: e, t: "" };
+      case "small": return { o: fade, t: "scale(" + (0.15 + 0.85 * e) + ")" };
+      case "big": return { o: fade, t: "scale(" + (2.6 - 1.6 * e) + ")" };
+      case "left": return { o: 1, t: "translateX(" + (-(1 - e) * W) + "px)" };
+      case "right": return { o: 1, t: "translateX(" + ((1 - e) * W) + "px)" };
+      case "top": return { o: 1, t: "translateY(" + (-(1 - e) * H) + "px)" };
+      case "bottom": return { o: 1, t: "translateY(" + ((1 - e) * H) + "px)" };
+      case "spin": return { o: fade, t: "rotate(" + ((1 - e) * (out ? 360 : -360)) + "deg) scale(" + e + ")" };
+      case "pop": return { o: fade, t: "scale(" + Math.max(0, easeBack(q)) + ")" };
+    }
+    return { o: 1, t: "" };
+  }
+
   function render(root, layers, opts) {
     opts = opts || {};
     var resolveImage = opts.resolveImage || function (sp) { return sp.image ? sp.image.src : null; };
@@ -113,6 +136,7 @@
     var tx = layers.text;
     if (tx && tx.enabled) {
       var timed = [];
+      var cycle = tx.cycle || 0;
       (tx.blocks || []).forEach(function (b, i) {
         var free = typeof b.x === "number" && typeof b.y === "number";
         var t = el("div", "so-text " + (free ? "so-free" : "so-pos-" + b.position));
@@ -141,19 +165,61 @@
           if (/^bottom/.test(b.position)) avoid(t, "bottom", 6);
           if (/^top/.test(b.position)) avoid(t, "top", 4);
         }
-        if (tx.cycle && (b.from || b.to)) timed.push([t, b.from || 0, b.to || tx.cycle]);
+        var from = cycle ? b.from || 0 : 0, to = cycle ? b.to || cycle : 0;
+        timed.push({ node: t, track: b.track || 0, from: from, to: to, base: free ? "" : (POS_TRANSFORM[b.position] || ""),
+          timed: !!(cycle && (b.from || b.to)), inT: b.enter || "none", outT: cycle ? b.exit || "none" : "none",
+          dIn: b.enter && b.enter !== "none" ? b.td || 1 : 0, dOut: cycle && b.exit && b.exit !== "none" ? b.td || 1 : 0, last: "" });
         root.appendChild(t);
         if (opts.onBlock) opts.onBlock(t, b, i);
       });
-      // Timed blocks show from..to seconds into each cycle. The editor passes its playhead as opts.time.
-      if (timed.length) {
+      // Blocks show from..to seconds into each cycle (with no timing: all the time). The editor passes its playhead as opts.time.
+      // Blocks on the same timeline row that overlap: the overlap is the transition (a crossfade unless another one is picked).
+      if (cycle) {
+        var rows = {};
+        timed.forEach(function (x) { if (x.timed) (rows[x.track] = rows[x.track] || []).push(x); });
+        Object.keys(rows).forEach(function (k) {
+          var list = rows[k].sort(function (a, b) { return a.from - b.from; });
+          for (var i = 1; i < list.length; i++) {
+            var a = list[i - 1], b = list[i], o = a.to - b.from;
+            if (o <= 0 || b.to <= a.to) continue;
+            a.dOut = o; if (a.outT === "none") a.outT = "fade";
+            b.dIn = o; if (b.inT === "none") b.inT = "fade";
+          }
+        });
+      }
+      timed.forEach(function (x) { var len = x.timed ? x.to - x.from : Infinity; x.dIn = Math.min(x.dIn, len / 2); x.dOut = Math.min(x.dOut, len / 2); });
+      var moving = timed.some(function (x) { return x.dIn || x.dOut; });
+      if (timed.length && (cycle || moving)) {
         var clock = opts.time || function () { return Date.now() / 1000; };
+        var started = clock();
         var tickTimed = function () {
-          var s = ((clock() % tx.cycle) + tx.cycle) % tx.cycle;
-          timed.forEach(function (x) { x[0].style.visibility = s >= x[1] && s < x[2] ? "" : "hidden"; });
+          var now = clock(), s = cycle ? ((now % cycle) + cycle) % cycle : now - started;
+          var W = root.clientWidth, H = root.clientHeight;
+          timed.forEach(function (x) {
+            var vis = true, q = 1, kind = "none", out = false;
+            var from = x.timed ? x.from : 0, to = x.timed ? x.to : (cycle || Infinity);
+            if (s < from || s >= to) vis = false;
+            else {
+              var a = x.dIn ? (s - from) / x.dIn : 1, z = x.dOut ? (to - s) / x.dOut : 1;
+              if (a < 1 && a <= z) { q = a; kind = x.inT; } else if (z < 1) { q = z; kind = x.outT; out = true; }
+            }
+            var key = vis ? kind + ":" + Math.round(q * 200) : "hidden";
+            if (key === x.last) return;
+            x.last = key;
+            var st = x.node.style;
+            if (!vis) { st.visibility = "hidden"; return; }
+            st.visibility = "";
+            var base = x.node.classList.contains("so-free") ? "" : x.base;
+            var m = motion(kind, q, out, W, H);
+            st.opacity = m.o === 1 ? "" : String(m.o);
+            st.transform = m.t ? base + m.t : base;
+          });
         };
         tickTimed();
-        timers.push(setInterval(tickTimed, 200));
+        if (moving) {
+          var loop = function () { tickTimed(); frames.timed = requestAnimationFrame(loop); };
+          frames.timed = requestAnimationFrame(loop);
+        } else timers.push(setInterval(tickTimed, 200));
       }
       var tk = tx.ticker;
       if (tk && tk.enabled && tk.text && tk.text.trim()) {
@@ -193,6 +259,7 @@
       destroy: function () {
         timers.forEach(clearInterval);
         if (frames.ticker) cancelAnimationFrame(frames.ticker);
+        if (frames.timed) cancelAnimationFrame(frames.timed);
         cleanups.forEach(function (f) { f(); });
         if (ro) ro.disconnect(); else global.removeEventListener("resize", onResize);
         root.innerHTML = "";
