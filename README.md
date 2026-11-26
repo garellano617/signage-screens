@@ -62,7 +62,7 @@ Without the key, the AI tab shows how to turn it on, and the templates still wor
 
 Every page has a **? Help** button (bottom right; a full-height panel on phones). People ask in their own words how to do something in the portal or the TV app, and Claude answers from the user guide in `portal/src/helpGuide.md`, knowing which page they are on and whether they are staff or a client. It suggests questions for the current page and keeps the chat while moving between pages (until the browser tab is closed).
 
-- Uses the same `ANTHROPIC_API_KEY`. Each question is billed (a cent or two with the guide cached; the guide part is cheaper on repeat questions). `AI_HELP_DAILY_LIMIT` sets questions per login per day (default 50).
+- Uses the same `ANTHROPIC_API_KEY`. Each question is billed to the Anthropic account (the guide is cached, so repeat questions cost less; check console.anthropic.com for actual usage). `AI_HELP_DAILY_LIMIT` sets questions per login per day (default 50).
 - **Keep the guide current:** when a feature changes, update `portal/src/helpGuide.md`. The assistant only answers from it and says when it isn't sure.
 
 1. **Video:** the screen's playlist and schedule. It can fill the screen or a smaller area (left 70%, top 85%, …) to leave room for the other layers.
