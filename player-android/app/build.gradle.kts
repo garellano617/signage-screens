@@ -86,5 +86,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+    // QR code on the pairing screen. 3.3.x: newer versions need Android 7+, the app supports 5+.
+    implementation("com.google.zxing:core:3.3.3")
     testImplementation("junit:junit:4.13.2")
 }

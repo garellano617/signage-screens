@@ -42,7 +42,7 @@ Clock (digital or analog, 12/24 hours, date), weather (no account needed), news 
 ### Connect a TV
 1. Install the Premier Signage app on the TV (see Download App below).
 2. Open the app; it asks for the portal address the first time, then shows a 6-character code.
-3. In the portal: **Screens → Add screen**, type the code and a name.
+3. In the portal: **Screens → Add screen**, type the code and a name. Or scan the **QR code** on the TV's screen with a phone camera: it opens the portal with Add screen already filled in (log in if asked; staff first pick which client the TV is for).
 
 - **Set up before the TV is installed:** in Add screen choose **Set up now, connect the TV later**. Prepare the playlist, schedule and design. It shows "No TV yet". When the TV is there, open the screen, click **Connect TV** and type its code.
 - **Replace a TV:** on the screen's page click **Replace TV** and type the new TV's code. It takes over everything; the old TV goes back to showing a code.

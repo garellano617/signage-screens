@@ -6,7 +6,8 @@
     <string name="brand_name">PREMIER SIGNAGE</string>
     <string name="brand_tagline">www.precom.net   ·   (617) 864-9717</string>
     <string name="pair_title">Pair this screen</string>
-    <string name="pair_hint">In the portal (%1$s), go to Screens → Add screen and enter this code.\nPress BACK three times for the menu.</string>
+    <string name="pair_hint">Scan the QR code with your phone, or in the portal\n(%1$s) go to Screens → Add screen and enter this code.\nPress BACK three times for the menu.</string>
+    <string name="pair_qr">Scan to connect</string>
     <string name="setup_title">Premier Signage setup</string>
     <string name="setup_hint">Enter the address of your signage portal.</string>
     <string name="setup_example">http://192.168.1.10:3100</string>

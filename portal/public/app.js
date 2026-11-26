@@ -254,6 +254,13 @@ async function route() {
   window.onbeforeunload = null;
   if (!state.user) return renderLogin();
   let path = location.hash.replace(/^#/, "") || "/";
+  // The QR code on a TV's pairing screen opens #/pair/CODE: open Add screen with the code filled in.
+  const pm = path.match(/^(\/c\/\d+)?\/pair\/([A-Za-z0-9]{6})$/);
+  if (pm) {
+    state.pendingPair = pm[2].toUpperCase();
+    if (!isStaff() || pm[1]) { location.hash = "#" + (pm[1] || "") + "/screens"; return; }
+    return renderPairPick(shell("clients", false), state.pendingPair);
+  }
   let table, inClient = false;
   if (isStaff()) {
     const m = path.match(/^\/c\/(\d+)(\/.*)?$/);
@@ -274,6 +281,7 @@ async function route() {
       const main = shell(section, inClient);
       main.append(h("div", { class: "muted" }, "Loading…"));
       try { await fn(main, ...m.slice(1)); } catch (e) { if (state.user) main.replaceChildren(h("div", { class: "card" }, "Couldn't load this page: " + e.message)); }
+      if (state.pendingPair && inClient && path === "/screens") { const c = state.pendingPair; state.pendingPair = null; pairDialog(c); }
       return;
     }
   }
@@ -604,11 +612,12 @@ function playlistOptions(playlists, selected, emptyLabel) {
 const codeInput = () => h("input", { name: "code", required: true, maxlength: 7, autocomplete: "off", style: "text-transform:uppercase;letter-spacing:.2em;font-size:1.3rem", placeholder: "ABC123" });
 
 /** Add a screen: pair a TV now, or set the screen up now and connect its TV later. */
-async function pairDialog() {
+async function pairDialog(prefill) {
   const [playlists, screens] = await Promise.all([api("GET", "/playlists"), api("GET", "/screens")]);
   const planned = screens.filter(s => s.planned);
   let mode = "now";
   const code = codeInput();
+  if (prefill) code.value = prefill;
   const into = h("select", { name: "screenId" }, h("option", { value: "" }, "A new screen"),
     planned.map(s => h("option", { value: s.id }, s.name + " (set up, waiting for its TV)")));
   const name = h("input", { name: "name", placeholder: "e.g. Lobby TV", maxlength: 100 });
@@ -640,6 +649,19 @@ async function pairDialog() {
   loadCustomers().catch(() => {});
   toast(r.planned ? "Screen created. Design it now, and connect the TV when it's installed." : "Screen paired. It will start playing within a few seconds.");
   go("/screens/" + r.id);
+}
+
+/** Staff scanned a TV's QR code: pick which client the TV is for, then Add screen opens with the code. */
+async function renderPairPick(main, code) {
+  if (!state.customers.length) await loadCustomers().catch(() => {});
+  const active = state.customers.filter(c => c.active);
+  main.replaceChildren(pageHead("Connect a TV", "Code " + code),
+    h("div", { class: "card" },
+      h("p", {}, "Which client is this TV for?"),
+      active.length ? h("div", { class: "pair-pick" }, active.map(c =>
+        h("button", { type: "button", onclick: () => { location.hash = "#/c/" + c.id + "/pair/" + code; } }, c.name)))
+        : h("p", { class: "muted" }, "No clients yet. Add the client under White Label & Clients first, then scan the TV's code again."),
+      h("p", { class: "small muted" }, h("a", { href: "#/clients", onclick: () => { state.pendingPair = null; } }, "Cancel"))));
 }
 
 /** Connect the TV showing a code to this screen (the first TV for a planned screen, or a replacement TV). */

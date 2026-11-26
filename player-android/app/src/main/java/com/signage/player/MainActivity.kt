@@ -247,6 +247,13 @@ class MainActivity : ComponentActivity() {
         pairing.visibility = View.VISIBLE
         pairCode.text = code.chunked(3).joinToString(" ")
         pairHint.text = getString(R.string.pair_hint, prefs.serverUrl)
+        // QR: scanning it opens the portal's Add screen with this code filled in. Only redrawn when the code changes.
+        val qr = findViewById<android.widget.ImageView>(R.id.pairQr)
+        if (qr.tag != code) {
+            val bmp = runCatching { PairQr.bitmap(PairQr.url(prefs.serverUrl, code)) }.getOrNull()
+            findViewById<View>(R.id.pairQrBox).visibility = if (bmp != null) View.VISIBLE else View.GONE
+            if (bmp != null) { qr.setImageBitmap(bmp); qr.tag = code }
+        }
     }
 
     private suspend fun fetchConfig() {
