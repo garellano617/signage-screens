@@ -11,6 +11,8 @@ const { sanitizeLayers, parseLayers, withImages } = require("./layers");
 const widgets = require("./widgets");
 
 const router = express.Router();
+// AI help questions can carry a screenshot (resized in the browser, base64): a bigger limit for that one address.
+router.use("/ai/help", express.json({ limit: "8mb" }));
 router.use(express.json({ limit: "1mb" }));
 router.use((req, res, next) => { if (req.body === undefined) req.body = {}; next(); });
 
@@ -1105,11 +1107,29 @@ router.post("/ai/help", async (req, res) => {
     history.push({ role, content });
   }
   if (history.length && history[history.length - 1].role === "user") history.pop();
+  // Pictures: one the person attached (a data: URL) and/or the latest screenshot of a screen they can see.
+  const images = [];
+  if (b.image) {
+    const m = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.image));
+    if (!m) throw bad("That picture can't be read. Use a JPG or PNG screenshot or photo.");
+    if (m[2].length * 0.75 > 5 * 1024 * 1024) throw bad("That picture is too big (5 MB at most).");
+    images.push({ mediaType: m[1], data: m[2], label: "a screenshot or photo the person added (first picture)" });
+  }
+  let screenNote = "";
+  if (b.screenId) {
+    const s = loadScreen(req, intId(b.screenId));
+    const file = s.screenshot_file && path.join(DATA_DIR, "screenshots", s.screenshot_file);
+    if (file && fs.existsSync(file)) {
+      const mins = Math.max(0, Math.round((now() - s.screenshot_at) / 60000));
+      images.push({ mediaType: /\.png$/i.test(file) ? "image/png" : "image/jpeg", data: fs.readFileSync(file).toString("base64"),
+        label: `the latest screenshot from the TV "${s.name}" (taken ${mins < 1 ? "just now" : mins < 120 ? mins + " minutes ago" : Math.round(mins / 60) + " hours ago"}; it shows what that TV was displaying)` });
+    } else screenNote = `\n[They wanted the AI to see the TV "${s.name}", but it has no screenshot yet. Suggest 📷 Take screenshot on the screen's page, then ask again.]`;
+  }
   run(`INSERT INTO ai_help_usage (user_id, day, count) VALUES (?, ?, 1)
     ON CONFLICT (user_id, day) DO UPDATE SET count = count + 1`, req.user.id, today());
   const role = req.isStaff ? "staff of the signage company" : "a client login" + (req.user.role === "admin" ? " (client admin)" : "");
   const clientName = req.cid ? (get("SELECT name FROM customers WHERE id = ?", req.cid) || {}).name : null;
-  const answer = await ai.help({ question, history, context: { page: String(b.page || "").slice(0, 80), role, clientName } });
+  const answer = await ai.help({ question: question + screenNote, history, images, context: { page: String(b.page || "").slice(0, 80), role, clientName } });
   res.json({ answer: answer.slice(0, 6000), left: Math.max(0, limit - helpUsed(req.user.id)) });
 });
 

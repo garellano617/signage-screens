@@ -417,3 +417,11 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
   #help-fab .help-fab-label { display: none; }
   #help-panel { left: 0; right: 0; bottom: 0; width: 100%; max-width: none; height: 85vh; border-radius: 14px 14px 0 0; }
 }
+.help-clip { padding: .3rem .55rem; font-size: 1.15rem; align-self: stretch; }
+.help-pics { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .5rem .8rem 0; border-top: 1px solid var(--border); }
+.help-pics + .help-input { border-top: 0; }
+.help-tv { margin: 0; flex: 1 1 100%; }
+.help-thumb { position: relative; }
+.help-thumb img { height: 64px; max-width: 120px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); display: block; }
+.help-thumb button { position: absolute; top: -6px; right: -6px; width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 50%; justify-content: center; background: rgba(15,23,42,.8); color: #fff; border: 0; line-height: 1; }
+.help-msg-pics { opacity: .85; margin-bottom: .2rem; }

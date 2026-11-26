@@ -832,20 +832,40 @@ test("AI help: answers from the guide, keeps the chat, daily limit per login", a
   assert.equal((await call("POST", "/api/ai/help", { question: "How do I pair a TV?" })).status, 503);
   let sent = null;
   ai.setClient({ beta: { messages: { create: async p => { sent = p; return { stop_reason: "end_turn", content: [{ type: "text", text: "1. Go to **Screens → Add screen**." }] }; } } } });
-  process.env.AI_HELP_DAILY_LIMIT = "2";
+  process.env.AI_HELP_DAILY_LIMIT = "4";
   assert.equal((await call("POST", "/api/ai/help", { question: "  " })).status, 400);
   const r = await call("POST", "/api/ai/help", { question: "How do I pair a TV?", page: "Screens · /screens",
     history: [{ role: "assistant", content: "skipped: must start with the user" }, { role: "user", content: "Hi" }, { role: "assistant", content: "Hello!" }, { role: "user", content: "unanswered, dropped" }] });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.match(r.body.answer, /Add screen/);
-  assert.equal(r.body.left, 1);
+  assert.equal(r.body.left, 3);
   assert.match(sent.system[0].text, /Video walls/, "the guide is in the system prompt");
   assert.deepEqual(sent.system[0].cache_control, { type: "ephemeral" });
   assert.deepEqual(sent.messages.map(m => m.role), ["user", "assistant", "user"]);
-  assert.match(sent.messages[2].content, /Screens · \/screens/);
-  assert.match(sent.messages[2].content, /staff/);
-  assert.equal((await call("POST", "/api/ai/help", { question: "Another" })).status, 200);
-  assert.equal((await call("POST", "/api/ai/help", { question: "Third" })).status, 429);
+  assert.match(sent.messages[2].content[0].text, /Screens · \/screens/);
+  assert.match(sent.messages[2].content[0].text, /staff/);
+  // A picture the person attached goes to the AI with the question.
+  const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000a49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
+  assert.equal((await call("POST", "/api/ai/help", { question: "What's this?", image: "data:text/html;base64,PGI+" })).status, 400);
+  assert.equal((await call("POST", "/api/ai/help", { question: "What's this?", image: "data:image/png;base64," + png.toString("base64") })).status, 200);
+  let last = sent.messages[sent.messages.length - 1].content;
+  assert.equal(last[0].type, "image"); assert.equal(last[0].source.media_type, "image/png");
+  assert.match(last[1].text, /Attached: a screenshot or photo/);
+  // The TV's latest screenshot, for a screen the login can see.
+  const C = (await call("POST", "/api/customers", { name: "Help Shop" })).body;
+  scopeId = C.id;
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-help-0001" })).body;
+  const scr = (await call("POST", "/api/screens/pair", { code: reg.pairingCode, name: "Front TV" })).body;
+  await call("POST", "/api/ai/help", { question: "What's on it?", screenId: scr.id });
+  last = sent.messages[sent.messages.length - 1].content;
+  assert.equal(last.length, 1); assert.match(last[0].text, /no screenshot yet/);
+  assert.equal((await call("POST", "/api/player/screenshot", png, { authorization: "Bearer " + reg.token, "content-type": "image/png" })).status, 200);
+  await call("POST", "/api/ai/help", { question: "What's on it?", screenId: scr.id });
+  last = sent.messages[sent.messages.length - 1].content;
+  assert.equal(last[0].source.data, png.toString("base64"));
+  assert.match(last[1].text, /latest screenshot from the TV "Front TV"/);
+  assert.equal((await call("POST", "/api/ai/help", { question: "Over the limit" })).status, 429);
+  scopeId = null;
   ai.setClient(null); delete process.env.AI_HELP_DAILY_LIMIT;
 });
 

@@ -147,6 +147,8 @@ How to answer:
 - Questions not about the portal, signage or the TVs: politely say you can only help with the portal.
 - Answer in the language the person writes in.
 - Never ask for or repeat passwords, card numbers or keys.
+- Pictures: the person may attach a screenshot or a photo (for example of the portal on their phone, or of a TV), and on a screen's page the TV's latest screenshot can be attached. Look at it closely and use it: read any error message or code, notice what's on the TV (blank, a pairing code, the wrong content, cut-off text, a "No playlist" note), and say in one short line what you see before giving the steps. If the picture doesn't show a problem, say so. Don't describe people's faces.
+- If they describe something visual and no picture is attached, you may suggest they attach a screenshot (📎 button) or, on a screen's page, tick "Show the AI this TV's latest screenshot".
 
 The guide:
 
@@ -156,7 +158,7 @@ The guide:
  * Answers a help question. history: earlier turns [{ role: "user"|"assistant", content }], oldest first.
  * context: { page, role, clientName }. Returns the answer text.
  */
-async function help({ question, history, context }) {
+async function help({ question, history, context, images = [] }) {
   if (!enabled()) throw new AiError(503, "AI help isn't set up yet. Add ANTHROPIC_API_KEY on the server.");
   const Anthropic = require("@anthropic-ai/sdk").default;
   const where = `[The person is on the page: ${context.page || "unknown"}. They are ${context.role}${context.clientName ? " (client: " + context.clientName + ")" : ""}.]`;
@@ -170,7 +172,10 @@ async function help({ question, history, context }) {
       output_config: { effort: "low" },
       // The rules and the guide are the same on every question: cached, so repeat questions cost much less.
       system: [{ type: "text", text: HELP_RULES + helpGuide(), cache_control: { type: "ephemeral" } }],
-      messages: [...history, { role: "user", content: where + "\n\n" + question }]
+      messages: [...history, { role: "user", content: [
+        ...images.map(im => ({ type: "image", source: { type: "base64", media_type: im.mediaType, data: im.data } })),
+        { type: "text", text: where + (images.length ? "\n[Attached: " + images.map(im => im.label).join("; ") + "]" : "") + "\n\n" + question }
+      ] }]
     });
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw new AiError(503, "The AI key on the server isn't working. Check ANTHROPIC_API_KEY.");

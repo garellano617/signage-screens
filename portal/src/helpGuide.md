@@ -119,6 +119,10 @@ Shows each client's plan, monthly amount and paid / overdue status from the bill
 
 Change your password and manage logins. Staff add team logins; a client admin adds logins for their business.
 
+## Help button
+
+The **? Help** button (bottom right of every page) answers questions about the portal. Tap **📎** to add a screenshot or a photo (for example a photo of the TV or a screenshot of an error); on a computer you can also paste a screenshot. On a screen's page (or its designer), tick **Show the AI this TV's latest screenshot** so it can see what that TV is showing; use **📷 Take screenshot** first for a fresh one. Each login has a daily number of questions.
+
 ## Common problems
 
 - **The TV doesn't show my changes:** did you click Save? Wait 30 seconds. Check the screen is online (Screen Monitoring). Use Remote control → Reload content, or Clear cache & re-download.

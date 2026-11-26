@@ -200,6 +200,7 @@ let contentOpen = null; // null = open when a content page is shown
 
 function shell(section, inClient) {
   state.section = section; helpButton();
+  const hp = document.getElementById("help-panel"); if (hp && hp.redraw) setTimeout(hp.redraw, 0);
   const link = (href, key, label, cls) => h("a", { href, class: (section === key ? "active " : "") + (cls || ""), html: ICONS[key] + "<span>" + label + "</span>" });
   const contentGroup = () => {
     const open = contentOpen === null ? CONTENT_SECTIONS.includes(section) : contentOpen;
@@ -326,6 +327,33 @@ function helpButton() {
   if (document.getElementById("help-fab")) return;
   document.body.append(h("button", { type: "button", id: "help-fab", title: "Help", "aria-label": "Help", onclick: helpOpen }, h("span", {}, "?"), h("span", { class: "help-fab-label" }, "Help")));
 }
+/** Which suggestions fit the page (from the address, since several pages share a menu section). */
+function helpKey() {
+  const p = location.hash.replace(/^#/, "").replace(/^\/c\/\d+/, "");
+  if (/\/layers$/.test(p)) return "layers";
+  if (/^\/screens\/\d+$/.test(p)) return "screen";
+  if (/^\/walls\/\d+$/.test(p)) return "wall";
+  if (/^\/playlists\/\d+$/.test(p)) return "playlist";
+  return state.section;
+}
+/** The screen whose page is open (its page or its designer), for "show the AI this TV's screenshot". */
+const helpScreenId = () => { const m = location.hash.match(/\/screens\/(\d+)(?:\/layers)?$/); return m ? Number(m[1]) : null; };
+let helpPic = null, helpUseTv = true;
+/** A picture file → a JPEG data: URL, at most 1568 px on its longest side (what the AI reads at full detail). */
+function helpShrink(file) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\//.test(file.type)) return reject(new Error("Pick a picture (a screenshot or a photo)."));
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); resolve(c.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That picture can't be opened. Try a JPG or PNG.")); };
+    img.src = url;
+  });
+}
 function helpPageName() {
   const t = document.querySelector("main h1");
   return (t ? t.textContent.trim() + " · " : "") + (location.hash.replace(/^#/, "").replace(/^\/c\/\d+/, "") || "/");
@@ -338,20 +366,34 @@ async function helpOpen() {
     onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } } });
   const sendBtn = h("button", { type: "button", class: "primary", onclick: () => send() }, "Ask");
   const note = h("div", { class: "help-note small muted" });
+  // Pictures: attach (📎, camera on phones) or paste a screenshot; on a screen's page, the TV's latest screenshot.
+  const fileIn = h("input", { type: "file", accept: "image/*", style: "display:none", onchange: () => { if (fileIn.files[0]) addPic(fileIn.files[0]); fileIn.value = ""; } });
+  const clip = h("button", { type: "button", class: "help-clip", title: "Add a screenshot or photo", "aria-label": "Add a screenshot or photo", onclick: () => fileIn.click() }, "📎");
+  const picRow = h("div", { class: "help-pics" });
+  async function addPic(f) { try { helpPic = await helpShrink(f); drawPics(); input.focus(); } catch (e) { toast(e.message, true); } }
+  input.addEventListener("paste", e => { const f = [...(e.clipboardData || {}).files || []].find(x => /^image\//.test(x.type)); if (f) { e.preventDefault(); addPic(f); } });
+  function drawPics() {
+    const sid = helpScreenId();
+    picRow.replaceChildren(...[
+      sid ? h("label", { class: "check-row small help-tv" }, h("input", { type: "checkbox", checked: helpUseTv, onchange: e => { helpUseTv = e.target.checked; } }), "Show the AI this TV's latest screenshot") : null,
+      helpPic ? h("div", { class: "help-thumb" }, h("img", { src: helpPic, alt: "Picture to send" }),
+        h("button", { type: "button", title: "Remove picture", "aria-label": "Remove picture", onclick: () => { helpPic = null; drawPics(); } }, "×")) : null].filter(Boolean));
+    picRow.style.display = sid || helpPic ? "" : "none";
+  }
   panel = h("div", { id: "help-panel", role: "dialog", "aria-label": "Help" },
     h("div", { class: "help-head" }, h("strong", {}, "✨ Help"),
       h("button", { type: "button", class: "small", title: "Start over", onclick: () => { helpChat = []; helpKeep(); draw(); } }, "New chat"),
       h("button", { type: "button", class: "small help-x", title: "Close", "aria-label": "Close", onclick: () => panel.remove() }, "×")),
-    list, h("div", { class: "help-input" }, input, sendBtn), note);
+    list, picRow, h("div", { class: "help-input" }, clip, fileIn, input, sendBtn), note);
   document.body.append(panel);
   function draw() {
     const kids = [];
     if (!helpChat.length) {
       kids.push(h("div", { class: "help-msg bot" }, h("p", {}, "Hi! Ask me how to do anything in the portal: connecting TVs, playlists, designing screens, schedules, video walls, the TV app, and more.")));
-      const sug = HELP_SUGGEST[state.section] || HELP_SUGGEST.dashboard;
+      const sug = (HELP_SUGGEST[helpKey()] || HELP_SUGGEST.dashboard).concat(helpScreenId() ? ["What is this TV showing right now?"] : []);
       kids.push(h("div", { class: "help-sug" }, sug.map(q => h("button", { type: "button", class: "small", onclick: () => send(q) }, q))));
     }
-    helpChat.forEach(m => kids.push(m.role === "user" ? h("div", { class: "help-msg me" }, m.content)
+    helpChat.forEach(m => kids.push(m.role === "user" ? h("div", { class: "help-msg me" }, m.pics ? h("div", { class: "help-msg-pics small" }, m.pics) : null, m.content)
       : h("div", { class: "help-msg bot" + (m.error ? " err" : ""), html: m.error ? "" : helpHtml(m.content) }, m.error ? m.content : null)));
     if (helpBusy) kids.push(h("div", { class: "help-msg bot help-typing" }, h("span"), h("span"), h("span")));
     list.replaceChildren(...kids);
@@ -361,21 +403,27 @@ async function helpOpen() {
       : helpInfo ? "Answers come from AI and can be wrong. " + helpInfo.left + " questions left today." : "";
   }
   async function send(q) {
-    const question = (q || input.value).trim();
+    let question = (q || input.value).trim();
+    if (helpPic && !question) question = "What do you see here, and what should I do?";
     if (!question || helpBusy) return;
     input.value = "";
-    const history = helpChat.filter(m => !m.error).map(m => ({ role: m.role, content: m.content }));
-    helpChat.push({ role: "user", content: question }); helpBusy = true; draw();
+    // Earlier pictures aren't sent again (only a note), so each question costs about the same.
+    const history = helpChat.filter(m => !m.error).map(m => ({ role: m.role, content: (m.pics ? "[" + m.pics + "] " : "") + m.content }));
+    const sid = helpScreenId() && helpUseTv ? helpScreenId() : null, image = helpPic;
+    const pics = [image ? "📎 Picture attached" : null, sid ? "📺 TV screenshot" : null].filter(Boolean).join(" · ");
+    helpChat.push({ role: "user", content: question, pics: pics || undefined }); helpBusy = true; helpPic = null; drawPics(); draw();
     try {
-      const r = await api("POST", "/ai/help", { question, history, page: helpPageName() });
+      const r = await api("POST", "/ai/help", { question, history, page: helpPageName(), image: image || undefined, screenId: sid || undefined });
       helpChat.push({ role: "assistant", content: r.answer });
       if (helpInfo) helpInfo.left = r.left;
     } catch (e) {
-      helpChat.pop();
-      helpChat.push({ role: "user", content: question }, { role: "assistant", content: e.message || "Something went wrong. Try again.", error: true });
+      const mine = helpChat.pop();
+      helpChat.push(mine, { role: "assistant", content: e.message || "Something went wrong. Try again.", error: true });
+      if (image && !helpPic) { helpPic = image; drawPics(); }
     } finally { helpBusy = false; helpKeep(); if (panel.isConnected) draw(); }
   }
-  draw();
+  draw(); drawPics();
+  panel.redraw = () => { if (panel.isConnected) { draw(); drawPics(); } };
   input.focus();
   if (!helpInfo) { helpInfo = await api("GET", "/ai/help").catch(() => null); if (panel.isConnected) draw(); }
 }
