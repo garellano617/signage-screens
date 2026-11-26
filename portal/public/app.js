@@ -7,6 +7,11 @@
  */
 
 // ---------- helpers ----------
+// Pages pass null for optional parts (like h() allows); the browser's replaceChildren/append would print "null".
+for (const name of ["replaceChildren", "append", "prepend"]) {
+  const orig = Element.prototype[name];
+  Element.prototype[name] = function (...kids) { return orig.apply(this, kids.flat(Infinity).filter(k => k !== null && k !== undefined && k !== false)); };
+}
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
