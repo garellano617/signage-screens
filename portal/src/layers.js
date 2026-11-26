@@ -17,6 +17,8 @@ const numf = (v, min, max, d) => { const n = Math.round(Number(v) * 10) / 10; re
 const FONTS = ["sans", "serif", "condensed", "mono", "script"];
 const MAX_BLOCKS = 30;
 // How a text or picture comes in and goes out. small = small to big on the way in, big to small on the way out; big = the opposite.
+// Looks for a text or picture: glow, neon glow (flickers a little), shadow, shine (a light sweeps across), grow (gentle pulse).
+const TEXT_FX = ["none", "glow", "neon", "shadow", "shine", "grow"];
 const TRANSITIONS = ["none", "fade", "small", "big", "left", "right", "top", "bottom", "spin", "pop"];
 const time = v =>(/^([01]\d|2[0-3]):[0-5]\d$/.test(v || "") ? v : "");
 
@@ -85,7 +87,9 @@ function sanitizeLayers(input, checkImage) {
       enter: pick(b.enter, TRANSITIONS, "none"),
       exit: pick(b.exit, TRANSITIONS, "none"),
       // Transition length in seconds.
-      td: numf(b.td, 0.2, 5, 1)
+      td: numf(b.td, 0.2, 5, 1),
+      fx: pick(b.fx, TEXT_FX, "none"),
+      fxColor: color(b.fxColor, "#facc15")
     };
   }).filter(b => (b.kind === "text" ? b.text.trim() : b.mediaId));
   return {
@@ -154,4 +158,4 @@ function withImages(layers, getMedia) {
   return out;
 }
 
-module.exports = { TRANSITIONS, defaultLayers, sanitizeLayers, parseLayers, withImages, attachImage, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };
+module.exports = { TEXT_FX, TRANSITIONS, defaultLayers, sanitizeLayers, parseLayers, withImages, attachImage, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };

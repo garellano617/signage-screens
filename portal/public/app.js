@@ -694,6 +694,9 @@ const ENTER_LABELS = [["none", "None (just appears)"], ["fade", "Fade in"], ["sm
   ["left", "Slide in from the left"], ["right", "Slide in from the right"], ["top", "Drop down from the top"], ["bottom", "Rise up from the bottom"], ["spin", "Spin in"], ["pop", "Pop in (bounce)"]];
 const EXIT_LABELS = [["none", "None (just disappears)"], ["fade", "Fade out"], ["small", "Big → small (shrink away)"], ["big", "Small → big (grow away)"],
   ["left", "Slide out to the left"], ["right", "Slide out to the right"], ["top", "Fly up and out"], ["bottom", "Drop down and out"], ["spin", "Spin out"], ["pop", "Pop out"]];
+const TEXT_FX_LABELS = [["none", "None"], ["glow", "✨ Glow"], ["neon", "💡 Neon glow"], ["shadow", "🌑 Shadow"], ["shine", "🌟 Shine"], ["grow", "🔎 Grow (pulse)"]];
+// A good starting color for each look.
+const TEXT_FX_COLORS = { glow: "#facc15", neon: "#ec4899", shadow: "#000000", shine: "#fde047", grow: "#facc15" };
 const TD_OPTIONS = [[0.3, "0.3 s (fast)"], [0.5, "0.5 s"], [0.8, "0.8 s"], [1, "1 s"], [1.5, "1.5 s"], [2, "2 s"], [3, "3 s (slow)"]];
 const EVERY_OPTIONS = [[15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"], [45, "Every 45 seconds"], [60, "Every minute"], [120, "Every 2 minutes"], [300, "Every 5 minutes"]];
 const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
@@ -725,7 +728,9 @@ const TEXT_PRESETS = [
   ["Subheading", "A short subheading", { fs: 3.6, bold: true, bgOpacity: 0 }],
   ["Body text", "Add a little text", { fs: 2.2, bold: false, bgOpacity: 0 }],
   ["Price list", "Picanha      $11.99\nRib Eye      $10.99\nCostela       $9.99", { fs: 2.4, bold: true, font: "mono", bg: "#ffffff", bgOpacity: 85, color: "#111111" }],
-  ["Label", "SALE", { fs: 2.6, bold: true, bg: "#b91c1c", bgOpacity: 100 }]
+  ["Label", "SALE", { fs: 2.6, bold: true, bg: "#b91c1c", bgOpacity: 100 }],
+  ["Neon sign", "OPEN", { fs: 8, bold: true, bgOpacity: 0, color: "#ffffff", fx: "neon", fxColor: "#ec4899" }],
+  ["Glowing heading", "Happy Hour", { fs: 6, bold: true, bgOpacity: 0, color: "#fff7ed", fx: "glow", fxColor: "#f59e0b" }]
 ];
 const fmtT = sec => Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1007,6 +1012,16 @@ async function renderLayers(main, id, kind) {
   const tabsBar = h("div", { class: "ed-tabs" });
   const panel = h("div", { class: "ed-panel" });
   const side = h("div", { class: "card ed-side" }, tabsBar, panel);
+  function looksFields(b) {
+    const on = b.fx && b.fx !== "none";
+    return h("div", {},
+      h("div", { class: "small muted ed-cat" }, b.kind === "image" ? "Picture effect" : "Text effect"),
+      h("div", { class: "ed-fx" }, TEXT_FX_LABELS.map(([v, l]) => h("button", { type: "button", class: (b.fx || "none") === v ? "on" : "",
+        onclick: () => { if (b.fx !== v && TEXT_FX_COLORS[v]) b.fxColor = TEXT_FX_COLORS[v]; b.fx = v; change(); drawSide(); } }, l))),
+      on && b.fx !== "grow" ? h("div", { class: "colors" }, colorIn(b.fxColor || "#facc15", v => { b.fxColor = v; change(); },
+        b.fx === "shadow" ? "Shadow color" : b.fx === "shine" ? "Shine color" : "Glow color")) : null,
+      b.fx === "neon" && b.kind !== "image" ? h("p", { class: "small muted", style: "margin:.25rem 0 0" }, "Tip: neon looks best with white or light text and no box.") : null);
+  }
   function timingFields(b) {
     const len = T();
     const tracks = [...new Set(L.text.blocks.map(x => x.track || 0))].sort((a, c) => c - a);
@@ -1034,7 +1049,7 @@ async function renderLayers(main, id, kind) {
     const kids = [];
     if (tab === "media") {
       const b = isSel("block") && L.text.blocks[sel.i].kind === "image" ? L.text.blocks[sel.i] : null;
-      if (b) kids.push(h("div", { class: "sub-item" }, h("strong", { class: "small" }, "Selected picture"), timingFields(b)));
+      if (b) kids.push(h("div", { class: "sub-item" }, h("strong", { class: "small" }, "Selected picture"), looksFields(b), timingFields(b)));
       if (b) kids.push(h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: chainNext, onchange: e => { chainNext = e.target.checked; drawSide(); } }),
         "Add the next picture after this one (same spot, same row: a slideshow)"));
       kids.push(h("p", { class: "small muted" }, b && chainNext ? "Click a picture to show it after the selected one." : "Click a picture to place it on the screen (logos, food photos, price boards)."));
@@ -1047,7 +1062,7 @@ async function renderLayers(main, id, kind) {
       if (b) {
         kids.push(h("div", { class: "sub-item" },
           field("Selected text", h("textarea", { rows: 4, maxlength: 600, oninput: e => { b.text = e.target.value; change(); } }, b.text)),
-          timingFields(b)));
+          looksFields(b), timingFields(b)));
       }
       kids.push(h("div", { class: "ed-presets" }, h("div", { class: "small muted", style: "margin-bottom:.4rem" }, "Add text"),
         TEXT_PRESETS.map(([label, text, st]) => h("button", { type: "button", onclick: () => addBlock(Object.assign({ text }, st)) },

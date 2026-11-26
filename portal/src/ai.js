@@ -2,7 +2,7 @@
 // AI screen designer: Claude writes a screen design (layers) or the words for an existing one.
 // Off unless ANTHROPIC_API_KEY is set. Every request costs money, so each client has a daily limit (AI_DAILY_LIMIT).
 const { z } = require("zod");
-const { REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS, TRANSITIONS } = require("./layers");
+const { REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS, TRANSITIONS, TEXT_FX } = require("./layers");
 
 const MODEL = "claude-opus-5-5";
 let client = null;
@@ -46,7 +46,9 @@ const Design = z.object({
       track: z.number().describe("Timeline row, 0 and up. Blocks on the same row take turns; overlapping them by a second makes a smooth transition"),
       enter: z.enum(TRANSITIONS).describe("Entrance: small = grows from small to full size, big = shrinks from big, left/right/top/bottom = slides in from that side, spin, pop = bounces in"),
       exit: z.enum(TRANSITIONS).describe("Exit: small = shrinks away, big = grows away, left/right/top/bottom = slides out that side"),
-      td: z.number().describe("Transition length in seconds, 0.3 to 2")
+      td: z.number().describe("Transition length in seconds, 0.3 to 2"),
+      fx: z.enum(TEXT_FX).describe("Look: glow, neon = neon sign glow (white or light text), shadow, shine = light sweeps across, grow = gentle pulse. Mostly none"),
+      fxColor: hex.describe("Color of the glow, neon or shadow")
     })),
     ticker: z.object({ enabled: z.boolean(), text: z.string(), position: z.enum(["top", "bottom"]), speed: z.enum(["slow", "normal", "fast"]),
       size: z.enum(SIZES), color: hex, bg: hex })

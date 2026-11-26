@@ -73,6 +73,39 @@
     return { o: 1, t: "" };
   }
 
+  /** Glow, neon, shadow, shine or grow on a text or picture block (b.fx, colored b.fxColor). */
+  function textFx(t, b) {
+    var c = b.fxColor || "#facc15", img = t.querySelector("img");
+    t.className += " so-fx-" + b.fx;
+    if (b.fx === "glow" || b.fx === "neon" || b.fx === "shadow") {
+      if (img) {
+        img.style.filter = b.fx === "shadow" ? "drop-shadow(.4em .4em .35em " + c + ")"
+          : b.fx === "glow" ? "drop-shadow(0 0 .3em " + c + ") drop-shadow(0 0 .8em " + c + ")"
+          : "drop-shadow(0 0 .15em #fff) drop-shadow(0 0 .4em " + c + ") drop-shadow(0 0 1em " + c + ")";
+      } else {
+        t.style.textShadow = b.fx === "shadow" ? ".06em .06em 0 " + c + ", .1em .12em .3em rgba(0,0,0,.6)"
+          : b.fx === "glow" ? "0 0 .1em " + c + ", 0 0 .3em " + c + ", 0 0 .6em " + c
+          : "0 0 .04em #fff, 0 0 .1em " + c + ", 0 0 .25em " + c + ", 0 0 .5em " + c + ", 0 0 1em " + c;
+      }
+      return;
+    }
+    // Shine and grow animate an inner wrapper, so they don't fight the block's position or its transitions.
+    var inner = el(img ? "div" : "span", "so-fx-in");
+    while (t.firstChild) inner.appendChild(t.firstChild);
+    t.appendChild(inner);
+    if (b.fx === "shine" && !img) {
+      var col = b.color || "#ffffff";
+      inner.style.backgroundImage = "linear-gradient(110deg, " + col + " 42%, " + c + " 50%, " + col + " 58%)";
+    }
+    if (b.fx === "shine" && img) {
+      // The light band stays inside the picture (not over its see-through parts).
+      var m = "url(\"" + String(img.src).replace(/"/g, "%22") + "\")";
+      inner.style.webkitMaskImage = m; inner.style.maskImage = m;
+      inner.style.webkitMaskSize = "100% 100%"; inner.style.maskSize = "100% 100%";
+      inner.appendChild(el("span", "so-fx-band"));
+    }
+  }
+
   function render(root, layers, opts) {
     opts = opts || {};
     var resolveImage = opts.resolveImage || function (sp) { return sp.image ? sp.image.src : null; };
@@ -155,10 +188,11 @@
           if (b.italic) t.style.fontStyle = "italic";
           t.style.fontFamily = FONTS[b.font] || FONTS.sans;
           t.style.color = b.color;
-          if (!b.bgOpacity) t.style.textShadow = "0 0.08em 0.3em rgba(0,0,0,.7)";
+          if (!b.bgOpacity && (!b.fx || b.fx === "none" || b.fx === "shine" || b.fx === "grow")) t.style.textShadow = "0 0.08em 0.3em rgba(0,0,0,.7)";
           if (b.w) { t.style.width = b.w + "em"; t.style.maxWidth = "none"; }
         }
         if (b.align) t.style.textAlign = b.align;
+        if (b.fx && b.fx !== "none") textFx(t, b);
         t.style.background = rgba(b.bg, b.bgOpacity || 0);
         if (free) { t.style.left = b.x + "%"; t.style.top = b.y + "%"; }
         else {

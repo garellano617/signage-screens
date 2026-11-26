@@ -47,3 +47,15 @@
 
 /* effects */
 .so-effects { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; z-index: 3; }
+
+/* text and picture looks */
+.so-fx-in { display: inline-block; }
+.so-image .so-fx-in { display: block; position: relative; overflow: hidden; }
+.so-fx-grow .so-fx-in { animation: so-grow 2.4s ease-in-out infinite; }
+.so-fx-neon { animation: so-flicker 5s linear infinite; }
+.so-fx-shine span.so-fx-in { text-shadow: none; filter: drop-shadow(0 .06em .15em rgba(0,0,0,.55)); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; animation: so-shine 3s linear infinite; }
+.so-fx-band { position: absolute; top: 0; bottom: 0; left: 0; width: 35%; background: linear-gradient(110deg, rgba(255,255,255,0), rgba(255,255,255,.55), rgba(255,255,255,0)); animation: so-band 3s ease-in-out infinite; }
+@keyframes so-grow { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+@keyframes so-shine { 0% { background-position: 100% 0; } 60%, 100% { background-position: 0 0; } }
+@keyframes so-band { 0% { transform: translateX(-120%); } 60%, 100% { transform: translateX(320%); } }
+@keyframes so-flicker { 0%, 18%, 20%, 22%, 62%, 64%, 100% { filter: brightness(1); } 19%, 21%, 63% { filter: brightness(.55); } }
