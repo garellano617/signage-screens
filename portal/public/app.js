@@ -1263,6 +1263,76 @@ async function renderLayers(main, id, kind) {
     change(); drawSide();
   }
 
+  // ---------- spacing (letter spacing sideways, line spacing up and down) ----------
+  // For the whole text, or only the part highlighted in the "Selected text" box.
+  let spacingOpen = false, textBox = null;
+  const NORMAL_LH = 1.2;
+  /** The highlighted part of the selected text: { s, e } character positions, or null for the whole text. */
+  function textRange(b) {
+    if (!textBox || !textBox.isConnected || textBox.dataset.i !== String(sel && sel.i)) return null;
+    const s = textBox.selectionStart, e = textBox.selectionEnd;
+    return e > s && b.text.slice(s, e).trim() ? { s, e } : null;
+  }
+  const lineOf = (text, pos) => text.slice(0, pos).split("\n").length - 1;
+  /** Letter spacing for part of the text: replaces whatever was set for those letters. */
+  function setRun(b, s, e, ls) {
+    const out = [];
+    (b.runs || []).forEach(r => {
+      if (r.e <= s || r.s >= e) return out.push(r);
+      if (r.s < s) out.push({ s: r.s, e: s, ls: r.ls });
+      if (r.e > e) out.push({ s: e, e: r.e, ls: r.ls });
+    });
+    if (ls !== (b.ls || 0)) out.push({ s, e, ls });
+    b.runs = out.sort((a, c) => a.s - c.s);
+  }
+  /** After typing in the text: keep each part's spacing on the same letters / lines. */
+  function remapSpacing(b, a, z) {
+    if (!(b.runs && b.runs.length) && !(b.llh && b.llh.some(Boolean))) return;
+    let p = 0; while (p < a.length && p < z.length && a[p] === z[p]) p++;
+    let q = 0; while (q < a.length - p && q < z.length - p && a[a.length - 1 - q] === z[z.length - 1 - q]) q++;
+    const d = z.length - a.length, endOld = a.length - q;
+    const mv = x => x <= p ? x : x >= endOld ? x + d : Math.min(x, z.length - q);
+    b.runs = (b.runs || []).map(r => ({ s: mv(r.s), e: mv(r.e), ls: r.ls })).filter(r => r.e > r.s);
+    const nl = t => t.split("\n").length - 1, dl = nl(z) - nl(a), at = lineOf(a, p) + 1;
+    if (dl > 0) (b.llh = b.llh || []).splice(at, 0, ...Array(dl).fill(null));
+    else if (dl < 0 && b.llh) b.llh.splice(at, -dl);
+  }
+  function spacingPanel(b) {
+    const r = textRange(b);
+    const lines = r ? [lineOf(b.text, r.s), lineOf(b.text, r.e - 1)] : null;
+    const runAt = r && (b.runs || []).find(x => x.s <= r.s && x.e > r.s);
+    const lsNow = r ? (runAt ? runAt.ls : b.ls || 0) : b.ls || 0;
+    const lhNow = r ? ((b.llh || [])[lines[0]] || b.lh || NORMAL_LH) : b.lh || NORMAL_LH;
+    const show = (v, unit) => h("span", { class: "sp-val" }, unit === "×" ? Number(v).toFixed(2) : (v > 0 ? "+" : "") + Math.round(v * 100));
+    const lsVal = show(lsNow), lhVal = show(lhNow, "×");
+    const slider = (min, max, step, value, oninput) => h("input", { type: "range", min, max, step, value, oninput });
+    const preview = r ? b.text.slice(r.s, r.e).replace(/\s+/g, " ").trim() : "";
+    return h("div", { class: "sp-pop" },
+      h("div", { class: "sp-scope small" }, r
+        ? [h("strong", {}, "Only the highlighted part: "), "“" + (preview.length > 30 ? preview.slice(0, 30) + "…" : preview) + "”",
+          h("button", { type: "button", class: "small", onclick: () => { textBox.setSelectionRange(0, 0); drawToolbar(); } }, "Use the whole text")]
+        : [h("strong", {}, "Whole text. "), h("span", { class: "muted" }, "To change only part of it, highlight that part in the “Selected text” box on the left.")]),
+      h("label", { class: "sp-row" }, h("span", {}, "↔ Letter spacing"),
+        slider(-0.1, 1, 0.01, lsNow, e => {
+          const v = Number(e.target.value);
+          if (r) setRun(b, r.s, r.e, v); else b.ls = v;
+          lsVal.textContent = (v > 0 ? "+" : "") + Math.round(v * 100); change();
+        }), lsVal),
+      h("label", { class: "sp-row" }, h("span", {}, "↕ Line spacing" + (r && lines[1] > lines[0] ? " (lines " + (lines[0] + 1) + "–" + (lines[1] + 1) + ")" : r ? " (line " + (lines[0] + 1) + ")" : "")),
+        slider(0.6, 3, 0.02, lhNow, e => {
+          const v = Number(e.target.value);
+          if (r) { b.llh = b.llh || []; for (let l = lines[0]; l <= lines[1]; l++) b.llh[l] = Math.abs(v - (b.lh || NORMAL_LH)) < 0.005 ? null : v; }
+          else b.lh = Math.abs(v - NORMAL_LH) < 0.005 ? 0 : v;
+          lhVal.textContent = v.toFixed(2); change();
+        }), lhVal),
+      h("div", { class: "sp-acts" },
+        h("button", { type: "button", class: "small", onclick: () => {
+          if (r) { setRun(b, r.s, r.e, b.ls || 0); if (b.llh) for (let l = lines[0]; l <= lines[1]; l++) b.llh[l] = null; }
+          else { b.ls = 0; b.lh = 0; b.runs = []; b.llh = []; }
+          change(); drawToolbar();
+        } }, r ? "Reset this part" : "Reset all spacing")));
+  }
+
   // ---------- toolbar ----------
   const toolbar = h("div", { class: "card ed-toolbar" });
   const tbBtn = (label, on, onclick, title) => h("button", { type: "button", class: "small" + (on ? " on" : ""), title: title || label, onclick }, label);
@@ -1296,7 +1366,9 @@ async function renderLayers(main, id, kind) {
           colorIn(b.bg, v => { b.bg = v; if (!b.bgOpacity) { b.bgOpacity = 100; drawToolbar(); } change(); }, "Box"),
           h("label", { class: "tb-num", title: "Box opacity" }, "Box", h("input", { type: "range", min: 0, max: 100, value: b.bgOpacity, style: "width:80px", oninput: upd(e => { b.bgOpacity = Number(e.target.value); }) })),
           h("label", { class: "tb-num", title: "Width in % of the screen (0 = fit the text)" }, "Width", h("input", { type: "number", min: 0, max: 100, step: 1, value: b.w || 0,
-            oninput: upd(e => { b.w = clampN(Number(e.target.value) || 0, 0, 100); }) })));
+            oninput: upd(e => { b.w = clampN(Number(e.target.value) || 0, 0, 100); }) })),
+          tbBtn("↔↕ Spacing", spacingOpen, () => { spacingOpen = !spacingOpen; drawToolbar(); }, "Letter spacing (sideways) and line spacing (up and down)"));
+        if (spacingOpen) kids.push(spacingPanel(b));
       } else {
         kids.push(h("strong", { class: "small" }, "Picture"),
           h("label", { class: "tb-num", title: "Width in % of the screen" }, "Width", h("input", { type: "range", min: 3, max: 100, value: b.w || 30, style: "width:120px",
@@ -1500,7 +1572,12 @@ async function renderLayers(main, id, kind) {
       const b = isSel("block") && L.text.blocks[sel.i].kind === "text" ? L.text.blocks[sel.i] : null;
       if (b) {
         kids.push(h("div", { class: "sub-item" },
-          field("Selected text", h("textarea", { rows: 4, maxlength: 600, oninput: e => { b.text = e.target.value; change(); } }, b.text)),
+          field("Selected text", textBox = h("textarea", { rows: 4, maxlength: 600, "data-i": String(sel.i),
+            oninput: e => { const old = b.text; b.text = e.target.value; remapSpacing(b, old, b.text); change(); },
+            // Highlighting part of the text: the Spacing sliders then change only that part.
+            onselect: () => { if (spacingOpen) drawToolbar(); },
+            onkeyup: () => { if (spacingOpen) drawToolbar(); },
+            onmouseup: () => { if (spacingOpen) setTimeout(drawToolbar, 0); } }, b.text)),
           looksFields(b), timingFields(b)));
       }
       kids.push(h("div", { class: "ed-presets" }, h("div", { class: "small muted", style: "margin-bottom:.4rem" }, "Add text"),

@@ -86,6 +86,12 @@ function sanitizeLayers(input, checkImage) {
       track: num(b.track, 0, 49, Math.min(49, index)),
       // Locked group (0 = none): the timeline moves and stretches the group's bars together.
       grp: num(b.grp, 0, 999, 0),
+      // Spacing (text): letter spacing in em and line spacing (0 = normal) for the whole text; letter spacing for
+      // parts (character positions s..e) and line spacing per line (null = the text's own).
+      ls: kind === "text" ? numf(b.ls, -0.2, 2, 0) : 0,
+      lh: kind === "text" ? (v => (v && v < 0.5 ? 0.5 : v))(numf(b.lh, 0, 4, 0)) : 0,
+      runs: kind === "text" && Array.isArray(b.runs) ? b.runs.slice(0, 60).map(r => ({ s: num(r && r.s, 0, 600, 0), e: num(r && r.e, 0, 600, 0), ls: numf(r && r.ls, -0.2, 2, 0) })).filter(r => r.e > r.s) : [],
+      llh: kind === "text" && Array.isArray(b.llh) ? b.llh.slice(0, 100).map(v => (v === null || v === undefined || v === "" || !Number(v) ? null : numf(v, 0.5, 4, 1.2))) : [],
       // Stacking: true = over the Specials panel (and over the pictures/text under it). Order among blocks = list order.
       above: !!b.above,
       enter: pick(b.enter, TRANSITIONS, "none"),

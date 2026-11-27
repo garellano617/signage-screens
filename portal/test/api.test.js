@@ -953,6 +953,13 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   // Over / under the Specials panel.
   const st = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "a", above: true }, { kind: "text", text: "b" }, { kind: "text", text: "c", above: "yes" }] } }, () => true).text.blocks;
   assert.deepEqual(st.map(b => b.above), [true, false, true]);
+  // Spacing: whole text, parts (letter spacing) and lines (line spacing), cleaned.
+  const sp = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "Feliz Navidad\na todos", ls: 9, lh: 0.1,
+    runs: [{ s: 6, e: 13, ls: 0.4 }, { s: 5, e: 2, ls: 1 }, "x"], llh: [null, 1.6, "abc", 99] }] } }, () => true).text.blocks[0];
+  assert.equal(sp.ls, 2);
+  assert.equal(sp.lh, 0.5);
+  assert.deepEqual(sp.runs, [{ s: 6, e: 13, ls: 0.4 }]);
+  assert.deepEqual(sp.llh, [null, 1.6, null, 4]);
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {

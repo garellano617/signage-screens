@@ -59,3 +59,4 @@
 @keyframes so-shine { 0% { background-position: 100% 0; } 60%, 100% { background-position: 0 0; } }
 @keyframes so-band { 0% { transform: translateX(-120%); } 60%, 100% { transform: translateX(320%); } }
 @keyframes so-flicker { 0%, 18%, 20%, 22%, 62%, 64%, 100% { filter: brightness(1); } 19%, 21%, 63% { filter: brightness(.55); } }
+.so-line { display: block; }

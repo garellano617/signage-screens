@@ -79,6 +79,45 @@
   function em(v, k) { return Math.round(v * k * 1000) / 1000 + "em"; }
 
   /** Glow, neon, shadow, shine or grow on a text or picture block (b.fx, colored b.fxColor). */
+  /**
+   * A text block's words with its spacing: b.ls letter spacing (em) and b.lh line spacing for the whole text;
+   * b.runs [{ s, e, ls }] letter spacing for parts (character positions); b.llh [line spacing or null per line].
+   */
+  function fillText(t, b) {
+    var text = b.text || "";
+    if (b.ls) t.style.letterSpacing = b.ls + "em";
+    if (b.lh) t.style.lineHeight = String(b.lh);
+    var runs = (b.runs || []).filter(function (r) { return r && r.e > r.s; });
+    var llh = b.llh || [];
+    var anyLine = false;
+    for (var k = 0; k < llh.length; k++) if (llh[k]) anyLine = true;
+    if (!runs.length && !anyLine) { t.textContent = text; return; }
+    var pos = 0;
+    text.split("\n").forEach(function (line, li) {
+      var ln = el("span", "so-line");
+      if (llh[li]) ln.style.lineHeight = String(llh[li]);
+      var start = pos, end = pos + line.length, cuts = [start, end];
+      runs.forEach(function (r) {
+        if (r.s > start && r.s < end) cuts.push(r.s);
+        if (r.e > start && r.e < end) cuts.push(r.e);
+      });
+      cuts.sort(function (a, c) { return a - c; });
+      for (var i = 0; i < cuts.length - 1; i++) {
+        var a = cuts[i], z = cuts[i + 1];
+        if (z <= a) continue;
+        var run = null;
+        runs.forEach(function (r) { if (r.s <= a && r.e >= z) run = r; });
+        var seg = text.slice(a, z);
+        if (run) { var sp = el("span", "", seg); sp.style.letterSpacing = run.ls + "em"; ln.appendChild(sp); }
+        else ln.appendChild(document.createTextNode(seg));
+      }
+      // An empty line still takes its height.
+      if (!line.length) ln.appendChild(document.createTextNode("​"));
+      t.appendChild(ln);
+      pos = end + 1;
+    });
+  }
+
   function textFx(t, b) {
     var c = b.fxColor || "#facc15", img = t.querySelector("img"), k = shadowScale(b);
     t.className += " so-fx-" + b.fx;
@@ -188,7 +227,7 @@
           t.appendChild(im);
           t.style.width = (b.w || 30) + "em";
         } else {
-          t.textContent = b.text;
+          fillText(t, b);
           t.style.fontSize = (b.fs || SIZE[b.size] || SIZE.m) + "em";
           t.style.fontWeight = b.bold ? "700" : "400";
           if (b.italic) t.style.fontStyle = "italic";
