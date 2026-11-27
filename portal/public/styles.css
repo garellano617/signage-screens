@@ -495,3 +495,7 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .ed-widgets .mini { width: 80px; height: 45px; border-radius: 4px; overflow: hidden; position: relative; }
 .ed-newwidgets { display: flex; flex-wrap: wrap; gap: .35rem; }
 .ed-frame.box .ed-h-w, .ed-frame.box .ed-h-e, .ed-frame.box .ed-h-n, .ed-frame.box .ed-h-s { display: block; }
+
+/* Timeline: + button on the Widgets section. */
+.tl-add { margin-left: .35rem; padding: 0 .4rem; min-height: 0; height: 1.3rem; font-size: .85rem; line-height: 1; border-radius: 4px; }
+.tl-image.tl-widget { background: #0d9488; }

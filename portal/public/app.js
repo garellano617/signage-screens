@@ -1952,7 +1952,8 @@ async function renderLayers(main, id, kind) {
       if (mode === "move") {
         // Up or down: onto another timeline row.
         const hit = document.elementFromPoint(ev.clientX, ev.clientY);
-        const r = hit && hit.closest(".tl-row[data-track]");
+        const r0 = hit && hit.closest(".tl-row[data-track]");
+        const r = r0 && r0.dataset.section === (b.kind === "widget" ? "widgets" : "main") ? r0 : null;
         if (dropRow && dropRow !== r) dropRow.classList.remove("tl-drop");
         dropRow = r && Number(r.dataset.track) !== (b.track || 0) ? r : null;
         if (dropRow) dropRow.classList.add("tl-drop");
@@ -2007,13 +2008,16 @@ async function renderLayers(main, id, kind) {
     rows.push(row("Text & pictures", null, L.text.enabled, v => { L.text.enabled = v; }, [], true));
     // One timeline row per track; several texts or pictures can share a row and take turns.
     const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : b.kind === "shape" ? "◆ " + shapeLabel(b) : b.kind === "widget" ? "🧩 " + widgetLabel(b) : (b.text.split("\n")[0] || "Text");
-    const tracks = [...new Set(L.text.blocks.map(b => b.track || 0))].sort((a, c) => c - a);
+    // Widgets have their own section (and their own rows) below the text and pictures.
+    const isW = b => b.kind === "widget";
+    const trackRows = (section, inSection) => {
+    const tracks = [...new Set(L.text.blocks.filter(inSection).map(b => b.track || 0))].sort((a, c) => c - a);
     for (const tr of tracks) {
-      const idx = L.text.blocks.map((b, i) => i).filter(i => (L.text.blocks[i].track || 0) === tr);
+      const idx = L.text.blocks.map((b, i) => i).filter(i => (L.text.blocks[i].track || 0) === tr && inSection(L.text.blocks[i]));
       const clips = [];
       idx.forEach(i => {
         const b = L.text.blocks[i], from = b.from || 0, to = b.to || len, label = blockLabel(b);
-        const bar = tlClip((b.kind === "text" ? "tl-text" : "tl-image") + (L.text.enabled ? "" : " off") + (isSelB(i) ? " sel" : "") + (b.grp ? " tl-grp" : ""),
+        const bar = tlClip((b.kind === "text" ? "tl-text" : b.kind === "widget" ? "tl-image tl-widget" : "tl-image") + (L.text.enabled ? "" : " off") + (isSelB(i) ? " sel" : "") + (b.grp ? " tl-grp" : ""),
           from, to, (b.locked ? "📌 " : "") + (b.grp ? "🔒 " : "") + label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
         bar.dataset.i = i;
         if (b.grp) bar.style.setProperty("--gh", String((b.grp * 67) % 360));
@@ -2030,19 +2034,32 @@ async function renderLayers(main, id, kind) {
         const o0 = spans[k][0], o1 = Math.min(spans[k - 1][1], spans[k][1]);
         if (o1 > o0) clips.push(tlClip("tl-overlap", o0, o1, "", len, { title: "Transition: these overlap for " + Math.round((o1 - o0) * 10) / 10 + " s" }));
       }
-      const name = idx.length === 1 ? blockLabel(L.text.blocks[idx[0]]) : idx.length + " " + (idx.every(i => L.text.blocks[i].kind === "image") ? "pictures" : "items");
+      const name = idx.length === 1 ? blockLabel(L.text.blocks[idx[0]]) : idx.length + " " + (idx.every(i => L.text.blocks[i].kind === "image") ? "pictures" : idx.every(i => isW(L.text.blocks[i])) ? "widgets" : "items");
       const r = row(name, null, false, null, clips);
-      r.dataset.track = tr;
+      r.dataset.track = tr; r.dataset.section = section;
       r.querySelector(".tl-name").addEventListener("click", () => {
         const cur = isSel("block") ? idx.indexOf(sel.i) : -1;
         select({ type: "block", i: idx[(cur + 1) % idx.length] });
       });
       rows.push(r);
     }
-    if (!L.text.blocks.length) rows.push(row("", null, false, null, [h("span", { class: "tl-empty" }, "Empty. Add text or pictures in the Text tab.")]));
+    };
+    trackRows("main", b => !isW(b));
+    if (!L.text.blocks.some(b => !isW(b))) rows.push(row("", null, false, null, [h("span", { class: "tl-empty" }, "Empty. Add text, pictures or shapes in their tabs.")]));
     else {
       const r = row("+ New row", null, false, null, [h("span", { class: "tl-empty" }, "Drag a bar here to give it a row of its own.")]);
-      r.dataset.track = nextTrack(); r.classList.add("tl-newrow");
+      r.dataset.track = nextTrack(); r.dataset.section = "main"; r.classList.add("tl-newrow");
+      rows.push(r);
+    }
+    // Widgets: drag a bar anywhere on its row to set when it shows; drag its ends to make it longer or shorter.
+    const wHead = row("Widgets", null, false, null, [], true);
+    wHead.querySelector(".tl-name").append(h("button", { type: "button", class: "tl-add", title: "Put a widget on the screen", onclick: e => { e.stopPropagation(); tab = "widgets"; drawSide(); } }, "+"));
+    rows.push(wHead);
+    trackRows("widgets", isW);
+    if (!L.text.blocks.some(isW)) rows.push(row("", null, false, null, [h("span", { class: "tl-empty" }, "No widgets yet. Tap + (or the Widgets tab) to put a clock, the weather, news… on the screen.")]));
+    else {
+      const r = row("+ New row", null, false, null, [h("span", { class: "tl-empty" }, "Drag a widget's bar here to give it a row of its own.")]);
+      r.dataset.track = nextTrack(); r.dataset.section = "widgets"; r.classList.add("tl-newrow");
       rows.push(r);
     }
     const tk = L.text.ticker;
