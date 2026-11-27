@@ -52,6 +52,7 @@ Clock (digital or analog, 12/24 hours, date), weather (no account needed), news 
 - **Settings:** name, location, notes, main playlist (or a Channel), orientation (landscape, portrait rotated left/right, landscape upside down), volume, "Show name on TV". Click **Save settings**.
 - **Schedule:** play different playlists at different days and times (for example a breakfast menu 6–11 am on weekdays). With no schedule the screen always plays its main playlist. Click **Save schedule**.
 - **Design layers:** opens the designer (see below).
+- **Picture quality** (in the device details): what the TV plays at: **4K**, **2K** (1440p) or **Full HD**. The app picks the best the TV and box can handle (the TV panel, the box's video chip and memory) and switches the TV's output to it. Rotated (portrait) screens and video walls play at the box's normal app size (often Full HD). For 4K, upload 3840×2160 pictures and 4K MP4 videos; on a Full HD box they're shown at Full HD automatically.
 - **Live view / screenshot:** ask the TV for a screenshot; it appears within about 30 seconds.
 - **Remote control** (reaches the TV at its next check-in, within 30 seconds; if offline it runs when the TV reconnects): Reload content, Clear cache & re-download, Restart app, Identify (the screen name flashes on the TV).
 
@@ -130,5 +131,5 @@ The **? Help** button (bottom right of every page) answers questions about the p
 - **The TV shows a code again:** the screen was removed or replaced in the portal; add it again with Screens → Add screen.
 - **A video doesn't play or stutters:** use MP4 (H.264), 1080p. Very big files take time to download first.
 - **A web page is blank:** some websites refuse to be shown inside other apps; use a screenshot picture or a widget instead.
-- **Text looks blurry or blocky on a big 4K TV:** many TV sticks draw everything except video at 1080p or 720p. Keep effects like neon on medium-size text, and use the newest player app.
+- **Text looks blurry or blocky on a big 4K TV:** many TV sticks draw their apps at 1080p or 720p. Videos and pictures play at 4K when the box can (see Picture quality), but text and effects on top are drawn at the box's app size. Keep effects like neon on medium-size text, and use the newest player app.
 - **The app keeps closing on a TV:** staff can see the error under Download App → App problems reported by TVs; send it to whoever maintains the app.

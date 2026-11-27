@@ -10,6 +10,8 @@ import android.net.Uri
 import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.os.Build
+import android.view.SurfaceView
 import android.view.View
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -79,6 +81,47 @@ class PlaybackEngine(
     var wall: Wall? = null
     private val videoLengths = HashMap<String, Long>()
 
+    // ---------- 4K / 2K ----------
+    /** What this device can show (set by MainActivity before playing). */
+    var caps: DeviceCaps? = null
+    /** Rotated (portrait) screens draw in the window: surfaces can't be rotated. */
+    var rotated = false
+    /** Video and pictures go on their own full-resolution surfaces when the window is smaller than the chosen quality. */
+    private fun useSurfaces() = caps?.needsSurfaces == true && !rotated && wall == null
+    private fun hiScale(): Float = caps?.let { it.tier.toFloat() / minOf(it.uiW, it.uiH).coerceAtLeast(1) } ?: 1f
+    private var surfacePlayerView: PlayerView? = null
+    private var hiImage: HiResImage? = null
+    private var attachedView: PlayerView? = null
+
+    private fun surfacePlayer(): PlayerView = surfacePlayerView ?: (LayoutInflater.from(activity).inflate(R.layout.player_view_surface, stage, false) as PlayerView).also {
+        it.visibility = View.GONE
+        stage.addView(it, 0, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        surfacePlayerView = it
+    }
+
+    private fun hiResImage(): HiResImage = hiImage ?: HiResImage(activity) { hiScale() }.also {
+        it.visibility = View.GONE
+        stage.addView(it, 0, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        hiImage = it
+    }
+
+    /** The view the video plays in now: full-resolution surface, or the normal one (rotation, walls, screenshots). */
+    private fun videoView(p: ExoPlayer): PlayerView {
+        val target = if (useSurfaces()) surfacePlayer() else playerView
+        if (attachedView !== target) {
+            PlayerView.switchTargetView(p, attachedView, target)
+            attachedView = target
+        }
+        return target
+    }
+
+    /** The full-resolution surface on screen now, if any (screenshots copy it separately). */
+    fun visibleSurface(): SurfaceView? {
+        hiImage?.let { if (it.visibility == View.VISIBLE) return it }
+        surfacePlayerView?.let { if (it.visibility == View.VISIBLE) return it.videoSurfaceView as? SurfaceView }
+        return null
+    }
+
     init {
         val mp = FrameLayout.LayoutParams.MATCH_PARENT
         for (v in listOf(image, playerView, idle)) {
@@ -112,6 +155,7 @@ class PlaybackEngine(
         job?.cancel()
         player?.release()
         player = null
+        attachedView = null
         web?.destroy()
         web = null
         widgetWeb?.destroy()
@@ -158,6 +202,11 @@ class PlaybackEngine(
     }
 
     private suspend fun playImage(file: File, seconds: Int): Boolean {
+        if (useSurfaces() && playImageHiRes(file)) {
+            player?.stop()
+            delay(seconds * 1000L)
+            return true
+        }
         val w = stage.width.takeIf { it > 0 } ?: 1920
         val h = stage.height.takeIf { it > 0 } ?: 1080
         val bmp = withContext(Dispatchers.IO) { decodeScaled(file, w, h) } ?: run {
@@ -174,18 +223,45 @@ class PlaybackEngine(
         return true
     }
 
-    private fun decodeScaled(file: File, reqW: Int, reqH: Int): Bitmap? {
+    /** A picture at the chosen quality (e.g. 4K) on its own surface. false = use the normal way. */
+    private suspend fun playImageHiRes(file: File): Boolean {
+        val hi = hiResImage()
+        val k = hiScale()
+        val w = Math.round((stage.width.takeIf { it > 0 } ?: 1920) * k)
+        val h = Math.round((stage.height.takeIf { it > 0 } ?: 1080) * k)
+        val bmp = withContext(Dispatchers.IO) {
+            try {
+                // Android 8+: the picture lives in graphics memory, not the app's (a 4K picture is ~33 MB).
+                decodeScaled(file, w, h, hardware = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            } catch (e: OutOfMemoryError) {
+                Log.w(TAG, "Not enough memory for a full-resolution picture; using the normal size", e)
+                null
+            }
+        } ?: return false
+        hi.show(bmp)?.let { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) it.recycle() }
+        show(hi)
+        // Free the normal-size picture, if one was showing.
+        currentBitmap?.let { image.setImageDrawable(null); it.recycle() }
+        currentBitmap = null
+        return true
+    }
+
+    private fun decodeScaled(file: File, reqW: Int, reqH: Int, hardware: Boolean = false): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         if (bounds.outWidth <= 0) return null
         var sample = 1
         while (bounds.outWidth / (sample * 2) >= reqW && bounds.outHeight / (sample * 2) >= reqH) sample *= 2
-        return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+        return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply {
+            inSampleSize = sample
+            if (hardware && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) inPreferredConfig = Bitmap.Config.HARDWARE
+        })
     }
 
     private fun ensurePlayer(): ExoPlayer = player ?: ExoPlayer.Builder(activity).build().also {
         player = it
         playerView.player = it
+        attachedView = playerView
     }
 
     // ---------- video wall ----------
@@ -325,7 +401,7 @@ class PlaybackEngine(
             if (failed) return false
             val wait = start + target - ServerClock.now()
             if (wait > 0) delay(wait) else p.seekTo(ServerClock.now() - start)
-            show(playerView)
+            show(videoView(p))
             p.play()
             while (ServerClock.now() < end - 150) {
                 if (failed) return false
@@ -348,12 +424,13 @@ class PlaybackEngine(
 
     private suspend fun playVideo(file: File): Boolean {
         val p = ensurePlayer()
+        val view = videoView(p)
         p.volume = volume
         p.repeatMode = Player.REPEAT_MODE_OFF
         p.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
         p.prepare()
         p.play()
-        show(playerView)
+        show(view)
         var ok = true
         // Safety limit so a stuck video can't freeze the screen forever.
         withTimeoutOrNull(6 * 60 * 60 * 1000L) {
@@ -460,7 +537,7 @@ class PlaybackEngine(
     }
 
     private fun show(v: View) {
-        for (child in listOf(image, playerView, idle, web, widgetWeb)) {
+        for (child in listOf(image, playerView, idle, web, widgetWeb, surfacePlayerView, hiImage)) {
             child?.visibility = if (child === v) View.VISIBLE else View.GONE
         }
     }

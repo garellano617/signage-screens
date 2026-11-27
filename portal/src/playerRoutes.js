@@ -78,6 +78,7 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
     freeBytes: Number(b.freeBytes) || 0,
     uptimeSec: Number(b.uptimeSec) || 0,
     resolution: clip(b.resolution, 40),
+    quality: clip(b.quality, 100),
     androidVersion: clip(b.androidVersion, 40),
     configVersion: clip(b.configVersion, 64),
     error: clip(b.error, 500),

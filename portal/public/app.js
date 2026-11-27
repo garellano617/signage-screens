@@ -715,7 +715,7 @@ function deviceRows(s) {
   const st = s.status || {};
   return [
     ["Status", statusPill(s)], ["Last seen", ago(s.lastSeen)], ["Now playing", st.playing || "—"], ["From playlist", st.playlist || "—"],
-    ["Device", s.model || "—"], ["Android", st.androidVersion || "—"], ["App version", s.appVersion || "—"], ["Resolution", st.resolution || "—"],
+    ["Device", s.model || "—"], ["Android", st.androidVersion || "—"], ["App version", s.appVersion || "—"], ["Picture quality", st.quality || "—"], ["Resolution", st.resolution || "—"],
     ["IP address", s.ip || "—"], ["Offline cache", st.cacheBytes ? bytes(st.cacheBytes) : "—"], ["Free storage", st.freeBytes ? bytes(st.freeBytes) : "—"],
     ["Uptime", st.uptimeSec ? dur(Math.round(st.uptimeSec)) : "—"], ["App updates", st.update || "—"], ["Last error", st.error || "—"]
   ].flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]);

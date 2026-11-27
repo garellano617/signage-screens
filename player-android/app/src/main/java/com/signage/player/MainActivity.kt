@@ -54,6 +54,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var overlay: Overlay
     private var videoRegion = "full"
     private lateinit var pairing: View
+    /** What picture quality this TV can show (4K / 2K / Full HD). */
+    private var caps: DeviceCaps? = null
     private lateinit var pairCode: TextView
     private lateinit var pairHint: TextView
     private lateinit var setup: View
@@ -77,6 +79,7 @@ class MainActivity : ComponentActivity() {
         Prefs(this).crashLoop?.let { showCrashScreen(it); return }
         setContentView(R.layout.activity_main)
         hideSystemBars()
+        useBestDisplayMode()
 
         prefs = Prefs(this)
         cache = MediaCache(this)
@@ -103,11 +106,25 @@ class MainActivity : ComponentActivity() {
 
     // ---------- startup ----------
 
+    /** Picks 4K / 2K / Full HD for this TV and asks for the best HDMI output mode up to that. */
+    @Suppress("DEPRECATION")
+    private fun useBestDisplayMode() {
+        val c = runCatching { DeviceCaps.detect(this) }.getOrNull() ?: return
+        caps = c
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            DeviceCaps.bestMode(windowManager.defaultDisplay, c.tier)?.let { m ->
+                Log.i(TAG, "Switching TV output to ${m.physicalWidth}x${m.physicalHeight} @ ${m.refreshRate}")
+                window.attributes = window.attributes.also { it.preferredDisplayModeId = m.modeId }
+            }
+        }
+    }
+
     private fun start() {
         setup.visibility = View.GONE
         api = Api(prefs.serverUrl) { prefs.token }
         if (!::engine.isInitialized) {
             engine = PlaybackEngine(this, stage, cache, lifecycleScope, { api.resolve(it) }, { lastNetError.isEmpty() && isNetworkUp() }) { item -> widgetData(item) }
+            engine.caps = caps
             engine.onPlayed = { item, at, sec, playlist ->
                 plays.addLast(JSONObject().put("mediaId", item.mediaId).put("name", item.name).put("kind", item.kind)
                     .put("playlist", playlist).put("at", at).put("sec", sec))
@@ -318,6 +335,8 @@ class MainActivity : ComponentActivity() {
 
     /** Rotates the content in software, so a TV mounted in portrait works without system settings. */
     private fun applyOrientation(deg: Int) {
+        // Full-resolution surfaces can't be rotated: rotated screens play in the window.
+        if (engine.rotated != (deg != 0)) { engine.rotated = deg != 0; engine.restart() }
         if (deg == appliedOrientation && root.width > 0) return
         appliedOrientation = deg
         root.post {
@@ -343,6 +362,7 @@ class MainActivity : ComponentActivity() {
             .put("freeBytes", cache.freeBytes())
             .put("uptimeSec", SystemClock.elapsedRealtime() / 1000)
             .put("resolution", "${dm.widthPixels}x${dm.heightPixels}")
+            .put("quality", caps?.describe().orEmpty())
             .put("androidVersion", Build.VERSION.RELEASE)
             .put("appVersion", BuildConfig.VERSION_NAME)
             .put("configVersion", config?.version.orEmpty())
@@ -385,14 +405,37 @@ class MainActivity : ComponentActivity() {
         if (v.width == 0 || v.height == 0) return
         val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // PixelCopy includes video (PlayerView uses a TextureView) and web content.
+            // PixelCopy includes video in a TextureView and web content. A full-resolution (4K) surface
+            // isn't part of the window: copy it separately and put it underneath.
+            val surface = if (::engine.isInitialized) engine.visibleSurface() else null
             PixelCopy.request(window, bmp, { result ->
-                if (result == PixelCopy.SUCCESS) uploadScreenshot(bmp) else Log.w(TAG, "PixelCopy failed: $result")
+                if (result != PixelCopy.SUCCESS) { Log.w(TAG, "PixelCopy failed: $result"); return@request }
+                if (surface == null || surface.width == 0 || !surface.holder.surface.isValid) { uploadScreenshot(bmp); return@request }
+                val under = Bitmap.createBitmap(surface.width, surface.height, Bitmap.Config.ARGB_8888)
+                PixelCopy.request(surface, under, { r2 ->
+                    uploadScreenshot(if (r2 == PixelCopy.SUCCESS) composite(bmp, under, surface) else bmp)
+                }, Handler(Looper.getMainLooper()))
             }, Handler(Looper.getMainLooper()))
         } else {
             v.draw(Canvas(bmp))
             uploadScreenshot(bmp)
         }
+    }
+
+    /** Window copy + the surface copy at the surface's spot. Where the window is see-through (the hole over the surface) the surface shows. */
+    private fun composite(win: Bitmap, under: Bitmap, surface: View): Bitmap {
+        val out = Bitmap.createBitmap(win.width, win.height, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        c.drawColor(android.graphics.Color.BLACK)
+        val loc = IntArray(2).also { surface.getLocationInWindow(it) }
+        val dst = android.graphics.Rect(loc[0], loc[1], loc[0] + surface.width, loc[1] + surface.height)
+        // Some TVs fill the hole with black instead of leaving it see-through: then draw the surface on top.
+        val cx = (dst.centerX()).coerceIn(0, win.width - 1)
+        val cy = (dst.centerY()).coerceIn(0, win.height - 1)
+        val holeIsClear = android.graphics.Color.alpha(win.getPixel(cx, cy)) < 255
+        if (holeIsClear) { c.drawBitmap(under, null, dst, null); c.drawBitmap(win, 0f, 0f, null) }
+        else { c.drawBitmap(win, 0f, 0f, null); c.drawBitmap(under, null, dst, null) }
+        return out
     }
 
     private fun uploadScreenshot(full: Bitmap) {
