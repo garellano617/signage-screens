@@ -254,7 +254,7 @@ function shell(section, inClient) {
   }
   const nav = h("nav", { class: "nav" + (inClient && isStaff() ? " in-client" : "") },
     brandMark(), links,
-    h("div", { class: "spacer" }), h("div", { class: "who" }, state.user.email));
+    h("div", { class: "spacer" }), I18N.switcher(), h("div", { class: "who" }, state.user.email));
   const main = h("main", {});
   app().replaceChildren(h("div", { class: "layout" }, nav, main));
   return main;
@@ -430,7 +430,7 @@ async function helpOpen() {
     const pics = [image ? "📎 Picture attached" : null, sid ? "📺 TV screenshot" : null].filter(Boolean).join(" · ");
     helpChat.push({ role: "user", content: question, pics: pics || undefined }); helpBusy = true; helpPic = null; drawPics(); draw();
     try {
-      const r = await api("POST", "/ai/help", { question, history, page: helpPageName(), image: image || undefined, screenId: sid || undefined });
+      const r = await api("POST", "/ai/help", { question, history, page: helpPageName(), image: image || undefined, screenId: sid || undefined, lang: I18N.lang() });
       helpChat.push({ role: "assistant", content: r.answer });
       if (helpInfo) helpInfo.left = r.left;
     } catch (e) {
@@ -464,7 +464,7 @@ function renderLogin() {
       state.user = r.user; await loadCustomers(); route();
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
   });
-  app().replaceChildren(h("div", { class: "login-wrap" }, form));
+  app().replaceChildren(h("div", { class: "login-wrap" }, form, I18N.switcher()));
   form.querySelector("input").focus();
 }
 

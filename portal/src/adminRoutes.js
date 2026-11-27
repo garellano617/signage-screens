@@ -1152,6 +1152,7 @@ router.get("/ai/help", (req, res) => {
 router.post("/ai/help", async (req, res) => {
   const b = req.body || {};
   const question = str(b.question, 1500, "Question").trim();
+  const lang = b.lang === "es" ? "es" : "en";
   if (!question) throw bad("Type a question.");
   if (!ai.enabled()) throw new ai.AiError(503, "AI help isn't set up yet. Add ANTHROPIC_API_KEY on the server.");
   const limit = ai.helpDailyLimit();
@@ -1188,7 +1189,7 @@ router.post("/ai/help", async (req, res) => {
     ON CONFLICT (user_id, day) DO UPDATE SET count = count + 1`, req.user.id, today());
   const role = req.isStaff ? "staff of the signage company" : "a client login" + (req.user.role === "admin" ? " (client admin)" : "");
   const clientName = req.cid ? (get("SELECT name FROM customers WHERE id = ?", req.cid) || {}).name : null;
-  const answer = await ai.help({ question: question + screenNote, history, images, context: { page: String(b.page || "").slice(0, 80), role, clientName } });
+  const answer = await ai.help({ question: question + screenNote, history, images, context: { page: String(b.page || "").slice(0, 80), role, clientName, lang } });
   res.json({ answer: answer.slice(0, 6000), left: Math.max(0, limit - helpUsed(req.user.id)) });
 });
 

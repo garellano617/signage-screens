@@ -161,7 +161,7 @@ The guide:
 async function help({ question, history, context, images = [] }) {
   if (!enabled()) throw new AiError(503, "AI help isn't set up yet. Add ANTHROPIC_API_KEY on the server.");
   const Anthropic = require("@anthropic-ai/sdk").default;
-  const where = `[The person is on the page: ${context.page || "unknown"}. They are ${context.role}${context.clientName ? " (client: " + context.clientName + ")" : ""}.]`;
+  const where = `[The person is on the page: ${context.page || "unknown"}. They are ${context.role}${context.clientName ? " (client: " + context.clientName + ")" : ""}.${context.lang === "es" ? " Their portal is shown in Spanish (Mexico): answer in Mexican Spanish, and name buttons and menus in Spanish (for example Screens = Pantallas, Design = Diseño, Video walls = Muros de video, Media = Medios, Save = Guardar)." : ""}]`;
   let res;
   try {
     res = await getClient().beta.messages.create({
