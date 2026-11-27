@@ -1155,3 +1155,31 @@ test("design slides: a template as a playlist slide, with its pictures, editable
   assert.equal((await call("GET", "/api/slides/" + m.id)).status, 404);
   scopeId = null;
 });
+
+test("media library categories: automatic from the file type, upload into a category, move between them", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000a49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
+  const C = (await call("POST", "/api/customers", { name: "Category Shop" })).body;
+  scopeId = C.id;
+  const up = async (name, type, category) => {
+    const fd = new FormData(); if (category) fd.append("category", category);
+    fd.append("files", new Blob([png], { type }), name); return (await call("POST", "/api/media", fd)).body[0];
+  };
+  const p = await up("logo.png", "image/png");
+  assert.equal(p.category, "png", "PNG files on their own");
+  const j = await up("photo.jpg", "image/jpeg");
+  assert.equal(j.category, "picture");
+  const bg = await up("wall.jpg", "image/jpeg", "background");
+  assert.equal(bg.category, "background", "uploaded from the Backgrounds tab");
+  assert.equal((await up("x.png", "image/png", "nonsense")).category, "png", "unknown category → automatic");
+  const web = (await call("POST", "/api/media/web", { url: "https://example.com/" })).body;
+  assert.equal(web.category, "web");
+  // Move: picture → shape, back to automatic, unknown refused.
+  assert.equal((await call("PATCH", "/api/media/" + j.id, { category: "shape" })).body.category, "shape");
+  assert.equal((await call("PATCH", "/api/media/" + j.id, { category: "auto" })).body.category, "picture");
+  assert.equal((await call("PATCH", "/api/media/" + j.id, { category: "video" })).status, 400);
+  const list = (await call("GET", "/api/media")).body;
+  assert.deepEqual(list.map(m => m.category).sort(), ["background", "picture", "png", "png", "web"]);
+  scopeId = null;
+});

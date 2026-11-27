@@ -458,3 +458,15 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .sp-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .sp-acts { display: flex; justify-content: flex-end; }
 @media (max-width: 640px) { .sp-row { grid-template-columns: 1fr 5.5rem; } .sp-row > span:first-child { grid-column: 1 / -1; } }
+/* Media library categories. */
+.cat-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .75rem; }
+.cat-chips .chip { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .7rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: .85rem; }
+.cat-chips .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cat-chips .chip-n { font-size: .75rem; opacity: .7; }
+.picker .cat-chips, .ed-side .cat-chips { gap: .3rem; }
+.picker .cat-chips .chip, .ed-side .cat-chips .chip { padding: .2rem .55rem; font-size: .8rem; }
+.cat-move { display: flex; align-items: center; gap: .35rem; margin-top: .3rem; color: var(--muted); }
+.cat-move select { padding: .15rem .3rem; font-size: .8rem; }
+.shape-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .45rem; }
+.shape-pick { height: 70px; display: grid; place-items: center; padding: .35rem; background: repeating-conic-gradient(#e5e7eb 0 25%, #fff 0 50%) 0 0 / 14px 14px; border: 2px solid var(--border); border-radius: 8px; }
+.shape-pick.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }

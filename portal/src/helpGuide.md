@@ -24,6 +24,9 @@ This portal runs digital signage: TVs in businesses (restaurants, shops, offices
 
 - Drag images or videos onto the page, or tap **Choose files**. Formats: JPG, PNG, GIF, WebP pictures; MP4, WebM, MOV videos; up to 2 GB each.
 - **Add a web page:** type a web address; it shows full screen on the TV (some websites block being shown inside other apps).
+- **Categories** (tabs at the top): All, **Videos**, **Pictures**, **Backgrounds**, **PNG files**, **Shapes** (plus Web pages and Widgets & slides when there are any). Files are sorted automatically (videos, PNG files, other pictures); move a picture with the **Category** menu on its card. Uploading while a picture tab is open (for example **Upload to Backgrounds**) puts the files there.
+- **Shapes:** in the Shapes tab, **+ Add shape** makes a ready-made shape (rectangle, rounded box, circle, price burst, star, banner, tag, arrow, speech bubble, heart, triangle, bar, ring) in any colour, with an optional outline, as a see-through PNG to use in designs.
+- **Backgrounds** in the designer's Media tab fill the whole screen behind the other pictures and text. The designer's Media tab and the playlist's media list have the same category chips.
 - Search, rename and delete files. Deleting a file removes it from playlists too. This can't be undone.
 - Tip: for TVs, landscape 1920×1080 pictures and MP4 (H.264) videos work best. Very large 4K videos may stutter on cheap TV sticks.
 

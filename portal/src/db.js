@@ -137,6 +137,8 @@ if (!/'widget'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'med
 
 // Screen design layers (see layers.js).
 if (!hasColumn("screens", "layers_json")) db.exec("ALTER TABLE screens ADD COLUMN layers_json TEXT");
+// Media library category for pictures: picture / background / png / shape (NULL = automatic from the file type).
+if (!hasColumn("media", "category")) db.exec("ALTER TABLE media ADD COLUMN category TEXT");
 
 // Channels: a reusable playlist + layers design shared by many screens.
 db.exec(`

@@ -30,7 +30,9 @@ const app = () => $("#app");
 
 async function api(method, url, body, headers) {
   const opt = { method, headers: Object.assign(scopeHeaders(), headers || {}) };
-  if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  // Files (FormData) go as they are; everything else as JSON.
+  if (body instanceof FormData) opt.body = body;
+  else if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
   const res = await fetch("/api" + url, opt);
   let data = null;
   try { data = await res.json(); } catch (_) {}
@@ -1072,6 +1074,14 @@ async function renderLayers(main, id, kind) {
       bg: prev.bg, bgOpacity: prev.bgOpacity, track: prev.track || 0, from, to: to >= len ? 0 : to,
       enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1, fx: prev.fx || "none", fxColor: prev.fxColor });
   }
+  /** A background: the whole screen, behind everything else. */
+  function addBackground(m) {
+    addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 100, x: 0, y: 0, text: "", fx: "none" });
+    const bg = L.text.blocks.pop();
+    bg.above = false;
+    L.text.blocks.unshift(bg);
+    change(); select({ type: "block", i: 0 });
+  }
   function removeBlock(i) { L.text.blocks.splice(i, 1); sel = null; change(); select(null); }
 
   // ---------- stacking (what's over / under what) ----------
@@ -1430,7 +1440,7 @@ async function renderLayers(main, id, kind) {
   // Effect for pictures when none is selected: applied to every picture in the design and to the ones added next.
   const firstPic = L.text.blocks.find(x => x.kind === "image" && x.fx && x.fx !== "none");
   const picFx = { kind: "image", fx: firstPic ? firstPic.fx : "none", fxColor: firstPic ? firstPic.fxColor : "#facc15" };
-  let thumbs = [], undo = null, aiBusy = false, aiNote = "", aiPrompt = "";
+  let thumbs = [], undo = null, aiBusy = false, aiNote = "", aiPrompt = "", edCat = "all";
   const LAYER_KEYS = ["video", "specials", "text", "effects"];
   /** Replace the whole design (template or AI). The previous one is kept for Undo until saved or replaced again. */
   function applyDesign(next, label) {
@@ -1581,8 +1591,14 @@ async function renderLayers(main, id, kind) {
       if (b) kids.push(h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: chainNext, onchange: e => { chainNext = e.target.checked; drawSide(); } }),
         "Add the next picture after this one (same spot, same row: a slideshow)"));
       kids.push(h("p", { class: "small muted" }, b && chainNext ? "Click a picture to show it after the selected one." : "Click a picture to place it on the screen (logos, food photos, price boards)."));
-      kids.push(images.length ? h("div", { class: "ed-imgs" }, images.map(m => h("button", { type: "button", title: m.name,
-        onclick: () => b && chainNext ? addAfter(b, m) : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 30, x: 35, y: 30, text: "", fx: picFx.fx, fxColor: picFx.fxColor }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
+      // Library categories: pictures, backgrounds (fill the screen, behind everything), PNG files, shapes.
+      if (images.length) kids.push(categoryChips(images, edCat, k => { edCat = k; drawSide(); }, ["all", "picture", "background", "png", "shape"]));
+      const catImgs = edCat === "all" ? images : images.filter(m => m.category === edCat);
+      if (edCat === "background") kids.push(h("p", { class: "small muted", style: "margin:0 0 .4rem" }, "A background fills the screen, behind all the other pictures and text."));
+      kids.push(catImgs.length ? h("div", { class: "ed-imgs" }, catImgs.map(m => h("button", { type: "button", title: m.name,
+        onclick: () => b && chainNext ? addAfter(b, m) : m.category === "background" ? addBackground(m)
+          : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: m.category === "shape" ? 20 : 30, x: 35, y: 30, text: "", fx: picFx.fx, fxColor: picFx.fxColor }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
+        : images.length ? h("p", { class: "small" }, "Nothing here yet. ", h("a", { href: base() + "/media", onclick: () => { state.libTab = edCat; } }, "Add some in the Media library"), ".")
         : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
       kids.push(h("p", { class: "small muted" }, "Videos and the main slideshow play in the Video layer (the playlist)."));
     } else if (tab === "text") {
@@ -2029,10 +2045,12 @@ async function renderPlaylist(main, id) {
         h("span", { class: "btn small" }, "+ Add"))));
     if (!list2.length) picker.append(h("p", { class: "muted small" }, templates.length ? "No templates match." : "No templates."));
   };
+  let pickCat = "all";
   const drawPicker = () => {
     if (pickTab === "templates") return drawTemplates();
     const q = search.value.toLowerCase();
-    picker.replaceChildren(...media.filter(m => m.name.toLowerCase().includes(q)).map(m => h("div", { class: "pick", title: "Add to playlist", onclick: () => {
+    const inCat = pickCat === "all" ? media : media.filter(m => m.category === pickCat);
+    picker.replaceChildren(categoryChips(media, pickCat, k => { pickCat = k; drawPicker(); }), ...inCat.filter(m => m.name.toLowerCase().includes(q)).map(m => h("div", { class: "pick", title: "Add to playlist", onclick: () => {
       items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, widget: m.widget, duration: m.kind === "web" ? 30 : m.kind === "widget" ? 15 : 10 }); mark(); draw();
       list.lastElementChild.scrollIntoView({ block: "nearest" });
     } }, thumb(m, "mini"), h("div", { class: "info", style: "flex:1;min-width:0" }, h("div", { class: "small", style: "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, m.name),
@@ -2054,9 +2072,83 @@ async function renderPlaylist(main, id) {
 }
 
 // ---------- inside a client: media ----------
+// ---------- media library categories ----------
+const MEDIA_TABS = [["all", "All"], ["video", "Videos"], ["picture", "Pictures"], ["background", "Backgrounds"], ["png", "PNG files"], ["shape", "Shapes"], ["web", "Web pages"], ["widget", "Widgets & slides"]];
+const PICTURE_CATS = [["picture", "Picture"], ["background", "Background"], ["png", "PNG file"], ["shape", "Shape"]];
+const CAT_HINT = {
+  background: "Full-screen pictures to put behind a design. In the designer they fill the screen behind everything.",
+  png: "PNG files, usually with a see-through background: logos, cut-out food photos, stickers.",
+  shape: "Shapes for designs: banners, price bursts, arrows, circles… Make one in any colour with “+ Add shape”, or upload your own.",
+  video: "Videos play in the playlist (the Video layer), to their end."
+};
+/** Category chips with counts; onpick(key). Empty extra tabs (web pages, widgets) are hidden. */
+function categoryChips(media, current, onpick, keys) {
+  const count = k => k === "all" ? media.length : media.filter(m => m.category === k).length;
+  return h("div", { class: "cat-chips", role: "tablist" }, MEDIA_TABS.filter(([k]) => (!keys || keys.includes(k)) && (count(k) || ["all", "video", "picture", "background", "png", "shape"].includes(k)))
+    .map(([k, l]) => h("button", { type: "button", role: "tab", class: "chip" + (current === k ? " on" : ""), "aria-selected": String(current === k), onclick: () => onpick(k) }, l, h("span", { class: "chip-n" }, String(count(k))))));
+}
+
+// Ready-made shapes, drawn as see-through PNG pictures in the colour you pick: [name, viewBox width, height, SVG inside].
+const SHAPES = [
+  ["Rectangle", 200, 100, () => '<rect x="4" y="4" width="192" height="92"/>'],
+  ["Rounded box", 200, 100, () => '<rect x="4" y="4" width="192" height="92" rx="22"/>'],
+  ["Circle", 100, 100, () => '<circle cx="50" cy="50" r="46"/>'],
+  ["Price burst", 100, 100, () => { const p = []; for (let i = 0; i < 32; i++) { const a = Math.PI * i / 16 - Math.PI / 2, r = i % 2 ? 38 : 48; p.push((50 + r * Math.cos(a)).toFixed(1) + "," + (50 + r * Math.sin(a)).toFixed(1)); } return '<polygon points="' + p.join(" ") + '"/>'; }],
+  ["Star", 100, 100, () => { const p = []; for (let i = 0; i < 10; i++) { const a = Math.PI * i / 5 - Math.PI / 2, r = i % 2 ? 20 : 47; p.push((50 + r * Math.cos(a)).toFixed(1) + "," + (52 + r * Math.sin(a)).toFixed(1)); } return '<polygon points="' + p.join(" ") + '"/>'; }],
+  ["Banner", 240, 80, () => '<polygon points="4,8 236,8 216,40 236,72 4,72 24,40"/>'],
+  ["Tag", 220, 90, () => '<path d="M4 14 Q4 4 14 4 H176 L216 45 L176 86 H14 Q4 86 4 76 Z"/>'],
+  ["Arrow", 200, 100, () => '<polygon points="4,32 130,32 130,6 196,50 130,94 130,68 4,68"/>'],
+  ["Speech bubble", 200, 140, () => '<path d="M24 4 H176 Q196 4 196 24 V88 Q196 108 176 108 H80 L44 136 L52 108 H24 Q4 108 4 88 V24 Q4 4 24 4 Z"/>'],
+  ["Heart", 100, 92, () => '<path d="M50 88 C20 66 4 50 4 30 C4 14 16 4 30 4 C40 4 46 10 50 16 C54 10 60 4 70 4 C84 4 96 14 96 30 C96 50 80 66 50 88 Z"/>'],
+  ["Triangle", 100, 90, () => '<polygon points="50,4 96,86 4,86"/>'],
+  ["Bar", 200, 24, () => '<rect x="2" y="2" width="196" height="20" rx="10"/>'],
+  ["Ring", 100, 100, () => '<circle cx="50" cy="50" r="42"/>']
+];
+const shapeSvg = (sh, fill, outline, k) => {
+  const ring = sh[0] === "Ring";
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + sh[1] + ' ' + sh[2] + '" width="' + Math.round(sh[1] * k) + '" height="' + Math.round(sh[2] * k) + '">' +
+    '<g fill="' + (ring ? "none" : fill) + '" stroke="' + (ring ? fill : outline || "none") + '" stroke-width="' + (ring ? 10 : outline ? 4 : 0) + '" stroke-linejoin="round">' + sh[3]() + '</g></svg>';
+};
+/** A shape → a see-through PNG file (longest side 1200 px). */
+function shapePng(sh, fill, outline) {
+  return new Promise((resolve, reject) => {
+    const k = 1200 / Math.max(sh[1], sh[2]);
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas"); c.width = Math.round(sh[1] * k); c.height = Math.round(sh[2] * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => b ? resolve(new File([b], sh[0] + ".png", { type: "image/png" })) : reject(new Error("Couldn't draw the shape.")), "image/png");
+    };
+    img.onerror = () => reject(new Error("Couldn't draw the shape."));
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(shapeSvg(sh, fill, outline, k));
+  });
+}
+async function shapeDialog() {
+  let pick = SHAPES[0];
+  const fill = h("input", { type: "color", value: "#dc2626" }), outOn = h("input", { type: "checkbox" }), out = h("input", { type: "color", value: "#ffffff" });
+  const name = h("input", { name: "name", maxlength: 200, placeholder: "e.g. Red price burst" });
+  const grid = h("div", { class: "shape-grid" });
+  const draw = () => grid.replaceChildren(...SHAPES.map(sh => h("button", { type: "button", class: "shape-pick" + (sh === pick ? " on" : ""), title: sh[0], "aria-label": sh[0],
+    onclick: () => { pick = sh; draw(); }, html: shapeSvg(sh, fill.value, outOn.checked ? out.value : null, 1).replace("<svg ", '<svg style="max-width:100%;max-height:52px" ') })));
+  [fill, out].forEach(x => x.addEventListener("input", draw)); outOn.addEventListener("change", draw);
+  draw();
+  const r = await dialog("Add a shape", h("div", {}, grid,
+    h("div", { class: "row", style: "gap:1rem;flex-wrap:wrap;margin:.75rem 0" }, h("label", { class: "color-in" }, fill, "Colour"),
+      h("label", { class: "check-row" }, outOn, "Outline"), h("label", { class: "color-in" }, out, "Outline colour")),
+    field("Name", name)),
+  { submit: "Add shape", onSubmit: async () => {
+    const file = await shapePng(pick, fill.value, outOn.checked ? out.value : null);
+    const fd = new FormData(); fd.append("category", "shape"); fd.append("files", file, (name.value.trim() || pick[0]) + ".png");
+    return api("POST", "/media", fd);
+  } });
+  if (r) { toast("Shape added. Use it in the designer's Media tab."); route(); }
+}
+
 async function renderMedia(main) {
   const media = await api("GET", "/media");
-  const input = h("input", { type: "file", multiple: true, accept: "image/*,video/*", class: "hidden", onchange: e => upload([...e.target.files]) });
+  const tab = state.libTab && MEDIA_TABS.some(([k]) => k === state.libTab) ? state.libTab : "all";
+  const pictureTab = PICTURE_CATS.some(([k]) => k === tab);
+  const input = h("input", { type: "file", multiple: true, accept: tab === "video" ? "video/*" : pictureTab ? "image/*" : "image/*,video/*", class: "hidden", onchange: e => upload([...e.target.files]) });
   const bar = h("div", {});
   const zone = h("div", { class: "dropzone" }, h("div", {}, "Drag images or videos here, or "),
     h("button", { class: "small", onclick: () => input.click(), style: "margin-top:.5rem" }, "Choose files"),
@@ -2068,6 +2160,8 @@ async function renderMedia(main) {
   function upload(files) {
     if (!files.length) return;
     const fd = new FormData();
+    // Uploading from a picture tab (Backgrounds, Shapes…) puts the pictures in that category.
+    if (pictureTab) fd.append("category", tab);
     files.forEach(f => fd.append("files", f));
     const prog = h("div", {}); const label = h("div", { class: "small" }, "Uploading " + files.length + " file(s)…");
     bar.replaceChildren(label, h("div", { class: "progress" }, prog));
@@ -2091,14 +2185,23 @@ async function renderMedia(main) {
     { submit: "Add", onSubmit: f => api("POST", "/media/web", Object.fromEntries(f)) });
     if (r) { toast("Web page added."); route(); }
   };
+  const shown = tab === "all" ? media : media.filter(m => m.category === tab);
+  const tabLabel = (MEDIA_TABS.find(([k]) => k === tab) || [])[1];
   main.replaceChildren(
-    pageHead("Media", clientName(), h("button", { onclick: addWeb }, "+ Web page"), h("button", { class: "primary", onclick: () => input.click() }, "Upload")),
+    pageHead("Media", clientName(), tab === "shape" ? h("button", { onclick: shapeDialog }, "+ Add shape") : null, h("button", { onclick: addWeb }, "+ Web page"),
+      h("button", { class: "primary", onclick: () => input.click() }, pictureTab ? "Upload to " + tabLabel : "Upload")),
+    categoryChips(media, tab, k => { state.libTab = k; route(); }),
+    CAT_HINT[tab] ? h("p", { class: "small muted", style: "margin:-.25rem 0 .75rem" }, CAT_HINT[tab]) : null,
     zone,
-    media.length ? h("div", { class: "media-grid" }, media.map(m => h("div", { class: "media-card" },
+    shown.length ? h("div", { class: "media-grid" }, shown.map(m => h("div", { class: "media-card" },
       m.kind === "widget" ? h("a", { href: "#", onclick: e => { e.preventDefault(); widgetDialog(m.widget.type, m); } }, thumb(m)) : h("a", { href: m.src, target: "_blank", rel: "noopener" }, thumb(m)),
       h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
         h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind === "widget" ? "Widget · " + widgetName(m.widget && m.widget.type) : m.kind + " · " + bytes(m.size)),
-        h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist")),
+        h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist"),
+        // Pictures: move to another category.
+        m.kind === "image" ? h("label", { class: "cat-move small" }, "Category ", h("select", { "aria-label": "Category", onchange: async e => {
+          try { await api("PATCH", "/media/" + m.id, { category: e.target.value }); toast("Moved to " + PICTURE_CATS.find(([k]) => k === e.target.value)[1] + "s."); route(); } catch (er) { fail(er); }
+        } }, PICTURE_CATS.map(([k, l]) => h("option", { value: k, selected: m.category === k }, l)))) : null),
       h("div", { class: "acts" },
         h("button", { class: "small", onclick: async () => {
           const r = await dialog("Rename", field("Name", h("input", { name: "name", value: m.name, required: true, maxlength: 200 })),
@@ -2110,7 +2213,8 @@ async function renderMedia(main) {
           if (!await confirmDlg("Delete “" + m.name + "”?", "This can't be undone." + warn)) return;
           try { await api("DELETE", "/media/" + m.id); toast("Deleted."); route(); } catch (e) { fail(e); }
         } }, "Delete")))))
-      : h("div", { class: "card empty" }, "No media yet. Upload images and videos to use in playlists."));
+      : h("div", { class: "card empty" }, media.length ? "Nothing in " + tabLabel + " yet." + (tab === "shape" ? " Tap “+ Add shape” to make one." : pictureTab ? " Upload pictures here, or move them here from another category." : "")
+        : "No media yet. Upload images and videos to use in playlists."));
 }
 
 // ---------- inside a client: channels ----------

@@ -741,13 +741,17 @@ function hashFile(file) {
   });
 }
 
-const mediaQuery = `SELECT m.id, m.name, m.kind, m.file, m.url, m.mime, m.size, m.sha256, m.created_at, m.customer_id, m.widget_json, c.name AS customer_name
+const mediaQuery = `SELECT m.id, m.name, m.kind, m.file, m.url, m.mime, m.size, m.sha256, m.created_at, m.customer_id, m.widget_json, m.category, c.name AS customer_name
   FROM media m LEFT JOIN customers c ON c.id = m.customer_id WHERE 1=1`;
 const parseWidget = m => { try { return JSON.parse(m.widget_json || "null"); } catch (_) { return null; } };
 /** Design slides (a template as a playlist slide): attach the pictures so the portal can show them. */
 const designOut = (w, cid) => w && w.type === "design" && w.config
   ? { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), clientImage(cid)) } } : w;
-const mediaOut = m => ({ ...m, widget_json: undefined, widget: m.kind === "widget" ? designOut(parseWidget(m), m.customer_id) : undefined,
+/** Library categories. Videos, web pages and widgets go by their kind; pictures can be moved between these. */
+const PICTURE_CATEGORIES = ["picture", "background", "png", "shape"];
+const mediaCategory = m => m.kind === "image" ? (PICTURE_CATEGORIES.includes(m.category) ? m.category : m.mime === "image/png" ? "png" : "picture") : m.kind;
+const pictureCategory = v => PICTURE_CATEGORIES.includes(v) ? v : null;
+const mediaOut = m => ({ ...m, category: mediaCategory(m), widget_json: undefined, widget: m.kind === "widget" ? designOut(parseWidget(m), m.customer_id) : undefined,
   customerId: m.customer_id, customerName: m.customer_name, src: m.kind === "web" ? m.url : m.kind === "widget" ? "widget:" + m.id : "/media/" + m.file,
   usedIn: all("SELECT DISTINCT p.id, p.name FROM playlist_items pi JOIN playlists p ON p.id = pi.playlist_id WHERE pi.media_id = ?", m.id) });
 
@@ -772,8 +776,9 @@ router.post("/media", (req, res, next) => { req.targetCid = targetCustomer(req);
     const sum = await hashFile(f.path);
     const kind = f.mimetype.startsWith("video/") ? "video" : "image";
     const name = path.basename(f.originalname, path.extname(f.originalname)).slice(0, 200) || f.filename;
-    const r = run("INSERT INTO media (name, kind, file, mime, size, sha256, customer_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
-      name, kind, f.filename, f.mimetype, f.size, sum, req.targetCid, now());
+    // Uploaded from a category tab (Backgrounds, Shapes…): pictures go into that category.
+    const r = run("INSERT INTO media (name, kind, file, mime, size, sha256, customer_id, created_at, category) VALUES (?,?,?,?,?,?,?,?,?)",
+      name, kind, f.filename, f.mimetype, f.size, sum, req.targetCid, now(), kind === "image" ? pictureCategory(req.body && req.body.category) : null);
     out.push(mediaOut(loadMedia({ cid: null }, r.lastInsertRowid)));
   }
   res.status(201).json(out);
@@ -843,6 +848,11 @@ router.patch("/media/:id", async (req, res) => {
     run("UPDATE media SET widget_json = ? WHERE id = ?", JSON.stringify({ type: w.type, config: await cleanWidget(w.type, req.body.config, m.customer_id) }), m.id);
   }
   if (req.body.name !== undefined) run("UPDATE media SET name = ? WHERE id = ?", str(req.body.name, 200, "Name") || m.name, m.id);
+  // Move a picture to another category ("auto" = back to what its file type says).
+  if (req.body.category !== undefined && m.kind === "image") {
+    if (req.body.category !== "auto" && !pictureCategory(req.body.category)) throw bad("Unknown category.");
+    run("UPDATE media SET category = ? WHERE id = ?", pictureCategory(req.body.category), m.id);
+  }
   if (req.body.url !== undefined && m.kind === "web") run("UPDATE media SET url = ? WHERE id = ?", checkUrl(req.body.url), m.id);
   res.json(mediaOut(loadMedia(req, m.id)));
 });
