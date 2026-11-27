@@ -28,6 +28,43 @@
     script: "\"SO Dancing Script\", \"Segoe Script\", \"Brush Script MT\", \"Dancing Script\", cursive"
   };
 
+  // Vector shapes for the text & pictures layer: [label, SVG drawn in a 100 x 100 box that stretches to the shape's
+  // width and height, starting width / height in % of the screen width, no fill by default].
+  function starPts(n, outer, inner) {
+    var p = [];
+    for (var i = 0; i < n * 2; i++) { var a = Math.PI * i / n - Math.PI / 2, r = i % 2 ? inner : outer; p.push((50 + r * Math.cos(a)).toFixed(1) + "," + (50 + r * Math.sin(a)).toFixed(1)); }
+    return '<polygon points="' + p.join(" ") + '"/>';
+  }
+  var SHAPES = {
+    square: ["Square", '<rect x="0" y="0" width="100" height="100"/>', 18, 18],
+    rect: ["Rectangle", '<rect x="0" y="0" width="100" height="100"/>', 30, 15],
+    rounded: ["Rounded box", '<rect x="0" y="0" width="100" height="100" rx="14" ry="14"/>', 30, 15],
+    circle: ["Circle", '<ellipse cx="50" cy="50" rx="50" ry="50"/>', 18, 18],
+    oval: ["Oval", '<ellipse cx="50" cy="50" rx="50" ry="50"/>', 30, 17],
+    triangle: ["Triangle", '<polygon points="50,0 100,100 0,100"/>', 18, 16],
+    rtriangle: ["Right triangle", '<polygon points="0,0 100,100 0,100"/>', 18, 16],
+    diamond: ["Diamond", '<polygon points="50,0 100,50 50,100 0,50"/>', 16, 16],
+    wave: ["Wave", '<path d="M0 35 C17 5 33 5 50 35 S83 65 100 35 V100 H0 Z"/>', 100, 18],
+    waves: ["Waves", '<path d="M0 40 Q12.5 15 25 40 T50 40 T75 40 T100 40 V100 H0 Z"/>', 100, 14],
+    waveline: ["Wavy line", '<path d="M0 50 Q12.5 10 25 50 T50 50 T75 50 T100 50"/>', 40, 6, true],
+    star: ["Star", starPts(5, 50, 21), 16, 16],
+    burst: ["Price burst", starPts(16, 50, 40), 18, 18],
+    arrow: ["Arrow", '<polygon points="0,32 64,32 64,0 100,50 64,100 64,68 0,68"/>', 24, 12],
+    banner: ["Banner", '<polygon points="0,0 100,0 92,50 100,100 0,100 8,50"/>', 40, 10],
+    bubble: ["Speech bubble", '<path d="M10 0 H90 Q100 0 100 10 V68 Q100 78 90 78 H40 L20 100 L24 78 H10 Q0 78 0 68 V10 Q0 0 10 0 Z"/>', 26, 18],
+    heart: ["Heart", '<path d="M50 96 C18 72 0 54 0 30 C0 12 13 0 29 0 C39 0 46 6 50 13 C54 6 61 0 71 0 C87 0 100 12 100 30 C100 54 82 72 50 96 Z"/>', 16, 15],
+    line: ["Line", '<rect x="0" y="0" width="100" height="100"/>', 40, 0.8]
+  };
+  function shapeSvg(b) {
+    var sh = SHAPES[b.shape] || SHAPES.square;
+    var fill = sh[4] ? "none" : rgba(b.fill || "#dc2626", b.fillOpacity === undefined ? 100 : b.fillOpacity);
+    var sw = b.sw || (sh[4] ? 0.6 : 0);
+    // The border keeps its thickness (in % of the screen width) however the shape is stretched.
+    return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="display:block;width:100%;height:100%;overflow:visible">' +
+      '<g fill="' + fill + '" stroke="' + (sw ? b.stroke || "#ffffff" : "none") + '" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" style="stroke-width:' + sw + 'em">' +
+      sh[1].replace(/\/>/g, ' vector-effect="non-scaling-stroke"/>') + '</g></svg>';
+  }
+
   function el(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -127,7 +164,7 @@
   }
 
   function textFx(t, b) {
-    var c = b.fxColor || "#facc15", img = t.querySelector("img"), k = shadowScale(b);
+    var c = b.fxColor || "#facc15", img = t.querySelector("img") || t.querySelector("svg"), k = shadowScale(b);
     t.className += " so-fx-" + b.fx;
     if (b.fx === "glow" || b.fx === "neon" || b.fx === "shadow") {
       if (img) {
@@ -150,7 +187,7 @@
       inner.style.backgroundImage = "linear-gradient(110deg, " + col + " 42%, " + c + " 50%, " + col + " 58%)";
       inner.style.filter = "drop-shadow(0 " + em(.06, k) + " " + em(.15, k) + " rgba(0,0,0,.55))";
     }
-    if (b.fx === "shine" && img) {
+    if (b.fx === "shine" && img && img.src) {
       // The light band stays inside the picture (not over its see-through parts).
       var m = "url(\"" + String(img.src).replace(/"/g, "%22") + "\")";
       inner.style.webkitMaskImage = m; inner.style.maskImage = m;
@@ -226,7 +263,13 @@
       (tx.blocks || []).forEach(function (b, i) {
         var free = typeof b.x === "number" && typeof b.y === "number";
         var t = el("div", "so-text " + (free ? "so-free" : "so-pos-" + b.position));
-        if (b.kind === "image") {
+        if (b.kind === "shape") {
+          t.className += " so-shape";
+          t.innerHTML = shapeSvg(b);
+          var shd = SHAPES[b.shape] || SHAPES.square;
+          t.style.width = (b.w || shd[2]) + "em";
+          t.style.height = (b.h || shd[3]) + "em";
+        } else if (b.kind === "image") {
           var src = b.image ? resolveImage(b) : null;
           if (!src) return;
           t.className += " so-image";
@@ -730,5 +773,5 @@
     return function () { cancelAnimationFrame(raf); global.removeEventListener("resize", onResize); if (ro) ro.disconnect(); };
   }
 
-  global.SignageOverlay = { render: render, activeNow: activeNow, REGIONS: REGIONS, FONTS: FONTS, SCENES: SCENES };
+  global.SignageOverlay = { render: render, activeNow: activeNow, REGIONS: REGIONS, FONTS: FONTS, SCENES: SCENES, SHAPES: SHAPES, shapeSvg: shapeSvg };
 })(window);

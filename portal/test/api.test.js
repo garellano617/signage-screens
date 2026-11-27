@@ -965,6 +965,12 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   assert.equal(wt[0].wt, 900);
   assert.deepEqual(wt[0].wruns, [{ s: 6, e: 10, wt: 850 }]);
   assert.equal(wt[1].wt, 0);
+  // Vector shapes: kept without text; shape name, colours, see-through and border cleaned.
+  const sh = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "shape", shape: "wave", w: 100, h: 18, fill: "#2563eb", fillOpacity: 40, stroke: "#facc15", sw: 1.5 },
+    { kind: "shape", shape: "blob", fill: "red", sw: 99, fillOpacity: 300 }] } }, () => true).text.blocks;
+  assert.equal(sh.length, 2);
+  assert.deepEqual([sh[0].shape, sh[0].w, sh[0].h, sh[0].fill, sh[0].fillOpacity, sh[0].stroke, sh[0].sw, sh[0].bgOpacity], ["wave", 100, 18, "#2563eb", 40, "#facc15", 1.5, 0]);
+  assert.deepEqual([sh[1].shape, sh[1].fill, sh[1].sw, sh[1].fillOpacity], ["square", "#dc2626", 10, 100]);
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {

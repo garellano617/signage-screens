@@ -470,3 +470,13 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .shape-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .45rem; }
 .shape-pick { height: 70px; display: grid; place-items: center; padding: .35rem; background: repeating-conic-gradient(#e5e7eb 0 25%, #fff 0 50%) 0 0 / 14px 14px; border: 2px solid var(--border); border-radius: 8px; }
 .shape-pick.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+
+/* Designer: shapes tab and height handles. */
+.ed-shapes { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: .4rem; }
+.ed-shapes button { display: flex; flex-direction: column; align-items: center; gap: .25rem; padding: .45rem .25rem; height: auto; }
+.ed-shape-ic { display: block; width: 44px; height: 30px; font-size: 8px; }
+.ed-h-n, .ed-h-s { display: none; left: 50%; width: 22px; height: 10px; margin: -5px 0 0 -11px; border-radius: 5px; cursor: ns-resize; }
+.ed-h-n { top: 0; } .ed-h-s { top: 100%; }
+.ed-frame.shape .ed-h-w, .ed-frame.shape .ed-h-e, .ed-frame.shape .ed-h-n, .ed-frame.shape .ed-h-s { display: block; }
+@media (pointer: coarse) { .ed-h-n, .ed-h-s { width: 32px; height: 16px; margin: -8px 0 0 -16px; } }
+.ed-side .sp-row { grid-template-columns: 6.2rem minmax(0, 1fr) 2.8rem; gap: .4rem; }

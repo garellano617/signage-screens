@@ -35,6 +35,9 @@ function defaultLayers() {
  * Cleans a layers object from the editor.
  * checkImage(mediaId) must return true if that image belongs to the screen's client.
  */
+/** Vector shapes (drawn by overlay.js). */
+const SHAPE_NAMES = ["square", "rect", "rounded", "circle", "oval", "triangle", "rtriangle", "diamond", "wave", "waves", "waveline", "star", "burst", "arrow", "banner", "bubble", "heart", "line"];
+
 function sanitizeLayers(input, checkImage) {
   const d = defaultLayers();
   const i = input && typeof input === "object" ? input : {};
@@ -54,7 +57,7 @@ function sanitizeLayers(input, checkImage) {
   const cycle = num(tx.cycle, 0, 3600, 0);
   const blocks = (Array.isArray(tx.blocks) ? tx.blocks : []).slice(0, MAX_BLOCKS).map((raw, index) => {
     const b = raw && typeof raw === "object" ? raw : {};
-    const kind = b.kind === "image" ? "image" : "text";
+    const kind = b.kind === "image" ? "image" : b.kind === "shape" ? "shape" : "text";
     const mediaId = kind === "image" && b.mediaId ? Number(b.mediaId) : null;
     const free = b.x !== null && b.x !== undefined && b.x !== "" && b.y !== null && b.y !== undefined && b.y !== "";
     const from = cycle ? numf(b.from, 0, cycle, 0) : 0;
@@ -68,7 +71,16 @@ function sanitizeLayers(input, checkImage) {
       x: free ? numf(b.x, -50, 100, 0) : null,
       y: free ? numf(b.y, -50, 100, 0) : null,
       // Width in % of the screen (0 = as wide as the text).
-      w: numf(b.w, 0, 100, kind === "image" ? 30 : 0),
+      w: numf(b.w, 0, 100, kind === "image" ? 30 : kind === "shape" ? 18 : 0),
+      // Shapes: which one, height (in % of the screen width, like w), inside colour + see-through, border colour + thickness.
+      ...(kind === "shape" ? {
+        shape: pick(b.shape, SHAPE_NAMES, "square"),
+        h: numf(b.h, 0.2, 100, 18),
+        fill: color(b.fill, "#dc2626"),
+        fillOpacity: num(b.fillOpacity, 0, 100, 100),
+        stroke: color(b.stroke, "#ffffff"),
+        sw: numf(b.sw, 0, 10, 0)
+      } : {}),
       size: pick(b.size, SIZES, "m"),
       // Font size in % of the screen width (0 = use size).
       fs: numf(b.fs, 0, 30, 0),
@@ -78,7 +90,7 @@ function sanitizeLayers(input, checkImage) {
       italic: !!b.italic,
       color: color(b.color, "#ffffff"),
       bg: color(b.bg, "#000000"),
-      bgOpacity: num(b.bgOpacity, 0, 100, kind === "image" ? 0 : 50),
+      bgOpacity: num(b.bgOpacity, 0, 100, kind === "text" ? 50 : 0),
       // Shown from..to seconds into each cycle (to = 0: until the end).
       from: to && to <= from ? 0 : from,
       to: to && to <= from ? 0 : to,
@@ -104,7 +116,7 @@ function sanitizeLayers(input, checkImage) {
       fx: pick(b.fx, TEXT_FX, "none"),
       fxColor: color(b.fxColor, "#facc15")
     };
-  }).filter(b => (b.kind === "text" ? b.text.trim() : b.mediaId));
+  }).filter(b => (b.kind === "text" ? b.text.trim() : b.kind === "shape" ? true : b.mediaId));
   return {
     video: { enabled: v.enabled !== false, region: pick(v.region, REGIONS, d.video.region) },
     specials: {

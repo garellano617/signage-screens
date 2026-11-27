@@ -1045,13 +1045,14 @@ async function renderLayers(main, id, kind) {
     if (typeof placeFrame === "function") placeFrame();
     if (sel) {
       const b = sel.type === "block" ? L.text.blocks[sel.i] : null;
-      tab = b ? (b.kind === "image" ? "media" : "text") : sel.type === "ticker" ? "text" : sel.type;
+      tab = b ? (b.kind === "image" ? "media" : b.kind === "shape" ? "shapes" : "text") : sel.type === "ticker" ? "text" : sel.type;
     }
     drawToolbar(); drawSide();
     if (!keepTimeline) drawTimeline();
   }
   // Timeline rows: a new text or picture gets a row of its own (drag it onto another row to share it).
   const nextTrack = () => L.text.blocks.reduce((m, b) => Math.max(m, (b.track || 0) + 1), 0);
+  const shapeLabel = b => ((SignageOverlay.SHAPES[b.shape] || [])[0]) || "Shape";
   function addBlock(b) {
     L.text.enabled = true;
     L.text.blocks.push(Object.assign({ kind: "text", text: "", position: "center", x: 30, y: 40, w: 0, size: "m", fs: 2.8, font: "sans", align: "",
@@ -1107,7 +1108,7 @@ async function renderLayers(main, id, kind) {
     const st = stack(), at = st.indexOf(b);
     const rect = x => x === "S" ? specialsRect() : rectOf(blockNodes[L.text.blocks.indexOf(x)]);
     const me = rect(b);
-    const name = x => x === "S" ? "the Specials panel" : x.kind === "image" ? "the picture" + (x.image && x.image.name ? " “" + x.image.name + "”" : "") : "“" + (x.text || "").split("\n")[0].slice(0, 24) + "”";
+    const name = x => x === "S" ? "the Specials panel" : x.kind === "shape" ? "the " + shapeLabel(x).toLowerCase() : x.kind === "image" ? "the picture" + (x.image && x.image.name ? " “" + x.image.name + "”" : "") : "“" + (x.text || "").split("\n")[0].slice(0, 24) + "”";
     st.splice(at, 1);
     let to, past = null;
     if (dir === "front") to = st.length;
@@ -1130,8 +1131,8 @@ async function renderLayers(main, id, kind) {
 
   // ---------- resize handles on the selected text or picture ----------
   const frame = h("div", { class: "ed-frame", hidden: true });
-  const HANDLES = [["nw", -1, -1], ["ne", 1, -1], ["sw", -1, 1], ["se", 1, 1], ["w", -1, 0], ["e", 1, 0]];
-  HANDLES.forEach(([k, dx, dy]) => frame.append(h("span", { class: "ed-h ed-h-" + k, title: dy ? "Drag to resize" : "Drag to change the width",
+  const HANDLES = [["nw", -1, -1], ["ne", 1, -1], ["sw", -1, 1], ["se", 1, 1], ["w", -1, 0], ["e", 1, 0], ["n", 0, -1], ["s", 0, 1]];
+  HANDLES.forEach(([k, dx, dy]) => frame.append(h("span", { class: "ed-h ed-h-" + k, title: dx && dy ? "Drag to resize" : dx ? "Drag to change the width" : "Drag to change the height",
     onpointerdown: e => resizeDrag(e, dx, dy) })));
   // On a group's frame: lock them together / take the group apart, right on the screen.
   const groupChip = h("button", { type: "button", class: "ed-chip", onpointerdown: e => e.stopPropagation(),
@@ -1164,6 +1165,7 @@ async function renderLayers(main, id, kind) {
       frame.hidden = false;
       Object.assign(frame.style, { left: (r.left - box.left) + "px", top: (r.top - box.top) + "px", width: (r.right - r.left) + "px", height: (r.bottom - r.top) + "px" });
       frame.classList.toggle("text", !group && L.text.blocks[sel.i].kind === "text");
+      frame.classList.toggle("shape", !group && L.text.blocks[sel.i].kind === "shape");
     }
     // Keep following it while it's selected (it can animate, the timeline can hide it, the page can resize).
     if (node) frameRaf = requestAnimationFrame(placeFrame);
@@ -1178,7 +1180,9 @@ async function renderLayers(main, id, kind) {
     // Placed by hand from now on, at its current spot.
     const x0 = (r.left - box.left) / box.width * 100, y0 = (r.top - box.top) / box.height * 100;
     const right = x0 + r.width / box.width * 100, bottom = y0 + r.height / box.height * 100;
-    const fs0 = b.fs || SIZE_EM[b.size] || 2.8, w0 = b.w || 0, sx = e.clientX, sy = e.clientY;
+    const fs0 = b.fs || SIZE_EM[b.size] || 2.8, sx = e.clientX, sy = e.clientY;
+    const w0 = b.kind === "shape" ? 0 : b.w || 0;
+    if (b.kind === "shape") { b.w = b.w || r.width / unit; b.h = b.h || r.height / unit; }
     node.className = node.className.replace(/\bso-pos-\S+/, "").trim();
     node.classList.add("so-free");
     let moved = false;
@@ -1187,9 +1191,17 @@ async function renderLayers(main, id, kind) {
       if (!moved && Math.abs(d) < 2 && Math.abs(dv) < 2) return;
       moved = true;
       // Corners: follow whichever way the finger / mouse moved more (wrapped text barely gets wider as it grows).
-      const fx = (r.width + d) / r.width, fy = (r.height + dv) / r.height;
+      const fx = dx ? (r.width + d) / r.width : 1, fy = dy ? (r.height + dv) / r.height : 1;
       const f = clampN(Math.abs(fy - 1) > Math.abs(fx - 1) ? fy : fx, 0.05, 20);
-      if (!dy) {
+      if (b.kind === "shape") {
+        // Shapes: corners keep the shape, sides stretch the width, top / bottom the height (all in % of the screen width).
+        const sw0 = b.w || r.width / unit, sh0 = b.h || r.height / unit;
+        if (dx && dy) { b.w = sw0 * f; b.h = sh0 * f; }
+        else if (dx) b.w = (r.width + d) / unit;
+        else b.h = (r.height + dv) / unit;
+        b.w = Math.round(clampN(b.w, 0.5, 100) * 10) / 10; b.h = Math.round(clampN(b.h, 0.2, 100) * 10) / 10;
+        node.style.width = b.w + "em"; node.style.height = b.h + "em";
+      } else if (!dy) {
         // Side handle on text: how wide it wraps (in % of the screen).
         b.w = Math.round(clampN((r.width + d) / unit, 3, 100) * 10) / 10;
         node.style.width = (b.w * unit) + "px"; node.style.maxWidth = "none";
@@ -1219,7 +1231,7 @@ async function renderLayers(main, id, kind) {
     const box = pvOverlay.getBoundingClientRect(), unit = box.width / 100;
     const items = selectedBlocks().map(b => {
       const n = blockNodes[L.text.blocks.indexOf(b)], r = rectOf(n);
-      return r && r.width ? { b, n, r, fs0: b.fs || SIZE_EM[b.size] || 2.8, w0: b.w || (b.kind === "image" ? r.width / unit : 0) } : null;
+      return r && r.width ? { b, n, r, fs0: b.fs || SIZE_EM[b.size] || 2.8, w0: b.w || (b.kind !== "text" ? r.width / unit : 0), h0: b.h || r.height / unit } : null;
     }).filter(Boolean);
     if (!items.length) return;
     const U = unionRect(items.map(it => it.n));
@@ -1234,8 +1246,12 @@ async function renderLayers(main, id, kind) {
       moved = true;
       const fx = (uw + d) / uw, fy = (uh + dv) / uh;
       const f = clampN(Math.abs(fy - 1) > Math.abs(fx - 1) ? fy : fx, 0.05, 20);
-      items.forEach(({ b, n, r, fs0, w0 }) => {
+      items.forEach(({ b, n, r, fs0, w0, h0 }) => {
         if (b.kind === "image") { b.w = Math.round(clampN(w0 * f, 2, 100) * 10) / 10; n.style.width = b.w + "em"; }
+        else if (b.kind === "shape") {
+          b.w = Math.round(clampN(w0 * f, 0.5, 100) * 10) / 10; b.h = Math.round(clampN(h0 * f, 0.2, 100) * 10) / 10;
+          n.style.width = b.w + "em"; n.style.height = b.h + "em";
+        }
         else {
           b.fs = Math.round(clampN(fs0 * f, 0.5, 30) * 10) / 10; n.style.fontSize = b.fs + "em";
           if (w0) { b.w = Math.round(clampN(w0 * f, 3, 100) * 10) / 10; n.style.width = (b.w * unit) + "px"; }
@@ -1396,6 +1412,12 @@ async function renderLayers(main, id, kind) {
             oninput: upd(e => { b.w = clampN(Number(e.target.value) || 0, 0, 100); }) })),
           tbBtn("↔↕ Spacing & thickness", spacingOpen, () => { spacingOpen = !spacingOpen; drawToolbar(); }, "Letter spacing (sideways), line spacing (up and down) and thickness (thin to heavy)"));
         if (spacingOpen) kids.push(spacingPanel(b));
+      } else if (b.kind === "shape") {
+        kids.push(h("strong", { class: "small" }, "◆ " + shapeLabel(b)),
+          colorIn(b.fill, v => { b.fill = v; if (!b.fillOpacity) { b.fillOpacity = 100; drawToolbar(); } change(); drawSide(); }, "Inside"),
+          h("label", { class: "tb-num", title: "How see-through the inside is (0 = no inside, only the border)" }, "", h("input", { type: "range", min: 0, max: 100, value: b.fillOpacity, style: "width:70px", oninput: upd(e => { b.fillOpacity = Number(e.target.value); }) })),
+          colorIn(b.stroke, v => { b.stroke = v; if (!b.sw) { b.sw = 0.4; drawToolbar(); } change(); drawSide(); }, "Border"),
+          h("label", { class: "tb-num", title: "Border thickness" }, "Thickness", h("input", { type: "range", min: 0, max: 3, step: 0.05, value: b.sw || 0, style: "width:90px", oninput: upd(e => { b.sw = Number(e.target.value); }) })));
       } else {
         kids.push(h("strong", { class: "small" }, "Picture"),
           h("label", { class: "tb-num", title: "Width in % of the screen" }, "Width", h("input", { type: "range", min: 3, max: 100, value: b.w || 30, style: "width:120px",
@@ -1435,7 +1457,7 @@ async function renderLayers(main, id, kind) {
   }
 
   // ---------- side panel ----------
-  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", isSlide ? "Background" : "Video"]];
+  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["shapes", "Shapes"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", isSlide ? "Background" : "Video"]];
   let chainNext = true;
   // Effect for pictures when none is selected: applied to every picture in the design and to the ones added next.
   const firstPic = L.text.blocks.find(x => x.kind === "image" && x.fx && x.fx !== "none");
@@ -1549,7 +1571,7 @@ async function renderLayers(main, id, kind) {
     const on = b.fx && b.fx !== "none";
     const done = () => { if (after) after(); change(); };
     return h("div", {},
-      h("div", { class: "small muted ed-cat" }, title || (b.kind === "image" ? "Picture effect" : "Text effect")),
+      h("div", { class: "small muted ed-cat" }, title || (b.kind === "image" ? "Picture effect" : b.kind === "shape" ? "Shape effect" : "Text effect")),
       h("div", { class: "ed-fx" }, TEXT_FX_LABELS.map(([v, l]) => h("button", { type: "button", class: (b.fx || "none") === v ? "on" : "",
         onclick: () => { if (b.fx !== v && TEXT_FX_COLORS[v]) b.fxColor = TEXT_FX_COLORS[v]; b.fx = v; done(); drawSide(); } }, l))),
       on && b.fx !== "grow" ? h("div", { class: "colors" }, colorIn(b.fxColor || "#facc15", v => { b.fxColor = v; done(); },
@@ -1601,6 +1623,37 @@ async function renderLayers(main, id, kind) {
         : images.length ? h("p", { class: "small" }, "Nothing here yet. ", h("a", { href: base() + "/media", onclick: () => { state.libTab = edCat; } }, "Add some in the Media library"), ".")
         : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
       kids.push(h("p", { class: "small muted" }, "Videos and the main slideshow play in the Video layer (the playlist)."));
+    } else if (tab === "shapes") {
+      const b = isSel("block") && L.text.blocks[sel.i].kind === "shape" ? L.text.blocks[sel.i] : null;
+      if (b) {
+        const num = (label, min, max, step, val, set, fmt) => {
+          const out = h("span", { class: "sp-val" }, fmt(val));
+          return h("label", { class: "sp-row" }, h("span", {}, label), h("input", { type: "range", min, max, step, value: val, oninput: e => { set(Number(e.target.value)); out.textContent = fmt(Number(e.target.value)); change(); } }), out);
+        };
+        const pct = v => Math.round(v) + "%";
+        kids.push(h("div", { class: "sub-item" },
+          h("div", { class: "layer-head" }, h("strong", { class: "small" }, "Selected shape: " + shapeLabel(b)),
+            h("button", { type: "button", class: "small", onclick: () => { sel = null; select(null); drawSide(); } }, "Unselect")),
+          h("div", { class: "small muted ed-cat" }, "Inside"),
+          h("div", { class: "row", style: "gap:.6rem;align-items:center" }, colorIn(b.fill, v => { b.fill = v; if (!b.fillOpacity) b.fillOpacity = 100; change(); drawToolbar(); }, "Colour"),
+            h("button", { type: "button", class: "small" + (b.fillOpacity ? "" : " on"), onclick: () => { b.fillOpacity = b.fillOpacity ? 0 : 100; change(); drawSide(); drawToolbar(); } }, b.fillOpacity ? "No inside" : "Fill the inside")),
+          num("See-through", 0, 100, 1, 100 - b.fillOpacity, v => { b.fillOpacity = 100 - v; }, pct),
+          h("div", { class: "small muted ed-cat" }, "Border"),
+          h("div", { class: "row", style: "gap:.6rem;align-items:center" }, colorIn(b.stroke, v => { b.stroke = v; if (!b.sw) b.sw = 0.4; change(); drawSide(); drawToolbar(); }, "Colour")),
+          num("Thickness", 0, 3, 0.05, b.sw || 0, v => { b.sw = v; }, v => v ? v.toFixed(2) : "none"),
+          h("div", { class: "small muted ed-cat" }, "Size (or drag the dots on the screen)"),
+          num("Width", 0.5, 100, 0.5, b.w || 18, v => { b.w = v; }, pct),
+          num("Height", 0.2, 60, 0.2, b.h || 18, v => { b.h = v; }, v => v.toFixed(1))),
+          h("div", { class: "sub-item" }, looksFields(b, "Shape effect"), timingFields(b)));
+      }
+      kids.push(h("p", { class: "small muted" }, "Tap a shape to put it on the screen. Then change its inside colour, its border and its size."));
+      kids.push(h("div", { class: "ed-shapes" }, Object.keys(SignageOverlay.SHAPES).map(k => {
+        const S = SignageOverlay.SHAPES[k];
+        return h("button", { type: "button", title: S[0], "aria-label": S[0], onclick: () => addBlock({ kind: "shape", shape: k, text: "", w: S[2], h: S[3], x: 50 - S[2] / 2, y: 35,
+          fill: "#dc2626", fillOpacity: 100, stroke: "#ffffff", sw: S[4] ? 0.6 : 0, bgOpacity: 0, fx: "none" }) },
+          h("span", { class: "ed-shape-ic", html: SignageOverlay.shapeSvg({ shape: k, fill: "#94a3b8", fillOpacity: 100, stroke: "#94a3b8", sw: S[4] ? 0.25 : 0 }) }),
+          h("span", { class: "small" }, S[0]));
+      })));
     } else if (tab === "text") {
       const b = isSel("block") && L.text.blocks[sel.i].kind === "text" ? L.text.blocks[sel.i] : null;
       if (b) {
@@ -1838,14 +1891,14 @@ async function renderLayers(main, id, kind) {
     // text and pictures: one row each, top of the stack first
     rows.push(row("Text & pictures", null, L.text.enabled, v => { L.text.enabled = v; }, [], true));
     // One timeline row per track; several texts or pictures can share a row and take turns.
-    const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : (b.text.split("\n")[0] || "Text");
+    const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : b.kind === "shape" ? "◆ " + shapeLabel(b) : (b.text.split("\n")[0] || "Text");
     const tracks = [...new Set(L.text.blocks.map(b => b.track || 0))].sort((a, c) => c - a);
     for (const tr of tracks) {
       const idx = L.text.blocks.map((b, i) => i).filter(i => (L.text.blocks[i].track || 0) === tr);
       const clips = [];
       idx.forEach(i => {
         const b = L.text.blocks[i], from = b.from || 0, to = b.to || len, label = blockLabel(b);
-        const bar = tlClip((b.kind === "image" ? "tl-image" : "tl-text") + (L.text.enabled ? "" : " off") + (isSelB(i) ? " sel" : "") + (b.grp ? " tl-grp" : ""),
+        const bar = tlClip((b.kind === "text" ? "tl-text" : "tl-image") + (L.text.enabled ? "" : " off") + (isSelB(i) ? " sel" : "") + (b.grp ? " tl-grp" : ""),
           from, to, (b.grp ? "🔒 " : "") + label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
         bar.dataset.i = i;
         if (b.grp) bar.style.setProperty("--gh", String((b.grp * 67) % 360));

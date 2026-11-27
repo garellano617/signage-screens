@@ -67,3 +67,7 @@
 @keyframes so-band { 0% { transform: translateX(-120%); } 60%, 100% { transform: translateX(320%); } }
 @keyframes so-flicker { 0%, 18%, 20%, 22%, 62%, 64%, 100% { filter: brightness(1); } 19%, 21%, 63% { filter: brightness(.55); } }
 .so-line { display: block; }
+
+/* Vector shapes (squares, circles, waves…): no padding, the SVG fills the box. */
+.so-shape { padding: 0; line-height: 0; max-width: none; border-radius: 0; }
+.so-shape .so-fx-in { display: block; width: 100%; height: 100%; }
