@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS walls (
 );
 `);
 if (!hasColumn("walls", "effects_json")) db.exec("ALTER TABLE walls ADD COLUMN effects_json TEXT");
+// A video wall's own design, stretched across all its screens (each shows its part).
+if (!hasColumn("walls", "layers_json")) db.exec("ALTER TABLE walls ADD COLUMN layers_json TEXT");
 for (const [col, type] of [["wall_id", "INTEGER REFERENCES walls(id) ON DELETE SET NULL"], ["wall_col", "INTEGER"], ["wall_row", "INTEGER"]])
   if (!hasColumn("screens", col)) db.exec("ALTER TABLE screens ADD COLUMN " + col + " " + type);
 

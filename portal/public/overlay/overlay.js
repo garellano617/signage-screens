@@ -165,6 +165,28 @@
     });
   }
 
+  function renderWallDesign(root, layers, opts) {
+    var v = layers.view;
+    root.innerHTML = "";
+    root.classList.add("so-root");
+    root.style.background = "";
+    var big = el("div", "so-wallbig"), fxBox = el("div", "so-wallfx");
+    root.appendChild(big); root.appendChild(fxBox);
+    var place = function () {
+      var W = root.clientWidth, H = root.clientHeight, g = (v.gap || 0) * W;
+      big.style.left = -(v.col * (W + g)) + "px"; big.style.top = -(v.row * (H + g)) + "px";
+      big.style.right = "auto"; big.style.bottom = "auto";
+      big.style.width = (v.cols * W + (v.cols - 1) * g) + "px"; big.style.height = (v.rows * H + (v.rows - 1) * g) + "px";
+    };
+    place();
+    var inner = render(big, Object.assign({}, layers, { view: null, effects: { enabled: false } }), Object.assign({}, opts, { wallInner: true }));
+    var fx = render(fxBox, { video: layers.video, specials: { enabled: false }, text: { enabled: false }, effects: layers.effects,
+      view: { cols: v.cols, rows: v.rows, col: v.col, row: v.row, gap: v.gap } }, opts);
+    var ro = global.ResizeObserver ? new ResizeObserver(place) : null;
+    if (ro) ro.observe(root); else global.addEventListener("resize", place);
+    return { destroy: function () { inner.destroy(); fx.destroy(); if (ro) ro.disconnect(); else global.removeEventListener("resize", place); } };
+  }
+
   function textFx(t, b) {
     var c = b.fxColor || "#facc15", img = t.querySelector("img") || t.querySelector("svg"), k = shadowScale(b);
     t.className += " so-fx-" + b.fx;
@@ -200,6 +222,9 @@
 
   function render(root, layers, opts) {
     opts = opts || {};
+    // Video wall with a design: draw the whole wall's design in a box the size of the wall, shifted so this screen
+    // shows only its part (the screen clips the rest). Wall effects are drawn separately, as before (view).
+    if (layers.view && layers.view.design && !opts.wallInner) return renderWallDesign(root, layers, opts);
     var resolveImage = opts.resolveImage || function (sp) { return sp.image ? sp.image.src : null; };
     var timers = [], frames = { id: 0 }, cleanups = [];
     root.innerHTML = "";

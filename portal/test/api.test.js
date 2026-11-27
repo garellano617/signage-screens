@@ -1067,7 +1067,7 @@ test("wall effects: saved, cleaned, sent to each screen with its part of the wal
   assert.deepEqual(saved.effects, { enabled: true, type: "santa", intensity: "medium", color: "#ffffff", every: 10, snow: false, banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c", image: null });
   const cb = (await call("GET", "/api/player/config", undefined, b.auth)).body;
   assert.equal(cb.layers.effects.type, "santa");
-  assert.deepEqual(cb.layers.view, { cols: 2, rows: 1, col: 1, row: 0, gap: 0.015 });
+  assert.deepEqual(cb.layers.view, { cols: 2, rows: 1, col: 1, row: 0, gap: 0.015, design: false }); // no wall design yet
   assert.equal(cb.layers.text.enabled, false);
   // Changing other settings keeps the effects.
   await call("PATCH", "/api/walls/" + w.id, { name: "Christmas" });
@@ -1227,5 +1227,33 @@ test("widgets on a design: the client's own widgets only, attached for the previ
   // Deleting the widget drops it from the design.
   await call("DELETE", "/api/media/" + clock.id);
   assert.equal((await call("GET", "/api/screens/" + s.id + "/layers")).body.text.blocks.length, 0);
+  scopeId = null;
+});
+
+test("wall design: one design across the wall, each screen gets the whole design plus its part", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const A = (await call("POST", "/api/customers", { name: "Wall Design Shop" })).body;
+  scopeId = A.id;
+  const pair = async dev => { const reg = (await call("POST", "/api/player/register", { deviceId: dev })).body; const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode })).body; return { s, auth: { authorization: "Bearer " + reg.token } }; };
+  const l = await pair("android-walldesign-01"), r = await pair("android-walldesign-02");
+  const w = (await call("POST", "/api/walls", { name: "Menu wall", cols: 2, rows: 1 })).body;
+  await call("PUT", "/api/walls/" + w.id + "/screens", { tiles: [{ screenId: l.s.id, col: 0, row: 0 }, { screenId: r.s.id, col: 1, row: 0 }] });
+  const put = await call("PUT", "/api/walls/" + w.id + "/layers", { background: "#7c2d12", text: { enabled: true, blocks: [{ kind: "text", text: "MENU", x: 40, y: 10, fs: 8 }] } });
+  assert.equal(put.status, 200);
+  const got = (await call("GET", "/api/walls/" + w.id)).body;
+  assert.equal(got.layers.text.blocks[0].text, "MENU");
+  assert.deepEqual(got.layersOn, ["text"]);
+  for (const [t, col] of [[l, 0], [r, 1]]) {
+    const cfg = (await call("GET", "/api/player/config", undefined, t.auth)).body;
+    assert.equal(cfg.layers.text.blocks[0].text, "MENU", "every screen gets the whole design");
+    assert.equal(cfg.layers.background, "#7c2d12");
+    assert.deepEqual([cfg.layers.view.col, cfg.layers.view.design], [col, true]);
+    assert.equal(cfg.layers.video.enabled, false, "no pictures / videos on this wall: no video layer");
+  }
+  // Another client can't change it.
+  const B = (await call("POST", "/api/customers", { name: "Wall Design Other" })).body;
+  scopeId = B.id;
+  assert.equal((await call("PUT", "/api/walls/" + w.id + "/layers", { text: { enabled: false } })).status, 404);
   scopeId = null;
 });

@@ -382,6 +382,7 @@ function wallOut(w) {
     id: w.id, name: w.name, customerId: w.customer_id, customerName: w.customer_name,
     cols: w.cols, rows: w.rows, bezel: w.bezel, fit: w.fit, effects: wallEffects(w),
     playlistId: w.playlist_id, playlistName: w.playlist_name || null, updatedAt: w.updated_at,
+    layersOn: (l => ["specials", "text", "effects"].filter(k => l[k].enabled))(parseLayers(w.layers_json)),
     tiles: all("SELECT id, name, wall_col, wall_row, last_seen, planned FROM screens WHERE wall_id = ? AND paired_at IS NOT NULL ORDER BY wall_row, wall_col", w.id)
       .map(s => ({ screenId: s.id, name: s.name, col: s.wall_col, row: s.wall_row, online: !s.planned && isOnline(s), planned: !!s.planned }))
   };
@@ -411,7 +412,19 @@ router.post("/walls", (req, res) => {
   res.status(201).json(wallOut(loadWall({ cid: null }, r.lastInsertRowid)));
 });
 
-router.get("/walls/:id", (req, res) => res.json(wallOut(loadWall(req, intId(req.params.id)))));
+router.get("/walls/:id", (req, res) => {
+  const w = loadWall(req, intId(req.params.id));
+  // With its design (for the designer): pictures and widgets attached.
+  res.json({ ...wallOut(w), layers: withImages(parseLayers(w.layers_json), clientImage(w.customer_id), clientWidget(w.customer_id)) });
+});
+
+// The wall's design: one design across all its screens.
+router.put("/walls/:id/layers", (req, res) => {
+  const w = loadWall(req, intId(req.params.id));
+  const clean = sanitizeLayers(req.body, clientMedia(w.customer_id));
+  run("UPDATE walls SET layers_json = ?, updated_at = ? WHERE id = ?", JSON.stringify(clean), now(), w.id);
+  res.json(withImages(clean, clientImage(w.customer_id), clientWidget(w.customer_id)));
+});
 
 router.patch("/walls/:id", (req, res) => {
   const w = loadWall(req, intId(req.params.id));

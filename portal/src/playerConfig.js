@@ -28,6 +28,22 @@ function forPlayer(w) {
 /** A screen's design with no video layer underneath (there's no playlist to play). */
 const designOnly = layers => ({ ...layers, video: { enabled: false, region: "full" } });
 
+/**
+ * A wall screen's layers: the wall's design drawn across the whole wall (view = this screen's part of it; design =
+ * there's a design to stretch), the wall's effects (or the design's own when the wall has none), and the wall's
+ * pictures / videos underneath only if it has some.
+ */
+function wallLayers(wall, screen) {
+  const d = withImages(parseLayers(wall.layers_json), imageMedia, widgetMedia);
+  const fx = wallEffects(wall);
+  const design = d.specials.enabled || d.text.enabled;
+  return Object.assign(d, {
+    video: { enabled: !!wall.playlist_id, region: "full" },
+    effects: fx.enabled ? fx : d.effects,
+    view: { cols: wall.cols, rows: wall.rows, col: screen.wall_col, row: screen.wall_row, gap: wall.bezel / 100, design }
+  });
+}
+
 function playlistForPlayer(playlistId) {
   if (!playlistId) return null;
   const pl = get("SELECT id, name FROM playlists WHERE id = ?", playlistId);
@@ -68,8 +84,7 @@ function buildConfig(screen) {
       screen: { id: screen.id, name: screen.name, orientation: 0, volume: first ? screen.volume : 0 },
       defaultPlaylist: playlistForPlayer(wall.playlist_id),
       schedules: [],
-      // Only the effects layer, drawn across the whole wall (view = this screen's part of it).
-      layers: Object.assign(parseLayers(null), { effects: wallEffects(wall), view: { cols: wall.cols, rows: wall.rows, col: screen.wall_col, row: screen.wall_row, gap: wall.bezel / 100 } }),
+      layers: wallLayers(wall, screen),
       wall: { id: wall.id, cols: wall.cols, rows: wall.rows, col: screen.wall_col, row: screen.wall_row, bezel: wall.bezel, fit: wall.fit }
     };
     cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");

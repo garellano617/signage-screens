@@ -63,6 +63,7 @@ One design shared by many screens (for example every TV in a chain of stores). P
 ## Video walls
 
 One big picture or video across several TVs hung next to each other (up to 6 × 6).
+- **Design across the wall:** on the wall's page tap **🎨 Design the wall** (also on the Design page). The designer shows the whole wall's shape (e.g. very wide for 2 × 1) with dashed lines where the TVs meet. Everything you add (background, text, pictures, shapes, widgets, specials, ticker) is one design across all the TVs: each TV shows its part, lined up across the frames. The wall's pictures and videos (optional) play underneath; the wall's effects (or the design's own effects) fly across on top.
 - **Video walls → New wall:** choose the grid (columns × rows), then on the wall's page add its **pictures and videos** (in order; pictures for their seconds, videos to their end) and pick which screen hangs in each spot.
 - **Fill** crops the picture to fill the wall; **Fit** shows the whole picture. **Gap between screens** makes the picture line up across the TV frames.
 - Pictures and videos only (web pages and widgets are skipped), no layers; sound only from the top-left screen. All TVs play in step.

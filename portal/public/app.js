@@ -182,6 +182,7 @@ const clientRoutes = [
   [/^\/channels\/(\d+)\/layers$/, "design", (main, id) => renderLayers(main, id, "channel")],
   [/^\/walls$/, "walls", renderWalls],
   [/^\/walls\/(\d+)$/, "walls", renderWall],
+  [/^\/walls\/(\d+)\/layers$/, "design", (main, id) => renderLayers(main, id, "wall")],
   // Playlists were removed: screens show only their design. Old links go to Design.
   [/^\/playlists(\/\d+)?$/, "design", main => { go("/design"); }],
   [/^\/slides\/(\d+)$/, "design", (main, id) => renderLayers(main, id, "slide")],
@@ -863,8 +864,8 @@ const snapH = v => Math.round(v * 2) / 2;
  * and pictures on, and a timeline with one track per layer. Text and picture bars can be moved to set when they show.
  */
 async function renderLayers(main, id, kind) {
-  const isCh = kind === "channel", isSlide = kind === "slide";
-  const path = (isCh ? "/channels/" : isSlide ? "/slides/" : "/screens/") + id;
+  const isCh = kind === "channel", isSlide = kind === "slide", isWall = kind === "wall";
+  const path = (isCh ? "/channels/" : isSlide ? "/slides/" : isWall ? "/walls/" : "/screens/") + id;
   let [s, media, templates, aiStatus] = await Promise.all([api("GET", path), api("GET", "/media"),
     api("GET", "/layer-templates").catch(() => []), api("GET", "/ai/status").catch(() => ({ enabled: false }))]);
   if (!isCh && s.channelId) {
@@ -898,6 +899,15 @@ async function renderLayers(main, id, kind) {
   const pvVideo = h("div", { class: "pv-video" });
   const pvOverlay = h("div", { class: "pv-overlay" });
   const preview = h("div", { class: "preview ed-preview" + (portrait ? " portrait" : "") }, h("div", { class: "pv-bg" }), pvVideo, pvOverlay);
+  // Video wall: the preview has the wall's shape, with lines where the TVs meet (and their frames, if a gap is set).
+  if (isWall) {
+    const g = (s.bezel || 0) / 100, Wt = s.cols + (s.cols - 1) * g, Ht = s.rows * 9 / 16 + (s.rows - 1) * g;
+    preview.style.paddingTop = (Ht / Wt * 100) + "%";
+    const seams = h("div", { class: "wall-seams" });
+    for (let c = 1; c < s.cols; c++) seams.append(h("div", { class: "wall-seam v", style: "left:" + ((c + (c - 1) * g) / Wt * 100) + "%;width:" + (g / Wt * 100) + "%" }));
+    for (let r = 1; r < s.rows; r++) seams.append(h("div", { class: "wall-seam h", style: "top:" + ((r * 9 / 16 + (r - 1) * g) / Ht * 100) + "%;height:" + (g / Ht * 100) + "%" }));
+    preview.append(seams);
+  }
   // A design slide has no video: its background colour fills the screen.
   let slideBg = isSlide ? s.bg || "#0f172a" : null;
   const paintBg = () => { preview.querySelector(".pv-bg").style.background = isSlide ? slideBg : L.background || "#000"; };
@@ -2082,7 +2092,7 @@ async function renderLayers(main, id, kind) {
       const saved = await api("PUT", path + "/layers", isSlide ? { layers: L, bg: slideBg } : L);
       dirty = false; saveBtn.textContent = "Saved";
       if (undo) { undo = null; if (tab === "templates" || tab === "ai") drawSide(); }
-      toast(isSlide ? "Slide saved. Screens playing it update within 30 seconds." : isCh ? "Layers saved. Every screen on this channel updates within 30 seconds." : "Layers saved. The screen updates within 30 seconds.");
+      toast(isWall ? "Wall design saved. Its screens update within 30 seconds." : isSlide ? "Slide saved. Screens playing it update within 30 seconds." : isCh ? "Layers saved. Every screen on this channel updates within 30 seconds." : "Layers saved. The screen updates within 30 seconds.");
       // The server drops empty text and unknown pictures: reload if it changed anything we show.
       if (saved.text.blocks.length !== L.text.blocks.length || saved.specials.items.length !== L.specials.items.length) route();
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
@@ -2097,7 +2107,7 @@ async function renderLayers(main, id, kind) {
 
   main.replaceChildren(
     h("a", { href: isSlide ? (state.slideBack || base() + "/widgets") : base() + path, class: "back", onclick: e => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); } }, "← " + (isSlide ? "Back" : s.name)),
-    pageHead("Design", (isCh ? "Channel " : isSlide ? "Slide " : "") + s.name + " · " + clientName(), saveBtn),
+    pageHead("Design", (isCh ? "Channel " : isSlide ? "Slide " : isWall ? "Video wall " + wallSize(s) + " · " : "") + s.name + " · " + clientName(), saveBtn),
     h("div", { class: "ed" },
       toolbar, side,
       h("div", { class: "card ed-stage" }, preview,
@@ -2417,7 +2427,7 @@ const layerChips = on => h("div", { class: "chips" }, [["specials", "Specials"],
 
 /** Design (menu): every screen, channel and design slide of the client, with its layers and a Design button. */
 async function renderDesign(main) {
-  const [screens, channels, media] = await Promise.all([api("GET", "/screens"), api("GET", "/channels"), api("GET", "/media")]);
+  const [screens, channels, media, walls] = await Promise.all([api("GET", "/screens"), api("GET", "/channels"), api("GET", "/media"), api("GET", "/walls")]);
   const slides = media.filter(m => m.kind === "widget" && m.widget && m.widget.type === "design");
   const row = (title, sub, chips, href, label, primary) => h("tr", { class: "click", onclick: e => { if (!e.target.closest("a")) location.hash = href; } },
     h("td", {}, h("strong", {}, title), sub ? h("div", { class: "small muted" }, sub) : null),
@@ -2428,11 +2438,13 @@ async function renderDesign(main) {
     pageHead("Design", clientName() + " · what shows on top of the playlists: specials, text, pictures, effects"),
     h("div", { class: "card" }, h("h2", {}, "Screens"),
       screens.length ? table(screens.map(s => s.wallId
-        ? row(s.name, "In the video wall “" + s.wallName + "”: it plays the wall, so its layers aren't used.", h("span", { class: "muted small" }, "—"), base() + "/walls/" + s.wallId, "Open wall")
+        ? row(s.name, "In the video wall “" + s.wallName + "”: it shows its part of the wall's design.", h("span", { class: "muted small" }, "—"), base() + "/walls/" + s.wallId + "/layers", "Design wall")
         : s.channelId
           ? row(s.name, "Uses the channel “" + s.channelName + "” (its design is shared).", layerChips((channels.find(c => c.id === s.channelId) || {}).layersOn || []), base() + "/channels/" + s.channelId + "/layers", "Design channel")
           : row(s.name, [s.location, s.planned ? "No TV yet" : null].filter(Boolean).join(" · "), layerChips(s.layersOn || []), base() + "/screens/" + s.id + "/layers", "Design", true)))
         : h("p", { class: "muted" }, "No screens yet. ", h("a", { href: "#", onclick: e => { e.preventDefault(); pairDialog(); } }, "Add a screen"), " (it can be set up before the TV is connected).")),
+    walls.length ? h("div", { class: "card" }, h("h2", {}, "Video walls"),
+      table(walls.map(w => row(w.name, wallSize(w) + " · " + w.tiles.length + " TV(s) placed", layerChips(w.layersOn || []), base() + "/walls/" + w.id + "/layers", "Design", true)))) : null,
     channels.length ? h("div", { class: "card" }, h("h2", {}, "Channels"),
       table(channels.map(c => row(c.name, c.screens.length + " screen(s)", layerChips(c.layersOn), base() + "/channels/" + c.id + "/layers", "Design", true)))) : null,
     // Slides made for the old playlists: only listed if there are any (screens don't play them any more).
@@ -2639,8 +2651,12 @@ async function renderWall(main, id) {
       try { await api("DELETE", "/walls/" + id); toast("Video wall deleted."); go("/walls"); } catch (e) { fail(e); }
     } }, "Delete"), saveBtn),
     h("div", { class: "grid two" },
+      h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Design across the wall"),
+          h("a", { class: "btn primary", href: base() + "/walls/" + id + "/layers" }, "🎨 Design the wall")),
+        h("p", { class: "small muted" }, "One design (text, pictures, shapes, widgets, specials) stretched across all the wall's TVs: each TV shows its part, lined up across the frames."),
+        layerChips(w.layersOn || [])),
       h("div", { class: "card" }, h("h2", {}, "Content"), field("Name", nameIn),
-        h("div", { class: "field" }, h("label", {}, "Pictures and videos (in order, then it repeats)"), wallList, addSel),
+        h("div", { class: "field" }, h("label", {}, "Pictures and videos under the design (optional; in order, then it repeats)"), wallList, addSel),
         h("div", { class: "row" }, field("Screens across", colsSel), field("Screens down", rowsSel)),
         field("Picture", fitSel),
         field("Gap between screens (% of a screen's width)", bezelIn),
