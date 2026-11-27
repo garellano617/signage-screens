@@ -68,14 +68,17 @@ function sanitizeLayers(input, checkImage) {
       mediaId: mediaId && Number.isInteger(mediaId) && checkImage(mediaId) ? mediaId : null,
       position: pick(b.position, POSITIONS, "top"),
       // Free placement: top-left corner in % of the screen (null = use position).
-      x: free ? numf(b.x, -50, 100, 0) : null,
-      y: free ? numf(b.y, -50, 100, 0) : null,
+      // (can be partly or mostly off the screen: the screen cuts it off)
+      x: free ? numf(b.x, -300, 200, 0) : null,
+      y: free ? numf(b.y, -300, 200, 0) : null,
       // Width in % of the screen (0 = as wide as the text).
-      w: numf(b.w, 0, 100, kind === "image" ? 30 : kind === "shape" ? 18 : 0),
+      w: numf(b.w, 0, kind === "shape" ? 400 : 100, kind === "image" ? 30 : kind === "shape" ? 18 : 0),
       // Shapes: which one, height (in % of the screen width, like w), inside colour + see-through, border colour + thickness.
       ...(kind === "shape" ? {
         shape: pick(b.shape, SHAPE_NAMES, "square"),
-        h: numf(b.h, 0.2, 100, 18),
+        h: numf(b.h, 0.2, 400, 18),
+        // Turned this many degrees (clockwise) around its middle.
+        rot: (v => Math.round((((v % 360) + 540) % 360 - 180) * 10) / 10)(Number(b.rot) || 0),
         fill: color(b.fill, "#dc2626"),
         fillOpacity: num(b.fillOpacity, 0, 100, 100),
         stroke: color(b.stroke, "#ffffff"),

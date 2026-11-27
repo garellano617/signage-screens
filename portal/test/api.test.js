@@ -971,6 +971,12 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   assert.equal(sh.length, 2);
   assert.deepEqual([sh[0].shape, sh[0].w, sh[0].h, sh[0].fill, sh[0].fillOpacity, sh[0].stroke, sh[0].sw, sh[0].bgOpacity], ["wave", 100, 18, "#2563eb", 40, "#facc15", 1.5, 0]);
   assert.deepEqual([sh[1].shape, sh[1].fill, sh[1].sw, sh[1].fillOpacity], ["square", "#dc2626", 10, 100]);
+  // Turned any angle (kept between -180 and 180), bigger than the screen, partly off it.
+  const big = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "shape", shape: "wave", rot: 270, w: 350, h: 500, x: -120, y: 150 },
+    { kind: "shape", shape: "circle", rot: -45.25 }, { kind: "image", mediaId: 1, w: 350, x: -999 }] } }, () => true).text.blocks;
+  assert.deepEqual([big[0].rot, big[0].w, big[0].h, big[0].x, big[0].y], [-90, 350, 400, -120, 150]);
+  assert.equal(big[1].rot, -45.3);
+  assert.deepEqual([big[2].w, big[2].x], [100, -300], "pictures stay at most the screen's width");
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {

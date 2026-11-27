@@ -480,3 +480,11 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .ed-frame.shape .ed-h-w, .ed-frame.shape .ed-h-e, .ed-frame.shape .ed-h-n, .ed-frame.shape .ed-h-s { display: block; }
 @media (pointer: coarse) { .ed-h-n, .ed-h-s { width: 32px; height: 16px; margin: -8px 0 0 -16px; } }
 .ed-side .sp-row { grid-template-columns: 6.2rem minmax(0, 1fr) 2.8rem; gap: .4rem; }
+
+/* Turn handle above a selected shape. */
+.ed-rot { display: none; position: absolute; left: 50%; top: -34px; width: 24px; height: 24px; margin-left: -12px; border-radius: 50%; background: #fff; border: 2px solid #a855f7; color: #a855f7;
+  font-size: 15px; line-height: 20px; text-align: center; cursor: grab; pointer-events: auto; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,.4); user-select: none; }
+.ed-rot::before { content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 10px; margin-left: -1px; background: #a855f7; }
+.ed-rot[data-deg]::after { content: attr(data-deg); position: absolute; left: 130%; top: 0; padding: 0 .35rem; border-radius: 4px; background: #a855f7; color: #fff; font-size: 12px; white-space: nowrap; }
+.ed-frame.shape .ed-rot { display: block; }
+@media (pointer: coarse) { .ed-rot { width: 32px; height: 32px; margin-left: -16px; top: -44px; line-height: 28px; } }

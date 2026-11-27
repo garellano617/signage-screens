@@ -60,7 +60,8 @@
     var fill = sh[4] ? "none" : rgba(b.fill || "#dc2626", b.fillOpacity === undefined ? 100 : b.fillOpacity);
     var sw = b.sw || (sh[4] ? 0.6 : 0);
     // The border keeps its thickness (in % of the screen width) however the shape is stretched.
-    return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="display:block;width:100%;height:100%;overflow:visible">' +
+    var rot = b.rot ? "transform:rotate(" + b.rot + "deg);" : "";
+    return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="display:block;width:100%;height:100%;overflow:visible;' + rot + '">' +
       '<g fill="' + fill + '" stroke="' + (sw ? b.stroke || "#ffffff" : "none") + '" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" style="stroke-width:' + sw + 'em">' +
       sh[1].replace(/\/>/g, ' vector-effect="non-scaling-stroke"/>') + '</g></svg>';
   }

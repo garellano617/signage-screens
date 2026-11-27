@@ -1134,6 +1134,30 @@ async function renderLayers(main, id, kind) {
   const HANDLES = [["nw", -1, -1], ["ne", 1, -1], ["sw", -1, 1], ["se", 1, 1], ["w", -1, 0], ["e", 1, 0], ["n", 0, -1], ["s", 0, 1]];
   HANDLES.forEach(([k, dx, dy]) => frame.append(h("span", { class: "ed-h ed-h-" + k, title: dx && dy ? "Drag to resize" : dx ? "Drag to change the width" : "Drag to change the height",
     onpointerdown: e => resizeDrag(e, dx, dy) })));
+  // Shapes: a handle above the frame turns the shape (around its middle). Shift = steps of 15°.
+  const rotHandle = h("span", { class: "ed-rot", title: "Drag to turn the shape (hold Shift for steps of 15°)", "aria-label": "Turn", onpointerdown: e => rotateDrag(e) }, "⟳");
+  frame.append(rotHandle);
+  function rotateDrag(e) {
+    e.preventDefault(); e.stopPropagation(); unfocus();
+    const b = L.text.blocks[sel.i], node = blockNodes[sel.i];
+    if (!b || b.kind !== "shape" || !node) return;
+    const r = node.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const svg = node.querySelector("svg");
+    const mv = ev => {
+      let a = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI + 90;
+      a = ((a + 540) % 360) - 180;
+      if (ev.shiftKey) a = Math.round(a / 15) * 15;
+      else { const n = Math.round(a / 45) * 45; if (Math.abs(a - n) < 3) a = n; } // a little pull to straight angles
+      b.rot = Math.round(a * 10) / 10;
+      if (svg) svg.style.transform = "rotate(" + b.rot + "deg)";
+      rotHandle.dataset.deg = Math.round(b.rot) + "°";
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
+      delete rotHandle.dataset.deg; change(); drawToolbar(); drawSide();
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  }
   // On a group's frame: lock them together / take the group apart, right on the screen.
   const groupChip = h("button", { type: "button", class: "ed-chip", onpointerdown: e => e.stopPropagation(),
     onclick: e => { e.stopPropagation(); lockGroup(!groupChip.locked); placeFrame(); } });
@@ -1199,7 +1223,7 @@ async function renderLayers(main, id, kind) {
         if (dx && dy) { b.w = sw0 * f; b.h = sh0 * f; }
         else if (dx) b.w = (r.width + d) / unit;
         else b.h = (r.height + dv) / unit;
-        b.w = Math.round(clampN(b.w, 0.5, 100) * 10) / 10; b.h = Math.round(clampN(b.h, 0.2, 100) * 10) / 10;
+        b.w = Math.round(clampN(b.w, 0.5, 400) * 10) / 10; b.h = Math.round(clampN(b.h, 0.2, 400) * 10) / 10;
         node.style.width = b.w + "em"; node.style.height = b.h + "em";
       } else if (!dy) {
         // Side handle on text: how wide it wraps (in % of the screen).
@@ -1249,7 +1273,7 @@ async function renderLayers(main, id, kind) {
       items.forEach(({ b, n, r, fs0, w0, h0 }) => {
         if (b.kind === "image") { b.w = Math.round(clampN(w0 * f, 2, 100) * 10) / 10; n.style.width = b.w + "em"; }
         else if (b.kind === "shape") {
-          b.w = Math.round(clampN(w0 * f, 0.5, 100) * 10) / 10; b.h = Math.round(clampN(h0 * f, 0.2, 100) * 10) / 10;
+          b.w = Math.round(clampN(w0 * f, 0.5, 400) * 10) / 10; b.h = Math.round(clampN(h0 * f, 0.2, 400) * 10) / 10;
           n.style.width = b.w + "em"; n.style.height = b.h + "em";
         }
         else {
@@ -1417,7 +1441,9 @@ async function renderLayers(main, id, kind) {
           colorIn(b.fill, v => { b.fill = v; if (!b.fillOpacity) { b.fillOpacity = 100; drawToolbar(); } change(); drawSide(); }, "Inside"),
           h("label", { class: "tb-num", title: "How see-through the inside is (0 = no inside, only the border)" }, "", h("input", { type: "range", min: 0, max: 100, value: b.fillOpacity, style: "width:70px", oninput: upd(e => { b.fillOpacity = Number(e.target.value); }) })),
           colorIn(b.stroke, v => { b.stroke = v; if (!b.sw) { b.sw = 0.4; drawToolbar(); } change(); drawSide(); }, "Border"),
-          h("label", { class: "tb-num", title: "Border thickness" }, "Thickness", h("input", { type: "range", min: 0, max: 3, step: 0.05, value: b.sw || 0, style: "width:90px", oninput: upd(e => { b.sw = Number(e.target.value); }) })));
+          h("label", { class: "tb-num", title: "Border thickness" }, "Thickness", h("input", { type: "range", min: 0, max: 3, step: 0.05, value: b.sw || 0, style: "width:90px", oninput: upd(e => { b.sw = Number(e.target.value); }) })),
+          h("label", { class: "tb-num", title: "Turn (degrees, clockwise)" }, "⟳", h("input", { type: "number", min: -180, max: 180, step: 1, value: Math.round(b.rot || 0), style: "width:64px",
+            oninput: upd(e => { b.rot = ((Number(e.target.value) || 0) + 540) % 360 - 180; drawSide(); }) }), "°"));
       } else {
         kids.push(h("strong", { class: "small" }, "Picture"),
           h("label", { class: "tb-num", title: "Width in % of the screen" }, "Width", h("input", { type: "range", min: 3, max: 100, value: b.w || 30, style: "width:120px",
@@ -1642,8 +1668,14 @@ async function renderLayers(main, id, kind) {
           h("div", { class: "row", style: "gap:.6rem;align-items:center" }, colorIn(b.stroke, v => { b.stroke = v; if (!b.sw) b.sw = 0.4; change(); drawSide(); drawToolbar(); }, "Colour")),
           num("Thickness", 0, 3, 0.05, b.sw || 0, v => { b.sw = v; }, v => v ? v.toFixed(2) : "none"),
           h("div", { class: "small muted ed-cat" }, "Size (or drag the dots on the screen)"),
-          num("Width", 0.5, 100, 0.5, b.w || 18, v => { b.w = v; }, pct),
-          num("Height", 0.2, 60, 0.2, b.h || 18, v => { b.h = v; }, v => v.toFixed(1))),
+          num("Width", 0.5, 300, 0.5, b.w || 18, v => { b.w = v; }, pct),
+          num("Height", 0.2, 200, 0.2, b.h || 18, v => { b.h = v; }, v => v.toFixed(1)),
+          h("p", { class: "small muted", style: "margin:.1rem 0 .4rem" }, "It can be bigger than the screen or hang off the edge: the screen cuts it off."),
+          h("div", { class: "small muted ed-cat" }, "Turn"),
+          num("Angle", -180, 180, 1, b.rot || 0, v => { b.rot = v; drawToolbar(); }, v => Math.round(v) + "°"),
+          h("div", { class: "row", style: "gap:.35rem;flex-wrap:wrap" },
+            ...[["↺ 90°", -90], ["↻ 90°", 90], ["↻ 45°", 45]].map(([l, d]) => h("button", { type: "button", class: "small", onclick: () => { b.rot = (((b.rot || 0) + d) + 540) % 360 - 180; change(); drawSide(); drawToolbar(); } }, l)),
+            h("button", { type: "button", class: "small", onclick: () => { b.rot = 0; change(); drawSide(); drawToolbar(); } }, "Straight"))),
           h("div", { class: "sub-item" }, looksFields(b, "Shape effect"), timingFields(b)));
       }
       kids.push(h("p", { class: "small muted" }, "Tap a shape to put it on the screen. Then change its inside colour, its border and its size."));
