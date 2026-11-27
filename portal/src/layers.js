@@ -92,6 +92,9 @@ function sanitizeLayers(input, checkImage) {
       lh: kind === "text" ? (v => (v && v < 0.5 ? 0.5 : v))(numf(b.lh, 0, 4, 0)) : 0,
       runs: kind === "text" && Array.isArray(b.runs) ? b.runs.slice(0, 60).map(r => ({ s: num(r && r.s, 0, 600, 0), e: num(r && r.e, 0, 600, 0), ls: numf(r && r.ls, -0.2, 2, 0) })).filter(r => r.e > r.s) : [],
       llh: kind === "text" && Array.isArray(b.llh) ? b.llh.slice(0, 100).map(v => (v === null || v === undefined || v === "" || !Number(v) ? null : numf(v, 0.5, 4, 1.2))) : [],
+      // Thickness 100 (thin) to 900 (heavy) for the whole text (0 = bold or normal) and for parts.
+      wt: kind === "text" ? (v => (v ? Math.round(Math.min(900, Math.max(100, v))) : 0))(Number(b.wt) || 0) : 0,
+      wruns: kind === "text" && Array.isArray(b.wruns) ? b.wruns.slice(0, 60).map(r => ({ s: num(r && r.s, 0, 600, 0), e: num(r && r.e, 0, 600, 0), wt: num(r && r.wt, 100, 900, 400) })).filter(r => r.e > r.s) : [],
       // Stacking: true = over the Specials panel (and over the pictures/text under it). Order among blocks = list order.
       above: !!b.above,
       enter: pick(b.enter, TRANSITIONS, "none"),

@@ -20,11 +20,12 @@
   var SPEED = { slow: 6, normal: 10, fast: 16 }; // % of width per second
   // System fonts only (the TV works offline). Android names: sans-serif-condensed, serif, monospace, cursive.
   var FONTS = {
-    sans: "\"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
-    serif: "Georgia, \"Times New Roman\", \"Noto Serif\", serif",
-    condensed: "\"Roboto Condensed\", \"Arial Narrow\", \"sans-serif-condensed\", sans-serif",
-    mono: "Consolas, \"Roboto Mono\", \"Courier New\", monospace",
-    script: "\"Segoe Script\", \"Brush Script MT\", \"Dancing Script\", cursive"
+    // Bundled variable fonts first (overlay.css), so thickness can be any value and the portal matches the TV.
+    sans: "\"SO Roboto\", \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
+    serif: "\"SO Noto Serif\", Georgia, \"Times New Roman\", \"Noto Serif\", serif",
+    condensed: "\"SO Roboto Condensed\", \"Roboto Condensed\", \"Arial Narrow\", \"sans-serif-condensed\", sans-serif",
+    mono: "\"SO Roboto Mono\", Consolas, \"Roboto Mono\", \"Courier New\", monospace",
+    script: "\"SO Dancing Script\", \"Segoe Script\", \"Brush Script MT\", \"Dancing Script\", cursive"
   };
 
   function el(tag, cls, text) {
@@ -87,17 +88,21 @@
     var text = b.text || "";
     if (b.ls) t.style.letterSpacing = b.ls + "em";
     if (b.lh) t.style.lineHeight = String(b.lh);
-    var runs = (b.runs || []).filter(function (r) { return r && r.e > r.s; });
+    var ok = function (r) { return r && r.e > r.s; };
+    // Parts: letter spacing (b.runs: ls) and thickness (b.wruns: wt).
+    var runs = (b.runs || []).filter(ok), wruns = (b.wruns || []).filter(ok);
     var llh = b.llh || [];
     var anyLine = false;
     for (var k = 0; k < llh.length; k++) if (llh[k]) anyLine = true;
-    if (!runs.length && !anyLine) { t.textContent = text; return; }
+    if (!runs.length && !wruns.length && !anyLine) { t.textContent = text; return; }
+    var all = runs.concat(wruns);
+    var covering = function (list, a, z) { var hit = null; list.forEach(function (r) { if (r.s <= a && r.e >= z) hit = r; }); return hit; };
     var pos = 0;
     text.split("\n").forEach(function (line, li) {
       var ln = el("span", "so-line");
       if (llh[li]) ln.style.lineHeight = String(llh[li]);
       var start = pos, end = pos + line.length, cuts = [start, end];
-      runs.forEach(function (r) {
+      all.forEach(function (r) {
         if (r.s > start && r.s < end) cuts.push(r.s);
         if (r.e > start && r.e < end) cuts.push(r.e);
       });
@@ -105,11 +110,14 @@
       for (var i = 0; i < cuts.length - 1; i++) {
         var a = cuts[i], z = cuts[i + 1];
         if (z <= a) continue;
-        var run = null;
-        runs.forEach(function (r) { if (r.s <= a && r.e >= z) run = r; });
+        var run = covering(runs, a, z), wr = covering(wruns, a, z);
         var seg = text.slice(a, z);
-        if (run) { var sp = el("span", "", seg); sp.style.letterSpacing = run.ls + "em"; ln.appendChild(sp); }
-        else ln.appendChild(document.createTextNode(seg));
+        if (run || wr) {
+          var sp = el("span", "", seg);
+          if (run) sp.style.letterSpacing = run.ls + "em";
+          if (wr) sp.style.fontWeight = String(wr.wt);
+          ln.appendChild(sp);
+        } else ln.appendChild(document.createTextNode(seg));
       }
       // An empty line still takes its height.
       if (!line.length) ln.appendChild(document.createTextNode("​"));
@@ -229,7 +237,8 @@
         } else {
           fillText(t, b);
           t.style.fontSize = (b.fs || SIZE[b.size] || SIZE.m) + "em";
-          t.style.fontWeight = b.bold ? "700" : "400";
+          // Thickness: any value 100-900 (b.wt), else bold or normal.
+          t.style.fontWeight = String(b.wt || (b.bold ? 700 : 400));
           if (b.italic) t.style.fontStyle = "italic";
           t.style.fontFamily = FONTS[b.font] || FONTS.sans;
           t.style.color = b.color;

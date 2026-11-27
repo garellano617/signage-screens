@@ -960,6 +960,11 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   assert.equal(sp.lh, 0.5);
   assert.deepEqual(sp.runs, [{ s: 6, e: 13, ls: 0.4 }]);
   assert.deepEqual(sp.llh, [null, 1.6, null, 4]);
+  // Thickness: whole text 100-900 (0 = bold / normal) and parts.
+  const wt = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "CARNE BEEF", wt: 2000, wruns: [{ s: 6, e: 10, wt: 850 }, { s: 1, e: 1, wt: 300 }] }, { kind: "text", text: "x", wt: "abc" }] } }, () => true).text.blocks;
+  assert.equal(wt[0].wt, 900);
+  assert.deepEqual(wt[0].wruns, [{ s: 6, e: 10, wt: 850 }]);
+  assert.equal(wt[1].wt, 0);
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {

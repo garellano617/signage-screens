@@ -453,8 +453,8 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 /* Designer: spacing sliders (letter spacing / line spacing). */
 .sp-pop { flex-basis: 100%; display: grid; gap: .5rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
 .sp-scope { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
-.sp-row { display: grid; grid-template-columns: 11rem 1fr 3rem; align-items: center; gap: .6rem; margin: 0; font-size: .85rem; }
+.sp-row { display: grid; grid-template-columns: 11rem 1fr 5.5rem; align-items: center; gap: .6rem; margin: 0; font-size: .85rem; }
 .sp-row input[type=range] { width: 100%; }
 .sp-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .sp-acts { display: flex; justify-content: flex-end; }
-@media (max-width: 640px) { .sp-row { grid-template-columns: 1fr 3rem; } .sp-row > span:first-child { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .sp-row { grid-template-columns: 1fr 5.5rem; } .sp-row > span:first-child { grid-column: 1 / -1; } }

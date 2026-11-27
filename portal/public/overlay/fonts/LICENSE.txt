@@ -1,0 +1,7 @@
+Fonts used by the signage overlay (portal preview and TV player), from Google Fonts, Latin subset, variable weight:
+
+- roboto.woff2, roboto-condensed.woff2, roboto-mono.woff2: Roboto, Roboto Condensed, Roboto Mono. SIL Open Font License 1.1 (Copyright 2011 The Roboto Project Authors).
+- noto-serif.woff2: Noto Serif. SIL Open Font License 1.1 (Copyright 2022 The Noto Project Authors).
+- dancing-script.woff2: Dancing Script. SIL Open Font License 1.1 (Copyright 2016 The Dancing Script Project Authors).
+
+License text: https://openfontlicense.org

@@ -1275,24 +1275,31 @@ async function renderLayers(main, id, kind) {
   }
   const lineOf = (text, pos) => text.slice(0, pos).split("\n").length - 1;
   /** Letter spacing for part of the text: replaces whatever was set for those letters. */
-  function setRun(b, s, e, ls) {
+  function setRun(b, s, e, ls) { setPart(b, "runs", "ls", s, e, ls, b.ls || 0); }
+  /** A setting for part of the text (list b[listKey] of { s, e, [key] }): replaces whatever was set for those letters. */
+  function setPart(b, listKey, key, s, e, val, whole) {
     const out = [];
-    (b.runs || []).forEach(r => {
+    (b[listKey] || []).forEach(r => {
       if (r.e <= s || r.s >= e) return out.push(r);
-      if (r.s < s) out.push({ s: r.s, e: s, ls: r.ls });
-      if (r.e > e) out.push({ s: e, e: r.e, ls: r.ls });
+      if (r.s < s) out.push({ s: r.s, e: s, [key]: r[key] });
+      if (r.e > e) out.push({ s: e, e: r.e, [key]: r[key] });
     });
-    if (ls !== (b.ls || 0)) out.push({ s, e, ls });
-    b.runs = out.sort((a, c) => a.s - c.s);
+    if (val !== whole) out.push({ s, e, [key]: val });
+    b[listKey] = out.sort((a, c) => a.s - c.s);
   }
+  /** Thickness of the whole text: 100 (thin) to 900 (heavy). */
+  const weightOf = b => b.wt || (b.bold ? 700 : 400);
+  const WEIGHT_NAMES = [[150, "Thin"], [250, "Extra light"], [350, "Light"], [450, "Normal"], [550, "Medium"], [650, "Semi-bold"], [750, "Bold"], [850, "Extra bold"], [901, "Black"]];
+  const weightName = v => WEIGHT_NAMES.find(([m]) => v < m)[1];
   /** After typing in the text: keep each part's spacing on the same letters / lines. */
   function remapSpacing(b, a, z) {
-    if (!(b.runs && b.runs.length) && !(b.llh && b.llh.some(Boolean))) return;
+    if (!(b.runs && b.runs.length) && !(b.wruns && b.wruns.length) && !(b.llh && b.llh.some(Boolean))) return;
     let p = 0; while (p < a.length && p < z.length && a[p] === z[p]) p++;
     let q = 0; while (q < a.length - p && q < z.length - p && a[a.length - 1 - q] === z[z.length - 1 - q]) q++;
     const d = z.length - a.length, endOld = a.length - q;
     const mv = x => x <= p ? x : x >= endOld ? x + d : Math.min(x, z.length - q);
     b.runs = (b.runs || []).map(r => ({ s: mv(r.s), e: mv(r.e), ls: r.ls })).filter(r => r.e > r.s);
+    b.wruns = (b.wruns || []).map(r => ({ s: mv(r.s), e: mv(r.e), wt: r.wt })).filter(r => r.e > r.s);
     const nl = t => t.split("\n").length - 1, dl = nl(z) - nl(a), at = lineOf(a, p) + 1;
     if (dl > 0) (b.llh = b.llh || []).splice(at, 0, ...Array(dl).fill(null));
     else if (dl < 0 && b.llh) b.llh.splice(at, -dl);
@@ -1303,6 +1310,9 @@ async function renderLayers(main, id, kind) {
     const runAt = r && (b.runs || []).find(x => x.s <= r.s && x.e > r.s);
     const lsNow = r ? (runAt ? runAt.ls : b.ls || 0) : b.ls || 0;
     const lhNow = r ? ((b.llh || [])[lines[0]] || b.lh || NORMAL_LH) : b.lh || NORMAL_LH;
+    const wAt = r && (b.wruns || []).find(x => x.s <= r.s && x.e > r.s);
+    const wtNow = r ? (wAt ? wAt.wt : weightOf(b)) : weightOf(b);
+    const wtVal = h("span", { class: "sp-val sp-wname" }, weightName(wtNow));
     const show = (v, unit) => h("span", { class: "sp-val" }, unit === "×" ? Number(v).toFixed(2) : (v > 0 ? "+" : "") + Math.round(v * 100));
     const lsVal = show(lsNow), lhVal = show(lhNow, "×");
     const slider = (min, max, step, value, oninput) => h("input", { type: "range", min, max, step, value, oninput });
@@ -1325,12 +1335,19 @@ async function renderLayers(main, id, kind) {
           else b.lh = Math.abs(v - NORMAL_LH) < 0.005 ? 0 : v;
           lhVal.textContent = v.toFixed(2); change();
         }), lhVal),
+      h("label", { class: "sp-row" }, h("span", {}, "𝐁 Thickness"),
+        slider(100, 900, 10, wtNow, e => {
+          const v = Number(e.target.value);
+          if (r) setPart(b, "wruns", "wt", r.s, r.e, v, weightOf(b));
+          else { b.wt = v; b.bold = v >= 600; }
+          wtVal.textContent = weightName(v); change();
+        }), wtVal),
       h("div", { class: "sp-acts" },
         h("button", { type: "button", class: "small", onclick: () => {
-          if (r) { setRun(b, r.s, r.e, b.ls || 0); if (b.llh) for (let l = lines[0]; l <= lines[1]; l++) b.llh[l] = null; }
-          else { b.ls = 0; b.lh = 0; b.runs = []; b.llh = []; }
+          if (r) { setRun(b, r.s, r.e, b.ls || 0); setPart(b, "wruns", "wt", r.s, r.e, weightOf(b), weightOf(b)); if (b.llh) for (let l = lines[0]; l <= lines[1]; l++) b.llh[l] = null; }
+          else { b.ls = 0; b.lh = 0; b.runs = []; b.llh = []; b.wruns = []; b.wt = 0; }
           change(); drawToolbar();
-        } }, r ? "Reset this part" : "Reset all spacing")));
+        } }, r ? "Reset this part" : "Reset all")));
   }
 
   // ---------- toolbar ----------
@@ -1359,7 +1376,7 @@ async function renderLayers(main, id, kind) {
           h("select", { title: "Font", onchange: upd(e => { b.font = e.target.value; }) }, opts(FONT_LABELS, b.font || "sans")),
           h("label", { class: "tb-num", title: "Text size" }, "Size", h("input", { type: "number", min: 1, max: 30, step: 0.2, value: b.fs || SIZE_EM[b.size] || 2.8,
             oninput: upd(e => { b.fs = clampN(Number(e.target.value) || 2.8, 1, 30); }) })),
-          tbBtn("B", b.bold, () => { b.bold = !b.bold; change(); drawToolbar(); }, "Bold"),
+          tbBtn("B", b.bold, () => { b.bold = !b.bold; b.wt = 0; change(); drawToolbar(); }, "Bold (for any thickness, use Spacing & thickness)"),
           tbBtn("I", b.italic, () => { b.italic = !b.italic; change(); drawToolbar(); }, "Italic"),
           ...[["left", "⇤"], ["center", "↔"], ["right", "⇥"]].map(([a, l]) => tbBtn(l, b.align === a, () => { b.align = b.align === a ? "" : a; change(); drawToolbar(); }, "Align " + a)),
           colorIn(b.color, v => { b.color = v; change(); }, "Text"),
@@ -1367,7 +1384,7 @@ async function renderLayers(main, id, kind) {
           h("label", { class: "tb-num", title: "Box opacity" }, "Box", h("input", { type: "range", min: 0, max: 100, value: b.bgOpacity, style: "width:80px", oninput: upd(e => { b.bgOpacity = Number(e.target.value); }) })),
           h("label", { class: "tb-num", title: "Width in % of the screen (0 = fit the text)" }, "Width", h("input", { type: "number", min: 0, max: 100, step: 1, value: b.w || 0,
             oninput: upd(e => { b.w = clampN(Number(e.target.value) || 0, 0, 100); }) })),
-          tbBtn("↔↕ Spacing", spacingOpen, () => { spacingOpen = !spacingOpen; drawToolbar(); }, "Letter spacing (sideways) and line spacing (up and down)"));
+          tbBtn("↔↕ Spacing & thickness", spacingOpen, () => { spacingOpen = !spacingOpen; drawToolbar(); }, "Letter spacing (sideways), line spacing (up and down) and thickness (thin to heavy)"));
         if (spacingOpen) kids.push(spacingPanel(b));
       } else {
         kids.push(h("strong", { class: "small" }, "Picture"),
