@@ -5,7 +5,7 @@ This portal runs digital signage: TVs in businesses (restaurants, shops, offices
 ## Who sees what
 
 - **Staff (the signage company's team)** see every client. The main menu has: Dashboard (all clients, offline screens), White Label & Clients, Screen Monitoring, Reports, Billing, Download App, Profile & Admins.
-- **Inside a client** (staff open a client from Clients or the Dashboard): Dashboard, Wizard, Content (Media library, Widgets), Channels, Video walls, Playlists, Screens, Screen Monitoring, Reports, Billing, Logins. **← All clients** goes back to the main level.
+- **Inside a client** (staff open a client from Clients or the Dashboard): Dashboard, Content (Media library, Widgets), Wizard, Channels, Video walls, Playlists, Screens, Screen Monitoring, Reports, Billing, Logins. **← All clients** goes back to the main level.
 - **A client's own login** goes straight into that client's account, with the same menu, and can never see other clients. A client admin can add more logins for their business (Logins page). Clients can't upload the player app.
 - Every screen, playlist and media file belongs to one client.
 
@@ -18,7 +18,7 @@ This portal runs digital signage: TVs in businesses (restaurants, shops, offices
 
 ## Quick start: the Wizard
 
-**Wizard** walks through it step by step: add content → make a playlist → connect a TV → design the layers.
+**Wizard** (in the menu under Content) walks through it step by step: add content → design the screen → make a playlist → connect a TV. Designing can come before the TV is installed: the Wizard sets up the screen and you connect the TV later.
 
 ## Media library (Content → Media)
 

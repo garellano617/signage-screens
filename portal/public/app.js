@@ -227,8 +227,8 @@ function shell(section, inClient) {
       h("div", { class: "client-head" }, h("div", { class: "client-label" }, isStaff() ? "Client" : "Account"), h("div", { class: "client-title" }, clientName()),
         c && !c.active ? h("span", { class: "pill warn" }, "Paused") : null),
       link(base() + "/", "dashboard", "Dashboard"),
-      link(base() + "/wizard", "wizard", "Wizard"),
       contentGroup(),
+      link(base() + "/wizard", "wizard", "Wizard"),
       link(base() + "/channels", "channels", "Channels"),
       link(base() + "/walls", "walls", "Video walls"),
       link(base() + "/playlists", "playlists", "Playlists"),
@@ -2383,6 +2383,14 @@ async function renderWizard(main) {
     { title: "Add your content", done: media.length > 0, text: media.length ? `${media.length} file(s) and web page(s) in the media library.` : "Upload the images and videos you want on the screens, or add a web page.",
       action: () => { const inp = h("input", { type: "file", multiple: true, accept: "image/*,video/*", class: "hidden" });
         inp.onchange = () => wizardUpload([...inp.files]); document.body.append(inp); inp.click(); }, label: "Upload files", alt: [base() + "/media", "Open media library"] },
+    { title: "Design the screen", done: layered, text: layered ? "Your first screen has extra layers (specials, text or effects)."
+        : "Pick a ready-made template or add specials with prices, a scrolling ticker, text or effects. No TV yet? That's fine: the screen is set up now and the TV connects later.",
+      action: async () => {
+        if (screens.length) return go("/screens/" + screens[0].id + "/layers");
+        // No screen yet: set one up without a TV (connect it in the "Connect a TV" step), then design it.
+        try { const sc = await api("POST", "/screens/plan", { name: "Main screen" }); loadCustomers().catch(() => {}); go("/screens/" + sc.id + "/layers"); }
+        catch (e) { fail(e); }
+      }, label: "Design layers", optional: true },
     { title: "Make a playlist", done: filled.length > 0, text: filled.length ? `${filled.length} playlist(s) with content.` : "A playlist is the order your content plays in, looping all day.",
       action: async () => {
         if (!media.length) return fail(new Error("Add some content first (step 1)."));
@@ -2399,8 +2407,6 @@ async function renderWizard(main) {
         : screens.length ? "Your screen is set up. Install the player app on the TV, open it, then click Connect TV on the screen's page and type the code it shows."
         : "Install the player app on the TV, open it, and type the code it shows. No TV yet? Choose “Set up now, connect the TV later” to design the screen first.",
       action: () => pairDialog(), label: "Add screen", alt: [isStaff() ? "#/download" : "#/download", "Get the app"] },
-    { title: "Design the screen", done: layered, text: layered ? "Your first screen has extra layers (specials, text or effects)." : "Add specials with prices, a scrolling ticker, text or effects on top of your playlist.",
-      action: () => screens.length ? go("/screens/" + screens[0].id + "/layers") : fail(new Error("Add a screen first (step 3). It can be set up before the TV is connected.")), label: "Design layers", optional: true }
   ];
   const doneCount = steps.filter(s => s.done).length;
   main.replaceChildren(
