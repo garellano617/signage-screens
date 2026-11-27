@@ -81,6 +81,8 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         wv.settings.javaScriptEnabled = true
         // Needed to show special photos stored in the app's files folder.
         wv.settings.allowFileAccess = true
+        // Videos placed on a design start on their own (no tap needed on a TV).
+        wv.settings.mediaPlaybackRequiresUserGesture = false
         // Draw the whole page at full resolution (no blurry low-resolution tiles while effects animate).
         if (android.os.Build.VERSION.SDK_INT >= 23) wv.settings.offscreenPreRaster = true
         wv.settings.textZoom = 100

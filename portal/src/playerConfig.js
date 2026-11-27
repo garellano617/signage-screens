@@ -14,6 +14,7 @@ const wallEffects = w => {
 const imageMedia = id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image'", id);
 /** Widgets placed on a design (checked to be the client's when the design was saved). */
 const widgetMedia = id => get("SELECT id, name, widget_json FROM media WHERE id = ? AND kind = 'widget'", id);
+const videoMedia = id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'video'", id);
 
 const ONLINE_WINDOW_MS = 90e3;
 
@@ -22,9 +23,11 @@ const isOnline = screen => !!screen.last_seen && now() - screen.last_seen < ONLI
 /** Design slides: pictures attached (src, sha256, size) so the player downloads them and can show them offline. */
 function forPlayer(w) {
   if (!w || w.type !== "design" || !w.config) return w;
-  return { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), imageMedia, widgetMedia) } };
+  return { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), imageMedia, widgetMedia, videoMedia) } };
 }
 
+/** A screen set to volume 0 plays its videos muted. */
+const muteIfSilent = (layers, screen) => { if (!screen.volume) layers.text.blocks.forEach(b => { if (b.kind === "video") b.sound = false; }); return layers; };
 /** A screen's design with no video layer underneath (there's no playlist to play). */
 const designOnly = layers => ({ ...layers, video: { enabled: false, region: "full" } });
 
@@ -34,7 +37,9 @@ const designOnly = layers => ({ ...layers, video: { enabled: false, region: "ful
  * pictures / videos underneath only if it has some.
  */
 function wallLayers(wall, screen) {
-  const d = withImages(parseLayers(wall.layers_json), imageMedia, widgetMedia);
+  const d = withImages(parseLayers(wall.layers_json), imageMedia, widgetMedia, videoMedia);
+  // Video sound only from the top-left TV (the others would echo it).
+  if (screen.wall_col !== 0 || screen.wall_row !== 0) d.text.blocks.forEach(b => { if (b.kind === "video") b.sound = false; });
   const fx = wallEffects(wall);
   const design = d.specials.enabled || d.text.enabled;
   return Object.assign(d, {
@@ -97,7 +102,7 @@ function buildConfig(screen) {
     screen: { id: screen.id, name: screen.name, orientation: screen.orientation, volume: screen.volume },
     defaultPlaylist: null,
     schedules,
-    layers: designOnly(withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia, widgetMedia))
+    layers: muteIfSilent(designOnly(withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia, widgetMedia, videoMedia)), screen)
   };
   cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
   return cfg;

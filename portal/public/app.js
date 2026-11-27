@@ -1020,7 +1020,7 @@ async function renderLayers(main, id, kind) {
     if (typeof placeFrame === "function") placeFrame();
     if (sel) {
       const b = sel.type === "block" ? L.text.blocks[sel.i] : null;
-      tab = b ? (b.kind === "image" ? "media" : b.kind === "shape" ? "shapes" : b.kind === "widget" ? "widgets" : "text") : sel.type === "ticker" ? "text" : sel.type;
+      tab = b ? (b.kind === "image" || b.kind === "video" ? "media" : b.kind === "shape" ? "shapes" : b.kind === "widget" ? "widgets" : "text") : sel.type === "ticker" ? "text" : sel.type;
     }
     drawToolbar(); drawSide();
     if (!keepTimeline) drawTimeline();
@@ -1067,6 +1067,10 @@ async function renderLayers(main, id, kind) {
     delete wAsked[m.id]; delete wData[m.id];
     change(); drawToolbar(); drawSide(); toast("Widget saved.");
   }
+  /** A video on the design (loops; muted unless Sound is on). */
+  function addVideo(m) {
+    addBlock({ kind: "video", mediaId: m.id, image: { src: m.src, name: m.name }, text: "", w: 40, h: 22.5, x: 30, y: 25, fit: "cover", sound: false, bgOpacity: 0, fx: "none" });
+  }
   function addBackground(m) {
     addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 100, x: 0, y: 0, text: "", fx: "none" });
     const bg = L.text.blocks.pop();
@@ -1102,7 +1106,7 @@ async function renderLayers(main, id, kind) {
     const st = stack(), at = st.indexOf(b);
     const rect = x => x === "S" ? specialsRect() : rectOf(blockNodes[L.text.blocks.indexOf(x)]);
     const me = rect(b);
-    const name = x => x === "S" ? "the Specials panel" : x.kind === "widget" ? "the " + widgetLabel(x).toLowerCase() + " widget" : x.kind === "shape" ? "the " + shapeLabel(x).toLowerCase() : x.kind === "image" ? "the picture" + (x.image && x.image.name ? " “" + x.image.name + "”" : "") : "“" + (x.text || "").split("\n")[0].slice(0, 24) + "”";
+    const name = x => x === "S" ? "the Specials panel" : x.kind === "video" ? "the video" : x.kind === "widget" ? "the " + widgetLabel(x).toLowerCase() + " widget" : x.kind === "shape" ? "the " + shapeLabel(x).toLowerCase() : x.kind === "image" ? "the picture" + (x.image && x.image.name ? " “" + x.image.name + "”" : "") : "“" + (x.text || "").split("\n")[0].slice(0, 24) + "”";
     st.splice(at, 1);
     let to, past = null;
     if (dir === "front") to = st.length;
@@ -1184,7 +1188,7 @@ async function renderLayers(main, id, kind) {
       Object.assign(frame.style, { left: (r.left - box.left) + "px", top: (r.top - box.top) + "px", width: (r.right - r.left) + "px", height: (r.bottom - r.top) + "px" });
       frame.classList.toggle("text", !group && L.text.blocks[sel.i].kind === "text");
       frame.classList.toggle("shape", !group && L.text.blocks[sel.i].kind === "shape");
-      frame.classList.toggle("box", !group && L.text.blocks[sel.i].kind === "widget");
+      frame.classList.toggle("box", !group && (L.text.blocks[sel.i].kind === "widget" || L.text.blocks[sel.i].kind === "video"));
     }
     // Keep following it while it's selected (it can animate, the timeline can hide it, the page can resize).
     if (node) frameRaf = requestAnimationFrame(placeFrame);
@@ -1211,7 +1215,7 @@ async function renderLayers(main, id, kind) {
     const x0 = (r.left - box.left) / box.width * 100, y0 = (r.top - box.top) / box.height * 100;
     const right = x0 + r.width / box.width * 100, bottom = y0 + r.height / box.height * 100;
     const fs0 = b.fs || SIZE_EM[b.size] || 2.8, sx = e.clientX, sy = e.clientY;
-    const boxy = b.kind === "shape" || b.kind === "widget";
+    const boxy = b.kind === "shape" || b.kind === "widget" || b.kind === "video";
     const w0 = boxy ? 0 : b.w || 0;
     // Sizes when the drag started (every move scales from these, not from the last move).
     const sw0 = b.w || r.width / unit, sh0 = b.h || r.height / unit, iw0 = b.w || r.width / unit;
@@ -1278,7 +1282,7 @@ async function renderLayers(main, id, kind) {
       const f = cornerFactor(ev, U, dx, dy, sx, sy, 14);
       items.forEach(({ b, n, r, fs0, w0, h0 }) => {
         if (b.kind === "image") { b.w = Math.round(clampN(w0 * f, 2, 100) * 10) / 10; n.style.width = b.w + "em"; }
-        else if (b.kind === "shape" || b.kind === "widget") {
+        else if (b.kind === "shape" || b.kind === "widget" || b.kind === "video") {
           b.w = Math.round(clampN(w0 * f, 0.5, 400) * 10) / 10; b.h = Math.round(clampN(h0 * f, 0.2, 400) * 10) / 10;
           n.style.width = b.w + "em"; n.style.height = b.h + "em";
         }
@@ -1442,6 +1446,16 @@ async function renderLayers(main, id, kind) {
             oninput: upd(e => { b.w = clampN(Number(e.target.value) || 0, 0, 100); }) })),
           tbBtn("↔↕ Spacing & thickness", spacingOpen, () => { spacingOpen = !spacingOpen; drawToolbar(); }, "Letter spacing (sideways), line spacing (up and down) and thickness (thin to heavy)"));
         if (spacingOpen) kids.push(spacingPanel(b));
+      } else if (b.kind === "video") {
+        kids.push(h("strong", { class: "small" }, "🎬 " + ((b.image && b.image.name) || "Video")),
+          h("select", { title: "How the video fills its box", onchange: upd(e => { b.fit = e.target.value; }) },
+            h("option", { value: "cover", selected: b.fit !== "contain" }, "Fill the box (edges may be cut)"), h("option", { value: "contain", selected: b.fit === "contain" }, "Whole video (bars if needed)")),
+          tbBtn(b.sound ? "🔊 Sound on" : "🔇 Muted", !!b.sound, () => {
+            b.sound = !b.sound;
+            if (b.sound) L.text.blocks.forEach(x => { if (x !== b && x.kind === "video") x.sound = false; }); // one video with sound at a time
+            change(); drawToolbar();
+          }, "Sound plays on the TV (one video at a time; on a video wall it comes from the top-left TV)"),
+          h("span", { class: "small muted" }, "Drag the dots to size it."));
       } else if (b.kind === "widget") {
         const m = media.find(x => x.id === b.mediaId);
         kids.push(h("strong", { class: "small" }, "🧩 " + widgetLabel(b)),
@@ -1665,12 +1679,15 @@ async function renderLayers(main, id, kind) {
         "Add the next picture after this one (same spot, same row: a slideshow)"));
       kids.push(h("p", { class: "small muted" }, b && chainNext ? "Click a picture to show it after the selected one." : "Click a picture to place it on the screen (logos, food photos, price boards)."));
       // Library categories: pictures, backgrounds (fill the screen, behind everything), PNG files, shapes.
-      if (images.length) kids.push(categoryChips(images, edCat, k => { edCat = k; drawSide(); }, ["all", "picture", "background", "png", "shape"]));
-      const catImgs = edCat === "all" ? images : images.filter(m => m.category === edCat);
+      const vids = media.filter(m => m.kind === "video"), pics = images.concat(vids);
+      if (pics.length) kids.push(categoryChips(pics, edCat, k => { edCat = k; drawSide(); }, ["all", "video", "picture", "background", "png", "shape"]));
+      const catImgs = edCat === "all" ? pics : pics.filter(m => m.category === edCat);
+      if (edCat === "video") kids.push(h("p", { class: "small muted", style: "margin:0 0 .4rem" }, isWall ? "A video can go anywhere on the wall, even across the TVs: they all keep it in step." : "Tap a video to put it on the screen. It loops; size it with the dots."));
       if (edCat === "background") kids.push(h("p", { class: "small muted", style: "margin:0 0 .4rem" }, "A background fills the screen, behind all the other pictures and text."));
       kids.push(catImgs.length ? h("div", { class: "ed-imgs" }, catImgs.map(m => h("button", { type: "button", title: m.name,
-        onclick: () => b && chainNext ? addAfter(b, m) : m.category === "background" ? addBackground(m)
-          : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: m.category === "shape" ? 20 : 30, x: 35, y: 30, text: "", fx: picFx.fx, fxColor: picFx.fxColor }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
+        onclick: () => m.kind === "video" ? addVideo(m) : b && chainNext ? addAfter(b, m) : m.category === "background" ? addBackground(m)
+          : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: m.category === "shape" ? 20 : 30, x: 35, y: 30, text: "", fx: picFx.fx, fxColor: picFx.fxColor }) },
+        m.kind === "video" ? h("span", { class: "ed-vthumb" }, h("video", { src: m.src + "#t=1", muted: true, preload: "metadata" }), h("span", {}, "🎬")) : h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
         : images.length ? h("p", { class: "small" }, "Nothing here yet. ", h("a", { href: base() + "/media", onclick: () => { state.libTab = edCat; } }, "Add some in the Media library"), ".")
         : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
       kids.push(h("p", { class: "small muted" }, "For pictures that take turns, add them one after another (keep a picture selected and tap the next one)."));
@@ -2013,7 +2030,7 @@ async function renderLayers(main, id, kind) {
     // text and pictures: one row each, top of the stack first
     rows.push(row("Text & pictures", null, L.text.enabled, v => { L.text.enabled = v; }, [], true));
     // One timeline row per track; several texts or pictures can share a row and take turns.
-    const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : b.kind === "shape" ? "◆ " + shapeLabel(b) : b.kind === "widget" ? "🧩 " + widgetLabel(b) : (b.text.split("\n")[0] || "Text");
+    const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : b.kind === "shape" ? "◆ " + shapeLabel(b) : b.kind === "widget" ? "🧩 " + widgetLabel(b) : b.kind === "video" ? "🎬 " + ((b.image && b.image.name) || "Video") : (b.text.split("\n")[0] || "Text");
     // Widgets have their own section (and their own rows) below the text and pictures.
     const isW = b => b.kind === "widget";
     const trackRows = (section, inSection) => {

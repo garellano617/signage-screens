@@ -179,7 +179,7 @@
       big.style.width = (v.cols * W + (v.cols - 1) * g) + "px"; big.style.height = (v.rows * H + (v.rows - 1) * g) + "px";
     };
     place();
-    var inner = render(big, Object.assign({}, layers, { view: null, effects: { enabled: false } }), Object.assign({}, opts, { wallInner: true }));
+    var inner = render(big, Object.assign({}, layers, { view: null, effects: { enabled: false } }), Object.assign({}, opts, { wallInner: true, syncVideos: true }));
     var fx = render(fxBox, { video: layers.video, specials: { enabled: false }, text: { enabled: false }, effects: layers.effects,
       view: { cols: v.cols, rows: v.rows, col: v.col, row: v.row, gap: v.gap } }, opts);
     var ro = global.ResizeObserver ? new ResizeObserver(place) : null;
@@ -289,11 +289,25 @@
     if (tx && tx.enabled) {
       var timed = [];
       var widgetBoxes = [];
+      var videos = [];
       var cycle = tx.cycle || 0;
       (tx.blocks || []).forEach(function (b, i) {
         var free = typeof b.x === "number" && typeof b.y === "number";
         var t = el("div", "so-text " + (free ? "so-free" : "so-pos-" + b.position));
-        if (b.kind === "widget") {
+        if (b.kind === "video") {
+          // A video in a box. Muted unless it has sound on (the TV allows sound; browsers only play muted by themselves).
+          var vsrc = b.image ? resolveImage(b) : null;
+          if (!vsrc) return;
+          t.className += " so-videobox";
+          t.style.width = (b.w || 40) + "em";
+          t.style.height = (b.h || 22.5) + "em";
+          var vid = document.createElement("video");
+          vid.src = vsrc; vid.loop = true; vid.autoplay = true; vid.playsInline = true; vid.setAttribute("playsinline", "");
+          vid.muted = !(b.sound && opts.allowSound);
+          vid.style.objectFit = b.fit === "contain" ? "contain" : "cover";
+          t.appendChild(vid);
+          videos.push(vid);
+        } else if (b.kind === "widget") {
           // A widget (clock, weather, news…) in a box; drawn once the box is on the page (it sizes itself to the box).
           if (!b.widget || !global.SignageWidgets) return;
           t.className += " so-widgetbox";
@@ -342,6 +356,20 @@
           dIn: b.enter && b.enter !== "none" ? b.td || 1 : 0, dOut: cycle && b.exit && b.exit !== "none" ? b.td || 1 : 0, last: "" });
         root.appendChild(t);
         if (opts.onBlock) opts.onBlock(t, b, i);
+      });
+      // Videos: start playing; on a video wall (opts.now = the portal's clock) every TV keeps the same moment of the video.
+      videos.forEach(function (vid) {
+        var p = vid.play && vid.play(); if (p && p.catch) p.catch(function () { vid.muted = true; vid.play(); });
+        if (!layers.view && !opts.syncVideos) return;
+        var clock = opts.now || Date.now;
+        var sync = function () {
+          if (!vid.duration || !isFinite(vid.duration)) return;
+          var want = (clock() / 1000) % vid.duration, off = vid.currentTime - want;
+          if (Math.abs(off) > vid.duration / 2) off -= vid.duration * (off > 0 ? 1 : -1);
+          if (Math.abs(off) > 0.25) vid.currentTime = want;
+        };
+        vid.addEventListener("loadedmetadata", sync);
+        timers.push(setInterval(sync, 3000));
       });
       // Widgets: live data from opts.widgetData (portal preview) or b.widgetData (the TV puts it in the layers).
       widgetBoxes.forEach(function (x) {

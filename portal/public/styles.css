@@ -523,3 +523,8 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .wall-seam { position: absolute; background: rgba(15,23,42,.55); }
 .wall-seam.v { top: 0; bottom: 0; min-width: 2px; margin-left: -1px; border-left: 1px dashed rgba(255,255,255,.7); }
 .wall-seam.h { left: 0; right: 0; min-height: 2px; margin-top: -1px; border-top: 1px dashed rgba(255,255,255,.7); }
+
+/* Designer: video thumbnails in the Media tab. */
+.ed-vthumb { position: relative; display: block; width: 100%; height: 100%; }
+.ed-vthumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ed-vthumb span { position: absolute; left: 4px; bottom: 2px; font-size: .9rem; text-shadow: 0 1px 2px #000; }

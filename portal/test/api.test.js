@@ -1251,9 +1251,21 @@ test("wall design: one design across the wall, each screen gets the whole design
     assert.deepEqual([cfg.layers.view.col, cfg.layers.view.design], [col, true]);
     assert.equal(cfg.layers.video.enabled, false, "no pictures / videos on this wall: no video layer");
   }
+  // A video on the wall design: the file is attached for downloading; sound only from the top-left TV.
+  const vfd = new FormData(); vfd.append("files", new Blob([Buffer.from("1a45dfa3", "hex")], { type: "video/webm" }), "promo.webm");
+  const vid = (await call("POST", "/api/media", vfd)).body[0];
+  await call("PUT", "/api/walls/" + w.id + "/layers", { text: { enabled: true, blocks: [{ kind: "video", mediaId: vid.id, x: 30, y: 10, w: 80, h: 45, sound: true, fit: "contain" }] } });
+  const lv = (await call("GET", "/api/player/config", undefined, l.auth)).body.layers.text.blocks[0];
+  const rv = (await call("GET", "/api/player/config", undefined, r.auth)).body.layers.text.blocks[0];
+  assert.deepEqual([lv.kind, lv.w, lv.h, lv.fit, lv.image.sha256, lv.sound], ["video", 80, 45, "contain", vid.sha256, true]);
+  assert.equal(rv.sound, false, "the right TV doesn't echo the sound");
   // Another client can't change it.
   const B = (await call("POST", "/api/customers", { name: "Wall Design Other" })).body;
   scopeId = B.id;
   assert.equal((await call("PUT", "/api/walls/" + w.id + "/layers", { text: { enabled: false } })).status, 404);
+  // …nor use this client's video in its own designs.
+  const bReg = (await call("POST", "/api/player/register", { deviceId: "android-walldesign-b1" })).body;
+  const bs = (await call("POST", "/api/screens/pair", { code: bReg.pairingCode })).body;
+  assert.equal((await call("PUT", "/api/screens/" + bs.id + "/layers", { text: { enabled: true, blocks: [{ kind: "video", mediaId: vid.id }] } })).body.text.blocks.length, 0);
   scopeId = null;
 });

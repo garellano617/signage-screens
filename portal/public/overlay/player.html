@@ -19,6 +19,7 @@
       if (current) current.destroy();
       current = SignageOverlay.render(document.getElementById("o"), layers, {
         resolveImage: function (sp) { return sp.image && sp.image.localSrc; },
+        allowSound: true,
         // The portal clock (set by the player), so the effects on every screen of a video wall move together.
         now: function () { return Date.now() + (window.clockOffset || 0); }
       });

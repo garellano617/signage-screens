@@ -57,9 +57,9 @@ function sanitizeLayers(input, checkImage) {
   const cycle = num(tx.cycle, 0, 3600, 0);
   const blocks = (Array.isArray(tx.blocks) ? tx.blocks : []).slice(0, MAX_BLOCKS).map((raw, index) => {
     const b = raw && typeof raw === "object" ? raw : {};
-    const kind = b.kind === "image" ? "image" : b.kind === "shape" ? "shape" : b.kind === "widget" ? "widget" : "text";
+    const kind = b.kind === "image" ? "image" : b.kind === "shape" ? "shape" : b.kind === "widget" ? "widget" : b.kind === "video" ? "video" : "text";
     // Pictures and widgets point to a media item (checked: it must be the client's own).
-    const mediaId = (kind === "image" || kind === "widget") && b.mediaId ? Number(b.mediaId) : null;
+    const mediaId = (kind === "image" || kind === "widget" || kind === "video") && b.mediaId ? Number(b.mediaId) : null;
     const free = b.x !== null && b.x !== undefined && b.x !== "" && b.y !== null && b.y !== undefined && b.y !== "";
     const from = cycle ? numf(b.from, 0, cycle, 0) : 0;
     const to = cycle ? numf(b.to, 0, cycle, 0) : 0;
@@ -73,9 +73,11 @@ function sanitizeLayers(input, checkImage) {
       x: free ? numf(b.x, -300, 200, 0) : null,
       y: free ? numf(b.y, -300, 200, 0) : null,
       // Width in % of the screen (0 = as wide as the text).
-      w: numf(b.w, 0, kind === "shape" ? 400 : 100, kind === "image" ? 30 : kind === "shape" ? 18 : kind === "widget" ? 30 : 0),
+      w: numf(b.w, 0, kind === "shape" || kind === "video" ? 400 : 100, kind === "image" ? 30 : kind === "shape" ? 18 : kind === "widget" ? 30 : kind === "video" ? 40 : 0),
       // Widgets: their box's height (in % of the screen width, like w).
       ...(kind === "widget" ? { h: numf(b.h, 2, 100, 17) } : {}),
+      // Videos: their box (h in % of the screen width, like w), how they fill it, and sound (TV only; one video at a time).
+      ...(kind === "video" ? { h: numf(b.h, 2, 300, 22.5), fit: b.fit === "contain" ? "contain" : "cover", sound: !!b.sound } : {}),
       // Shapes: which one, height (in % of the screen width, like w), inside colour + see-through, border colour + thickness.
       ...(kind === "shape" ? {
         shape: pick(b.shape, SHAPE_NAMES, "square"),
@@ -190,7 +192,7 @@ function attachWidget(b, getWidget) {
   let w = null; try { w = m && JSON.parse(m.widget_json || "null"); } catch (_) {}
   return w && w.type !== "design" ? { ...b, widget: w, widgetName: m.name } : null;
 }
-function withImages(layers, getMedia, getWidget) {
+function withImages(layers, getMedia, getWidget, getVideo) {
   const out = JSON.parse(JSON.stringify(layers));
   const attach = x => attachImage(x, getMedia);
   // The logo on the plane's banner.
@@ -198,6 +200,8 @@ function withImages(layers, getMedia, getWidget) {
   out.specials.items = out.specials.items.map(attach);
   // An image block whose picture was deleted is dropped.
   out.text.blocks = out.text.blocks.map(b => (b.kind === "image" ? attach(b) : b)).filter(b => b.kind !== "image" || b.image);
+  // Videos: the file attached the same way (b.image = { src, sha256, size }), so the TV downloads it. Gone → dropped.
+  if (getVideo) out.text.blocks = out.text.blocks.map(b => (b.kind === "video" ? attachImage(b, getVideo) : b)).filter(b => b.kind !== "video" || b.image);
   // Widgets (clock, weather…) placed on the design: their settings, for the preview and the TV. Gone → dropped.
   if (getWidget) out.text.blocks = out.text.blocks.map(b => (b.kind === "widget" ? attachWidget(b, getWidget) : b)).filter(Boolean);
   return out;
