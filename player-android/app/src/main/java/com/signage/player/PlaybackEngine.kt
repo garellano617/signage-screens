@@ -536,12 +536,27 @@ class PlaybackEngine(
         // Wait (briefly) for the page to load the first time.
         var waited = 0
         while (!widgetReady && waited < 5000) { delay(100); waited += 100 }
+        wv.evaluateJavascript(deviceClockJs(), null)
         val js = "window.showWidget($json, $data)".replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
         wv.evaluateJavascript(js, null)
         show(wv)
         player?.stop()
-        delay(item.duration * 1000L)
+        // Keep the clock on the box's time zone (it can change, e.g. right after boot or at daylight saving time).
+        var left = item.duration * 1000L
+        while (left > 0) {
+            val step = minOf(left, 60_000L)
+            delay(step)
+            left -= step
+            if (left > 0) wv.evaluateJavascript(deviceClockJs(), null)
+        }
         return true
+    }
+
+    /** The box's current time-zone offset (ms) and name, for the clock widget. */
+    private fun deviceClockJs(): String {
+        val tz = java.util.TimeZone.getDefault()
+        val id = tz.id.replace("\\", "").replace("\"", "")
+        return "window.deviceClock = { offset: ${tz.getOffset(System.currentTimeMillis())}, zone: \"$id\" }"
     }
 
     private fun show(v: View) {

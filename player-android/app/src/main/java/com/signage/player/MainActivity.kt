@@ -363,6 +363,9 @@ class MainActivity : ComponentActivity() {
             .put("uptimeSec", SystemClock.elapsedRealtime() / 1000)
             .put("resolution", "${dm.widthPixels}x${dm.heightPixels}")
             .put("quality", caps?.describe().orEmpty())
+            .put("timeZone", java.util.TimeZone.getDefault().let { tz -> tz.id + " (UTC" + (if (tz.getOffset(System.currentTimeMillis()) >= 0) "+" else "-") +
+                java.lang.String.format(java.util.Locale.US, "%02d:%02d", Math.abs(tz.getOffset(System.currentTimeMillis())) / 3_600_000, Math.abs(tz.getOffset(System.currentTimeMillis())) / 60_000 % 60) + ")" })
+            .put("deviceTime", java.text.SimpleDateFormat("EEE HH:mm", java.util.Locale.US).format(java.util.Date()))
             .put("androidVersion", Build.VERSION.RELEASE)
             .put("appVersion", BuildConfig.VERSION_NAME)
             .put("configVersion", config?.version.orEmpty())

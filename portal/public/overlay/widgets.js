@@ -10,6 +10,19 @@
 
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
+  /**
+   * The time on this device. On a TV the player passes the box's current time-zone offset (window.deviceClock),
+   * because the built-in browser can keep the time zone it had when the app started. Elsewhere: the browser's own time.
+   */
+  function deviceNow() {
+    var dc = global.deviceClock, d;
+    if (dc && typeof dc.offset === "number") {
+      d = new Date(Date.now() + dc.offset);
+      return { H: d.getUTCHours(), M: d.getUTCMinutes(), S: d.getUTCSeconds(), day: d.getUTCDay(), month: d.getUTCMonth(), date: d.getUTCDate() };
+    }
+    d = new Date();
+    return { H: d.getHours(), M: d.getMinutes(), S: d.getSeconds(), day: d.getDay(), month: d.getMonth(), date: d.getDate() };
+  }
   var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -80,7 +93,7 @@
       } else { time = el("div", "sw-time"); root.appendChild(time); }
       if (c.showDate) root.appendChild(date);
       var tick = function () {
-        var d = new Date(), H = d.getHours(), M = d.getMinutes(), S = d.getSeconds();
+        var d = deviceNow(), H = d.H, M = d.M, S = d.S;
         if (face) {
           hands.h.style.transform = "rotate(" + ((H % 12) * 30 + M / 2) + "deg)";
           hands.m.style.transform = "rotate(" + (M * 6 + S / 10) + "deg)";
@@ -92,7 +105,7 @@
           if (c.showSeconds) { var s = el("span", "sw-sec", ":" + pad(S)); time.appendChild(s); }
           if (c.hours !== "24") { var ap = el("span", "sw-ampm", H < 12 ? "AM" : "PM"); ap.style.color = c.accent; time.appendChild(ap); }
         }
-        date.textContent = DAYS[d.getDay()] + ", " + MONTHS[d.getMonth()] + " " + d.getDate();
+        date.textContent = DAYS[d.day] + ", " + MONTHS[d.month] + " " + d.date;
       };
       tick(); every(tick, 1000);
     }
