@@ -146,8 +146,8 @@ dialog .dlg-actions { display: flex; justify-content: flex-end; gap: .5rem; marg
 .pl-item.dragging { opacity: .4; }
 .pl-item.drop-before { box-shadow: 0 -3px 0 var(--accent); }
 .pl-item .handle { cursor: grab; color: var(--muted); padding: 0 .25rem; user-select: none; font-size: 1.1rem; }
-.pl-item .mini { width: 64px; height: 36px; border-radius: 4px; background: var(--surface-2); overflow: hidden; flex: none; display: grid; place-items: center; font-size: .7rem; color: var(--muted); }
-.pl-item .mini img, .pl-item .mini video { width: 100%; height: 100%; object-fit: cover; }
+.pl-item .mini, .picker .mini { width: 64px; height: 36px; border-radius: 4px; background: var(--surface-2); overflow: hidden; flex: none; display: grid; place-items: center; font-size: .7rem; color: var(--muted); }
+.pl-item .mini img, .pl-item .mini video, .picker .mini img, .picker .mini video { width: 100%; height: 100%; object-fit: cover; }
 .pl-item .info { flex: 1; min-width: 0; }
 .pl-item .info .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-item .dur { display: flex; align-items: center; gap: .3rem; font-size: .85rem; color: var(--muted); }
