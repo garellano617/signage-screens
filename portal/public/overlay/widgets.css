@@ -58,4 +58,4 @@
 
 /* Design slide: the overlay fills the slide. */
 .sw-t-design { display: block; padding: 0; }
-.sw-design { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; }
+.sw-design { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; text-align: start; line-height: 1.2; }
