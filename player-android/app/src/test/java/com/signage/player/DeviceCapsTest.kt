@@ -35,4 +35,20 @@ class DeviceCapsTest {
         assertEquals("Full HD", hdStick.label)
         assertFalse(hdStick.needsSurfaces)
     }
+
+    @Test
+    fun tvsThatDrawAppsAt720StillPlayDesignVideosSharp() {
+        // TCL 50" (apps and reported screen 1280x720, 4K decoder): pictures 720p, design videos up to 4K in the TV player.
+        val tcl = DeviceCaps(1280, 720, 1280, 720, decodes4k = true, decodes1440 = true, ramMb = 2048, lowRam = false, isTv = true)
+        assertEquals(720, tcl.tier)
+        assertEquals(2160, tcl.videoTier)
+        assertTrue(tcl.nativeVideo)
+        assertTrue(tcl.describe().contains("design videos play up to 4K"))
+        // Without a 4K decoder: Full HD.
+        assertEquals(1080, DeviceCaps(1280, 720, 1280, 720, decodes4k = false, decodes1440 = false, ramMb = 1024, lowRam = false, isTv = true).videoTier)
+        // A Full HD stick: nothing changes.
+        assertFalse(DeviceCaps(1920, 1080, 1920, 1080, decodes4k = false, decodes1440 = false, ramMb = 1024, lowRam = true, isTv = true).nativeVideo)
+        // A 720p tablet (not a TV): nothing changes.
+        assertFalse(DeviceCaps(1280, 720, 1280, 720, decodes4k = true, decodes1440 = true, ramMb = 2048, lowRam = false).nativeVideo)
+    }
 }

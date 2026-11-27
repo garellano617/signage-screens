@@ -318,6 +318,7 @@ class MainActivity : ComponentActivity() {
             engine.restart()
         }
         applyOrientation(s?.orientation ?: 0)
+        overlay.nativeVideo = caps?.nativeVideo == true && (s?.orientation ?: 0) == 0
         videoRegion = c.videoRegion
         applyRegion()
         overlay.show(c)

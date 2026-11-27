@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.util.Log
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -23,6 +24,23 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
     private var lastConfig: Config? = null
     /** Live data (weather, news) for widgets placed on the design, by widget id. */
     private val widgetData = HashMap<Long, String>()
+    /** Videos on the design played by the TV's own video player, under the page (see NativeVideos). */
+    private val videoLayer = FrameLayout(activity).also {
+        host.addView(it, 0, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+    private val nativeVideos = NativeVideos(activity, videoLayer)
+
+    /**
+     * True on TVs that draw apps at a lower resolution than they play video (e.g. apps 720p): the design's videos
+     * then play in the TV's own video player at full quality. Not for rotated screens (that player can't rotate).
+     */
+    var nativeVideo = false
+        set(v) {
+            if (field == v) return
+            field = v
+            shown = null
+            lastConfig?.let { show(it) }
+        }
 
     /** Widgets on the design that need live data (weather, news), as items for MainActivity.widgetData. */
     fun dataWidgets(config: Config): List<Item> {
@@ -63,6 +81,7 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
     }
 
     fun hide() {
+        nativeVideos.clear()
         web?.let {
             host.removeView(it)
             it.destroy()
@@ -86,6 +105,10 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         // Draw the whole page at full resolution (no blurry low-resolution tiles while effects animate).
         if (android.os.Build.VERSION.SDK_INT >= 23) wv.settings.offscreenPreRaster = true
         wv.settings.textZoom = 100
+        wv.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun videos(json: String) { activity.runOnUiThread { if (web === wv) nativeVideos.update(json) } }
+        }, "SignageNative")
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 ready = true
@@ -105,6 +128,7 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
 
     private fun push(json: String) {
         syncClock()
+        web?.evaluateJavascript("window.nativeVideo = $nativeVideo;", null)
         // JSON is valid JavaScript except for these two characters.
         val js = json.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
         web?.evaluateJavascript("window.showLayers($js)") { r -> if (r != null && r.contains("Error")) Log.w("Overlay", r) }

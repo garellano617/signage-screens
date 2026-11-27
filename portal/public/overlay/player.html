@@ -20,6 +20,8 @@
       current = SignageOverlay.render(document.getElementById("o"), layers, {
         resolveImage: function (sp) { return sp.image && sp.image.localSrc; },
         allowSound: true,
+        // Set by the TV app when its own video player should play the design's videos (sharper on 720p-app TVs).
+        nativeVideo: !!window.nativeVideo,
         // The portal clock (set by the player), so the effects on every screen of a video wall move together.
         now: function () { return Date.now() + (window.clockOffset || 0); }
       });

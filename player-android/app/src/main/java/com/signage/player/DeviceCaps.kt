@@ -24,6 +24,8 @@ data class DeviceCaps(
     val uiW: Int, val uiH: Int,
     val decodes4k: Boolean, val decodes1440: Boolean,
     val ramMb: Long, val lowRam: Boolean,
+    /** A television (not a phone or tablet). */
+    val isTv: Boolean = false,
 ) {
     /** Chosen picture height: 2160 (4K), 1440 (2K), 1080 (Full HD) or less. */
     val tier: Int get() = tierFor(minOf(panelW, panelH), decodes4k, decodes1440, ramMb, lowRam)
@@ -31,7 +33,16 @@ data class DeviceCaps(
     /** True when video/pictures need their own surfaces to reach the chosen quality (the window is smaller). */
     val needsSurfaces: Boolean get() = tier > minOf(uiW, uiH)
 
-    fun describe(): String = "$label · TV ${panelW}x$panelH · apps ${uiW}x$uiH"
+    /**
+     * Best video quality: on a TV that draws its apps below Full HD (many TCL TVs: apps 1280x720 on a 4K screen)
+     * the TV's own video player still plays Full HD, or 4K when it has a 4K decoder.
+     */
+    val videoTier: Int get() = if (isTv && tier < 1080) maxOf(tier, if (decodes4k) 2160 else 1080) else tier
+    /** Videos on the design should play in the TV's own video player (sharper than the app picture). */
+    val nativeVideo: Boolean get() = videoTier > minOf(uiW, uiH)
+
+    fun describe(): String = "$label · TV ${panelW}x$panelH · apps ${uiW}x$uiH" +
+        (if (videoTier > tier) " · the TV draws apps at ${minOf(uiW, uiH)}p; design videos play up to " + label(videoTier) else "")
 
     companion object {
         private const val TAG = "DeviceCaps"
@@ -78,6 +89,8 @@ data class DeviceCaps(
                 maxOf(ui.widthPixels, ui.heightPixels), minOf(ui.widthPixels, ui.heightPixels),
                 decoderSupports(3840, 2160), decoderSupports(2560, 1440),
                 mem.totalMem / (1024 * 1024), am.isLowRamDevice,
+                (a.getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
+                    a.packageManager.hasSystemFeature("android.software.leanback"),
             ).also { Log.i(TAG, it.toString() + " → " + it.label) }
         }
 

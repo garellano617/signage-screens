@@ -220,6 +220,44 @@
     }
   }
 
+  /**
+   * Videos played by the TV's own video player, under this see-through page. Everything drawn under a video
+   * (background, lower items) is put in a box with a hole where the video is; items over it stay on top.
+   * Tells the TV (SignageNative.videos) where each video is and whether it shows, whenever that changes.
+   */
+  function nativeVideos(root, natives, sync) {
+    var zOf = function (n) { return parseInt(global.getComputedStyle(n).zIndex, 10) || 0; };
+    natives.forEach(function (n, k) {
+      var u = el("div", "so-under"), z = zOf(n.node);
+      if (z) u.style.zIndex = String(z);
+      if (k === 0) { u.style.background = root.style.background; root.style.background = ""; }
+      var kids = [];
+      for (var c = root.firstChild; c && c !== n.node; c = c.nextSibling) if (c.nodeType === 1 && zOf(c) <= z) kids.push(c);
+      root.insertBefore(u, n.node);
+      kids.forEach(function (c) { u.appendChild(c); });
+      n.under = u;
+    });
+    var last = "";
+    var tick = function () {
+      var dpr = global.devicePixelRatio || 1, list = [];
+      natives.forEach(function (n) {
+        var t = n.node, cs = global.getComputedStyle(t);
+        var on = cs.display !== "none" && cs.visibility !== "hidden" && parseFloat(cs.opacity) > 0.05;
+        var x = t.offsetLeft, y = t.offsetTop, w = t.offsetWidth, h = t.offsetHeight;
+        n.under.style.clipPath = on ? "polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, " + x + "px " + y + "px, " + (x + w) + "px " + y + "px, " +
+          (x + w) + "px " + (y + h) + "px, " + x + "px " + (y + h) + "px, " + x + "px " + y + "px)" : "none";
+        var r = t.getBoundingClientRect();
+        list.push({ id: n.id, src: n.src, fit: n.fit, sound: n.sound, sync: sync, show: on,
+          x: Math.round(r.left * dpr), y: Math.round(r.top * dpr), w: Math.round(r.width * dpr), h: Math.round(r.height * dpr) });
+      });
+      var s = JSON.stringify(list);
+      if (s !== last) { last = s; try { global.SignageNative.videos(s); } catch (e) { /* not on the TV */ } }
+    };
+    tick();
+    var iv = setInterval(tick, 250);
+    return function () { clearInterval(iv); try { global.SignageNative.videos("[]"); } catch (e) { /* not on the TV */ } };
+  }
+
   function render(root, layers, opts) {
     opts = opts || {};
     // Video wall with a design: draw the whole wall's design in a box the size of the wall, shifted so this screen
@@ -290,6 +328,7 @@
       var timed = [];
       var widgetBoxes = [];
       var videos = [];
+      var natives = [];
       var cycle = tx.cycle || 0;
       (tx.blocks || []).forEach(function (b, i) {
         var free = typeof b.x === "number" && typeof b.y === "number";
@@ -301,6 +340,21 @@
           t.className += " so-videobox";
           t.style.width = (b.w || 40) + "em";
           t.style.height = (b.h || 22.5) + "em";
+          // TV whose apps are drawn at low resolution (e.g. 720p): the TV's own video player plays it at full quality
+          // under this page, seen through a see-through box (up to 2 videos; TVs have few video decoders).
+          if (opts.nativeVideo && global.SignageNative && natives.length < 2) {
+            t.className += " so-native";
+            natives.push({ node: t, id: i + ":" + vsrc, src: vsrc, fit: b.fit === "contain" ? "contain" : "cover", sound: !!(b.sound && opts.allowSound) });
+            if (b.align) t.style.textAlign = b.align;
+            if (b.above) t.style.zIndex = "2";
+            if (free) { t.style.left = b.x + "%"; t.style.top = b.y + "%"; }
+            var nfrom = cycle ? b.from || 0 : 0, nto = cycle ? b.to || cycle : 0;
+            // No sliding in/out: it just appears and disappears on the timeline (the TV's video can't follow animations).
+            timed.push({ node: t, track: b.track || 0, from: nfrom, to: nto, base: "", timed: !!(cycle && (b.from || b.to)), inT: "none", outT: "none", dIn: 0, dOut: 0, last: "" });
+            root.appendChild(t);
+            if (opts.onBlock) opts.onBlock(t, b, i);
+            return;
+          }
           var vid = document.createElement("video");
           vid.src = vsrc; vid.loop = true; vid.autoplay = true; vid.playsInline = true; vid.setAttribute("playsinline", "");
           vid.muted = !(b.sound && opts.allowSound);
@@ -371,6 +425,7 @@
         vid.addEventListener("loadedmetadata", sync);
         timers.push(setInterval(sync, 3000));
       });
+      if (natives.length) cleanups.push(nativeVideos(root, natives, !!(layers.view || opts.syncVideos)));
       // Widgets: live data from opts.widgetData (portal preview) or b.widgetData (the TV puts it in the layers).
       widgetBoxes.forEach(function (x) {
         var box = el("div", "so-wbox");
