@@ -950,6 +950,9 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   // Locked groups on the timeline.
   const g = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "a", grp: 3 }, { kind: "text", text: "b", grp: "x" }, { kind: "text", text: "c", grp: 5000 }] } }, () => true).text.blocks;
   assert.deepEqual(g.map(b => b.grp), [3, 0, 999]);
+  // Over / under the Specials panel.
+  const st = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "a", above: true }, { kind: "text", text: "b" }, { kind: "text", text: "c", above: "yes" }] } }, () => true).text.blocks;
+  assert.deepEqual(st.map(b => b.above), [true, false, true]);
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {

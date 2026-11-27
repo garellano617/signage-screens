@@ -86,6 +86,8 @@ function sanitizeLayers(input, checkImage) {
       track: num(b.track, 0, 49, Math.min(49, index)),
       // Locked group (0 = none): the timeline moves and stretches the group's bars together.
       grp: num(b.grp, 0, 999, 0),
+      // Stacking: true = over the Specials panel (and over the pictures/text under it). Order among blocks = list order.
+      above: !!b.above,
       enter: pick(b.enter, TRANSITIONS, "none"),
       exit: pick(b.exit, TRANSITIONS, "none"),
       // Transition length in seconds.

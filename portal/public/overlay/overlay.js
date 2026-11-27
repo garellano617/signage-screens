@@ -195,9 +195,12 @@
           t.style.fontFamily = FONTS[b.font] || FONTS.sans;
           t.style.color = b.color;
           if (!b.bgOpacity && (!b.fx || b.fx === "none" || b.fx === "shine" || b.fx === "grow")) { var k0 = shadowScale(b); t.style.textShadow = "0 " + em(.08, k0) + " " + em(.3, k0) + " rgba(0,0,0,.7)"; }
-          if (b.w) { t.style.width = b.w + "em"; t.style.maxWidth = "none"; }
+          // Width is in % of the screen; this element's em is its own font size, so divide by it.
+          if (b.w) { t.style.width = (b.w / (b.fs || SIZE[b.size] || SIZE.m)) + "em"; t.style.maxWidth = "none"; }
         }
         if (b.align) t.style.textAlign = b.align;
+        // Over the Specials panel (z-index 1); still under the ticker and effects (appended later at z-index 2 / 3).
+        if (b.above) t.style.zIndex = "2";
         if (b.fx && b.fx !== "none") textFx(t, b);
         t.style.background = rgba(b.bg, b.bgOpacity || 0);
         if (free) { t.style.left = b.x + "%"; t.style.top = b.y + "%"; }

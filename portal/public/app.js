@@ -947,7 +947,8 @@ async function renderLayers(main, id, kind) {
   const pvVideo = h("div", { class: "pv-video" });
   const pvOverlay = h("div", { class: "pv-overlay" });
   const preview = h("div", { class: "preview ed-preview" + (portrait ? " portrait" : "") }, h("div", { class: "pv-bg" }), pvVideo, pvOverlay);
-  preview.addEventListener("pointerdown", e => { if (!e.target.closest(".so-text")) select(e.target.closest(".pv-video") ? { type: "video" } : null); });
+  // (the resize frame is added to the preview below, once it exists)
+  preview.addEventListener("pointerdown", e => { if (!e.target.closest(".so-text") && !e.target.closest(".ed-frame")) select(e.target.closest(".pv-video") ? { type: "video" } : null); });
 
   function itemAt(t) {
     if (!items.length) return -1;
@@ -977,6 +978,7 @@ async function renderLayers(main, id, kind) {
     node.addEventListener("pointerdown", e => {
       e.preventDefault(); e.stopPropagation(); unfocus();
       if (e.ctrlKey || e.metaKey || e.shiftKey || multiMode) { select({ type: "block", i }, false, true); return; }
+      const wasSel = isSel("block", i) && !multi.size;
       if (!isSel("block", i)) select({ type: "block", i });
       const box = pvOverlay.getBoundingClientRect(), r = node.getBoundingClientRect();
       const sx = e.clientX, sy = e.clientY;
@@ -993,7 +995,13 @@ async function renderLayers(main, id, kind) {
       };
       const up = () => {
         window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
-        if (moved) { change(); drawToolbar(); }
+        if (moved) { change(); drawToolbar(); return; }
+        // Clicked an item that was already selected: select the next one underneath at that spot (if any).
+        if (wasSel) {
+          const under = document.elementsFromPoint(sx, sy).map(el => el.closest && el.closest(".so-text")).filter(Boolean);
+          const order = [...new Set(under)].map(n => blockNodes.indexOf(n)).filter(k => k >= 0);
+          if (order.length > 1) select({ type: "block", i: order[(order.indexOf(i) + 1) % order.length] });
+        }
       };
       window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
     });
@@ -1002,6 +1010,7 @@ async function renderLayers(main, id, kind) {
     if (overlay) overlay.destroy();
     blockNodes = [];
     overlay = SignageOverlay.render(pvOverlay, L, { time: () => playhead, onBlock: hookBlock });
+    placeFrame();
   }
   const refresh = () => { clearTimeout(rt); rt = setTimeout(renderOverlay, 80); };
   const change = () => { dirty = true; saveBtn.textContent = "Save changes"; refresh(); drawTimeline(); };
@@ -1022,6 +1031,7 @@ async function renderLayers(main, id, kind) {
     sel = next;
     blockNodes.forEach((n, i) => n && n.classList.toggle("ed-selected", isSelB(i)));
     pvVideo.classList.toggle("ed-selected", isSel("video"));
+    if (typeof placeFrame === "function") placeFrame();
     if (sel) {
       const b = sel.type === "block" ? L.text.blocks[sel.i] : null;
       tab = b ? (b.kind === "image" ? "media" : "text") : sel.type === "ticker" ? "text" : sel.type;
@@ -1054,6 +1064,119 @@ async function renderLayers(main, id, kind) {
       enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1, fx: prev.fx || "none", fxColor: prev.fxColor });
   }
   function removeBlock(i) { L.text.blocks.splice(i, 1); sel = null; change(); select(null); }
+
+  // ---------- stacking (what's over / under what) ----------
+  // Bottom to top: pictures/text under Specials (list order), the Specials panel, pictures/text over it (list order), ticker, effects.
+  const hasSpecials = () => L.specials.enabled && L.specials.items.length > 0;
+  const rectOf = node => node && node.style.visibility !== "hidden" ? node.getBoundingClientRect() : null;
+  const hits = (a, b) => !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  const specialsRect = () => { const p = pvOverlay.querySelector(".so-specials"); return p && p.style.display !== "none" ? p.getBoundingClientRect() : null; };
+  /** The stack as a list, bottom first: blocks and "S" for the Specials panel. */
+  const stack = () => {
+    const under = L.text.blocks.filter(x => !x.above), over = L.text.blocks.filter(x => x.above);
+    return hasSpecials() ? [...under, "S", ...over] : [...under, ...over];
+  };
+  /** Rebuilds the blocks list (and each block's "above") from a stack order. */
+  function setStack(st) {
+    const s = st.indexOf("S");
+    L.text.blocks = st.filter(x => x !== "S");
+    L.text.blocks.forEach(x => { x.above = s >= 0 && st.indexOf(x) > s; });
+  }
+  /** Moves the selected item: "front" / "back" all the way, "up" / "down" past the next thing it overlaps. */
+  function restack(dir) {
+    const b = L.text.blocks[sel.i];
+    const st = stack(), at = st.indexOf(b);
+    const rect = x => x === "S" ? specialsRect() : rectOf(blockNodes[L.text.blocks.indexOf(x)]);
+    const me = rect(b);
+    const name = x => x === "S" ? "the Specials panel" : x.kind === "image" ? "the picture" + (x.image && x.image.name ? " “" + x.image.name + "”" : "") : "“" + (x.text || "").split("\n")[0].slice(0, 24) + "”";
+    st.splice(at, 1);
+    let to, past = null;
+    if (dir === "front") to = st.length;
+    else if (dir === "back") to = 0;
+    else if (dir === "up") {
+      let j = at; while (j < st.length && !hits(me, rect(st[j]))) j++;
+      if (j >= st.length) { toast("It's already on top of everything it touches."); return; }
+      past = st[j]; to = j + 1;
+    } else {
+      let j = at - 1; while (j >= 0 && !hits(me, rect(st[j]))) j--;
+      if (j < 0) { toast("It's already under everything it touches."); return; }
+      past = st[j]; to = j;
+    }
+    st.splice(to, 0, b);
+    setStack(st);
+    sel.i = L.text.blocks.indexOf(b);
+    change(); drawToolbar();
+    if (past) toast((dir === "up" ? "Now over " : "Now under ") + name(past) + ".");
+  }
+
+  // ---------- resize handles on the selected text or picture ----------
+  const frame = h("div", { class: "ed-frame", hidden: true });
+  const HANDLES = [["nw", -1, -1], ["ne", 1, -1], ["sw", -1, 1], ["se", 1, 1], ["w", -1, 0], ["e", 1, 0]];
+  HANDLES.forEach(([k, dx, dy]) => frame.append(h("span", { class: "ed-h ed-h-" + k, title: dy ? "Drag to resize" : "Drag to change the width",
+    onpointerdown: e => resizeDrag(e, dx, dy) })));
+  let frameRaf = 0;
+  function placeFrame() {
+    cancelAnimationFrame(frameRaf);
+    // The frame sits next to the preview (not inside it, which clips), so handles at the screen's edge stay grabbable.
+    const host = preview.parentNode;
+    if (host && frame.parentNode !== host) { if (getComputedStyle(host).position === "static") host.style.position = "relative"; host.append(frame); }
+    const node = !multi.size && isSel("block") ? blockNodes[sel.i] : null;
+    const r0 = rectOf(node), pv = preview.getBoundingClientRect();
+    // Only the part that's on the screen.
+    const r = r0 && { left: Math.max(r0.left, pv.left), top: Math.max(r0.top, pv.top), right: Math.min(r0.right, pv.right), bottom: Math.min(r0.bottom, pv.bottom) };
+    if (!host || !r || r.right - r.left < 2 || r.bottom - r.top < 2) { frame.hidden = true; } else {
+      const box = host.getBoundingClientRect();
+      frame.hidden = false;
+      Object.assign(frame.style, { left: (r.left - box.left) + "px", top: (r.top - box.top) + "px", width: (r.right - r.left) + "px", height: (r.bottom - r.top) + "px" });
+      frame.classList.toggle("text", L.text.blocks[sel.i].kind === "text");
+    }
+    // Keep following it while it's selected (it can animate, the timeline can hide it, the page can resize).
+    if (node) frameRaf = requestAnimationFrame(placeFrame);
+  }
+  /** Corner: bigger / smaller (text size or picture width), the opposite corner stays put. Side (text): wrap width. */
+  function resizeDrag(e, dx, dy) {
+    e.preventDefault(); e.stopPropagation(); unfocus();
+    const i = sel.i, b = L.text.blocks[i], node = blockNodes[i];
+    if (!node) return;
+    const box = pvOverlay.getBoundingClientRect(), r = node.getBoundingClientRect(), unit = box.width / 100;
+    // Placed by hand from now on, at its current spot.
+    const x0 = (r.left - box.left) / box.width * 100, y0 = (r.top - box.top) / box.height * 100;
+    const right = x0 + r.width / box.width * 100, bottom = y0 + r.height / box.height * 100;
+    const fs0 = b.fs || SIZE_EM[b.size] || 2.8, w0 = b.w || 0, sx = e.clientX, sy = e.clientY;
+    node.className = node.className.replace(/\bso-pos-\S+/, "").trim();
+    node.classList.add("so-free");
+    let moved = false;
+    const mv = ev => {
+      const d = (ev.clientX - sx) * dx, dv = dy ? (ev.clientY - sy) * dy : 0;
+      if (!moved && Math.abs(d) < 2 && Math.abs(dv) < 2) return;
+      moved = true;
+      // Corners: follow whichever way the finger / mouse moved more (wrapped text barely gets wider as it grows).
+      const fx = (r.width + d) / r.width, fy = (r.height + dv) / r.height;
+      const f = clampN(Math.abs(fy - 1) > Math.abs(fx - 1) ? fy : fx, 0.05, 20);
+      if (!dy) {
+        // Side handle on text: how wide it wraps (in % of the screen).
+        b.w = Math.round(clampN((r.width + d) / unit, 3, 100) * 10) / 10;
+        node.style.width = (b.w * unit) + "px"; node.style.maxWidth = "none";
+      } else if (b.kind === "image") {
+        b.w = Math.round(clampN((w0 || r.width / unit) * f, 2, 100) * 10) / 10;
+        node.style.width = b.w + "em";
+      } else {
+        b.fs = Math.round(clampN(fs0 * f, 0.5, 30) * 10) / 10;
+        node.style.fontSize = b.fs + "em";
+        if (w0) { b.w = Math.round(clampN(w0 * f, 3, 100) * 10) / 10; node.style.width = (b.w * unit) + "px"; }
+      }
+      // Keep the opposite side where it was.
+      const nr = node.getBoundingClientRect();
+      b.x = Math.round((dx < 0 ? right - nr.width / box.width * 100 : x0) * 10) / 10;
+      b.y = Math.round((dy < 0 ? bottom - nr.height / box.height * 100 : y0) * 10) / 10;
+      Object.assign(node.style, { left: b.x + "%", top: b.y + "%", right: "auto", bottom: "auto", transform: "none" });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
+      if (moved) { change(); drawToolbar(); }
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  }
   function removeSelected() {
     const del = new Set(selectedBlocks());
     for (let k = L.text.blocks.length - 1; k >= 0; k--) if (del.has(L.text.blocks[k])) L.text.blocks.splice(k, 1);
@@ -1120,12 +1243,16 @@ async function renderLayers(main, id, kind) {
       kids.push(
         h("select", { title: "Snap to a spot", onchange: e => { b.position = e.target.value; b.x = null; b.y = null; change(); drawToolbar(); } },
           free ? h("option", { value: "", selected: true }, "Placed by hand") : null, opts(POSITION_LABELS, free ? "" : b.position)),
-        tbBtn("↑", false, () => { if (i < L.text.blocks.length - 1) { L.text.blocks.splice(i + 1, 0, L.text.blocks.splice(i, 1)[0]); sel.i = i + 1; change(); } }, "Bring forward"),
-        tbBtn("↓", false, () => { if (i > 0) { L.text.blocks.splice(i - 1, 0, L.text.blocks.splice(i, 1)[0]); sel.i = i - 1; change(); } }, "Send backward"),
+        h("span", { class: "tb-group", title: "What's over / under what when things overlap" },
+          h("span", { class: "small muted" }, "Order"),
+          tbBtn("⤒", false, () => restack("front"), "Bring to front (over everything)"),
+          tbBtn("↑", false, () => restack("up"), "Bring forward (over the next thing it overlaps)"),
+          tbBtn("↓", false, () => restack("down"), "Send backward (under the next thing it overlaps)"),
+          tbBtn("⤓", false, () => restack("back"), "Send to back (under everything)")),
         tbBtn("Duplicate", false, () => {
           const c = JSON.parse(JSON.stringify(b));
           if (typeof c.x === "number") { c.x += 2; c.y += 2; }
-          c.track = nextTrack(); c.grp = 0;
+          c.track = nextTrack(); c.grp = 0; // stays at the same level (just over the original)
           L.text.blocks.splice(i + 1, 0, c); change(); select({ type: "block", i: i + 1 });
         }),
         h("button", { type: "button", class: "small danger", onclick: () => removeBlock(i) }, "Delete"));
@@ -1138,7 +1265,7 @@ async function renderLayers(main, id, kind) {
       kids.push(h("strong", { class: "small" }, names[sel.type]), sw(obj.enabled, v => { obj.enabled = v; if (v && sel.type === "ticker") L.text.enabled = true; change(); drawSide(); }),
         h("span", { class: "small muted" }, "Settings are in the panel on the left."));
     } else {
-      kids.push(h("span", { class: "small muted" }, "Click something on the screen or a bar in the timeline to edit it. Drag text and pictures to move them."));
+      kids.push(h("span", { class: "small muted" }, "Click something on the screen or a bar in the timeline to edit it. Drag text and pictures to move them, drag the corner dots to resize. Click again to pick what's underneath."));
     }
     toolbar.replaceChildren(...kids.filter(k => k != null && k !== false));
   }

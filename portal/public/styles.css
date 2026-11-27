@@ -427,3 +427,15 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .help-msg-pics { opacity: .85; margin-bottom: .2rem; }
 .pair-pick { display: flex; flex-direction: column; gap: .5rem; margin: .5rem 0 1rem; }
 .pair-pick button { justify-content: flex-start; padding: .8rem 1rem; font-size: 1.05rem; }
+/* Designer: resize frame around the selected text / picture. */
+.ed-frame { position: absolute; z-index: 20; pointer-events: none; outline: 2px solid #a855f7; outline-offset: 1px; }
+.ed-frame[hidden] { display: none; }
+.ed-h { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; background: #fff; border: 2px solid #a855f7; border-radius: 50%; pointer-events: auto; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.ed-h-nw { left: 0; top: 0; cursor: nwse-resize; } .ed-h-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.ed-h-sw { left: 0; top: 100%; cursor: nesw-resize; } .ed-h-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.ed-h-w, .ed-h-e { display: none; top: 50%; width: 10px; height: 22px; margin: -11px 0 0 -5px; border-radius: 5px; cursor: ew-resize; }
+.ed-h-w { left: 0; } .ed-h-e { left: 100%; }
+.ed-frame.text .ed-h-w, .ed-frame.text .ed-h-e { display: block; }
+@media (pointer: coarse) { .ed-h { width: 24px; height: 24px; margin: -12px 0 0 -12px; } .ed-h-w, .ed-h-e { width: 16px; height: 32px; margin: -16px 0 0 -8px; } }
+.ed-preview .so-text { touch-action: none; }
+.tb-group { display: inline-flex; align-items: center; gap: .25rem; padding: 0 .35rem; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
