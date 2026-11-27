@@ -1089,3 +1089,57 @@ test("plane effect: banner text and the client's own logo reach the screens", as
   assert.equal(ef.image, null);
   scopeId = null;
 });
+
+test("design slides: a template as a playlist slide, with its pictures, editable in the designer", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000a49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
+  const upload = async name => { const fd = new FormData(); fd.append("files", new Blob([png], { type: "image/png" }), name + ".png"); return (await call("POST", "/api/media", fd)).body[0]; };
+  const other = (await call("POST", "/api/customers", { name: "Slide Other" })).body;
+  scopeId = other.id;
+  const foreign = await upload("Not yours");
+  const A = (await call("POST", "/api/customers", { name: "Slide Shop" })).body;
+  scopeId = A.id;
+  const pic = await upload("Taco photo");
+  // A template becomes a slide: video layer off, own pictures kept, other clients' pictures dropped.
+  const r = await call("POST", "/api/media/widget", { type: "design", name: "Menu board", config: { bg: "#112233", layers: {
+    video: { enabled: true, region: "right70" },
+    text: { enabled: true, blocks: [{ kind: "text", text: "Tacos $3" }, { kind: "image", mediaId: pic.id }, { kind: "image", mediaId: foreign.id }] } } } });
+  assert.equal(r.status, 201);
+  const m = r.body;
+  assert.equal(m.kind, "widget");
+  assert.equal(m.widget.type, "design");
+  assert.equal(m.widget.config.bg, "#112233");
+  assert.equal(m.widget.config.layers.video.enabled, false);
+  assert.deepEqual(m.widget.config.layers.text.blocks.map(b => b.kind), ["text", "image"]);
+  assert.equal(m.widget.config.layers.text.blocks[1].image.name, "Taco photo");
+  // In a playlist, the player gets the slide with its picture attached (to download it).
+  const pl = (await call("POST", "/api/playlists", { name: "Slides" })).body;
+  await call("PUT", "/api/playlists/" + pl.id, { name: "Slides", items: [{ mediaId: m.id, duration: 12 }] });
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-slide-0001" })).body;
+  await call("POST", "/api/screens/pair", { code: reg.pairingCode, playlistId: pl.id });
+  const auth = { authorization: "Bearer " + reg.token };
+  let item = (await call("GET", "/api/player/config", undefined, auth)).body.defaultPlaylist.items[0];
+  assert.equal(item.kind, "widget");
+  assert.equal(item.duration, 12);
+  assert.equal(item.widget.type, "design");
+  assert.equal(item.widget.config.layers.text.blocks[1].image.sha256, pic.sha256);
+  // Edit in the designer: new words, new background.
+  const s = (await call("GET", "/api/slides/" + m.id)).body;
+  assert.equal(s.name, "Menu board");
+  assert.equal(s.usedIn[0].name, "Slides");
+  s.layers.text.blocks[0].text = "Tacos $4";
+  s.layers.video.enabled = true;
+  const saved = await call("PUT", "/api/slides/" + m.id + "/layers", { layers: s.layers, bg: "#000000" });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.video.enabled, false, "slides never have a video layer");
+  item = (await call("GET", "/api/player/config", undefined, auth)).body.defaultPlaylist.items[0];
+  assert.equal(item.widget.config.layers.text.blocks[0].text, "Tacos $4");
+  assert.equal(item.widget.config.bg, "#000000");
+  // Not a design slide → 404; another client's slide → 404.
+  const clock = (await call("POST", "/api/media/widget", { type: "clock", config: {} })).body;
+  assert.equal((await call("GET", "/api/slides/" + clock.id)).status, 404);
+  scopeId = other.id;
+  assert.equal((await call("GET", "/api/slides/" + m.id)).status, 404);
+  scopeId = null;
+});

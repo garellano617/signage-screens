@@ -442,3 +442,9 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .ed-chip { display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 6px; padding: .2rem .55rem; font-size: .8rem; white-space: nowrap; background: #a855f7; color: #fff; border: 0; border-radius: 6px; pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 .ed-frame.group .ed-chip { display: block; }
 .ed-frame.group { outline-style: dashed; }
+/* Playlist rows on phones: name on the first line, the controls wrap underneath instead of falling off the edge. */
+@media (max-width: 640px) {
+  .pl-item { flex-wrap: wrap; row-gap: .4rem; }
+  .pl-item .info { flex: 1 1 calc(100% - 110px); }
+  .pl-item .dur { margin-left: auto; }
+}

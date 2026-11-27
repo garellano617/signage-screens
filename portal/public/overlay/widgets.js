@@ -48,6 +48,23 @@
       root.innerHTML = "";
     } };
 
+    // A design slide: a whole design (specials, text, pictures, effects) drawn by the overlay code, on a background colour.
+    if (type === "design") {
+      root.style.background = c.bg || "#0f172a";
+      var stage = el("div", "sw-design");
+      root.appendChild(stage);
+      var L = JSON.parse(JSON.stringify(c.layers || {}));
+      if (L.video) L.video.enabled = false;
+      // Small previews stay still: no snow / fireworks running in every thumbnail.
+      if (opts.still && L.effects) L.effects.enabled = false;
+      var ov = global.SignageOverlay ? global.SignageOverlay.render(stage, L, {
+        resolveImage: function (x) { return x.image && (x.image.localSrc || x.image.src); }
+      }) : null;
+      var d0 = api.destroy;
+      api.destroy = function () { if (ov) ov.destroy(); d0(); };
+      return api;
+    }
+
     if (type === "clock") {
       var label = c.label ? el("div", "sw-label", c.label) : null;
       if (label) { label.style.color = c.accent; root.appendChild(label); }

@@ -17,6 +17,12 @@ const ONLINE_WINDOW_MS = 90e3;
 
 const isOnline = screen => !!screen.last_seen && now() - screen.last_seen < ONLINE_WINDOW_MS;
 
+/** Design slides: pictures attached (src, sha256, size) so the player downloads them and can show them offline. */
+function forPlayer(w) {
+  if (!w || w.type !== "design" || !w.config) return w;
+  return { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), imageMedia) } };
+}
+
 function playlistForPlayer(playlistId) {
   if (!playlistId) return null;
   const pl = get("SELECT id, name FROM playlists WHERE id = ?", playlistId);
@@ -33,7 +39,7 @@ function playlistForPlayer(playlistId) {
       name: i.name,
       kind: i.kind,
       src: i.kind === "web" ? i.url : i.kind === "widget" ? "widget:" + i.media_id : "/media/" + i.file,
-      widget: i.kind === "widget" ? JSON.parse(i.widget_json || "null") : undefined,
+      widget: i.kind === "widget" ? forPlayer(JSON.parse(i.widget_json || "null")) : undefined,
       sha256: i.sha256 || null,
       size: i.size || 0,
       // Videos play to their end; duration is used for images and web pages.

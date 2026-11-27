@@ -77,10 +77,15 @@ data class Config(
             }
             // The logo on the plane's banner.
             layers?.optJSONObject("effects")?.optJSONObject("image")?.let { specialImages += imageItem(it) }
+            val defaultPlaylist = o.optJSONObject("defaultPlaylist")?.let(::parsePlaylist)
+            // Pictures in design slides (templates added to a playlist), cached like the rest.
+            (listOfNotNull(defaultPlaylist) + slots.map { it.playlist }).flatMap { it.items }.forEach { item ->
+                designLayers(item)?.let { specialImages += layerImages(it) }
+            }
             return Config(
                 paired = o.optBoolean("paired", false),
                 screen = screen,
-                defaultPlaylist = o.optJSONObject("defaultPlaylist")?.let(::parsePlaylist),
+                defaultPlaylist = defaultPlaylist,
                 slots = slots,
                 version = o.str("version"),
                 layersJson = layers?.toString(),
@@ -95,6 +100,22 @@ data class Config(
                         w.optInt("col", 0), w.optInt("row", 0), w.optDouble("bezel", 0.0).toFloat(), w.str("fit").ifEmpty { "fill" })
                 },
             )
+        }
+
+        /** A design slide's layers (specials / text / effects), or null for any other item. */
+        fun designLayers(item: Item): JSONObject? {
+            if (!item.isWidget) return null
+            val w = item.widgetJson?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return null
+            return if (w.str("type") == "design") w.optJSONObject("config")?.optJSONObject("layers") else null
+        }
+
+        /** Every picture used in some layers: specials' photos, pictures on the text layer, the plane's logo. */
+        fun layerImages(layers: JSONObject): List<Item> {
+            val out = mutableListOf<Item>()
+            layers.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { sp -> sp.optJSONObject("image")?.let { out += imageItem(it) } }
+            layers.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { b -> b.optJSONObject("image")?.let { out += imageItem(it) } }
+            layers.optJSONObject("effects")?.optJSONObject("image")?.let { out += imageItem(it) }
+            return out
         }
 
         /** A special's photo ({ mediaId, src, sha256, size, name }) as a cacheable item. */

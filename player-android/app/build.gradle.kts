@@ -89,4 +89,6 @@ dependencies {
     // QR code on the pairing screen. 3.3.x: newer versions need Android 7+, the app supports 5+.
     implementation("com.google.zxing:core:3.3.3")
     testImplementation("junit:junit:4.13.2")
+    // Real org.json in unit tests (Android's is only a stub there).
+    testImplementation("org.json:json:20240303")
 }

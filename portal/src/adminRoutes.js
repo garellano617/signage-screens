@@ -742,7 +742,10 @@ function hashFile(file) {
 const mediaQuery = `SELECT m.id, m.name, m.kind, m.file, m.url, m.mime, m.size, m.sha256, m.created_at, m.customer_id, m.widget_json, c.name AS customer_name
   FROM media m LEFT JOIN customers c ON c.id = m.customer_id WHERE 1=1`;
 const parseWidget = m => { try { return JSON.parse(m.widget_json || "null"); } catch (_) { return null; } };
-const mediaOut = m => ({ ...m, widget_json: undefined, widget: m.kind === "widget" ? parseWidget(m) : undefined,
+/** Design slides (a template as a playlist slide): attach the pictures so the portal can show them. */
+const designOut = (w, cid) => w && w.type === "design" && w.config
+  ? { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), clientImage(cid)) } } : w;
+const mediaOut = m => ({ ...m, widget_json: undefined, widget: m.kind === "widget" ? designOut(parseWidget(m), m.customer_id) : undefined,
   customerId: m.customer_id, customerName: m.customer_name, src: m.kind === "web" ? m.url : m.kind === "widget" ? "widget:" + m.id : "/media/" + m.file,
   usedIn: all("SELECT DISTINCT p.id, p.name FROM playlist_items pi JOIN playlists p ON p.id = pi.playlist_id WHERE pi.media_id = ?", m.id) });
 
@@ -792,13 +795,22 @@ router.post("/media/web", (req, res) => {
 router.post("/media/widget", async (req, res) => {
   const cid = targetCustomer(req);
   const type = String(req.body.type || "");
-  const config = await cleanWidget(type, req.body.config);
-  const name = str(req.body.name, 200, "Name") || type[0].toUpperCase() + type.slice(1);
+  const config = await cleanWidget(type, req.body.config, cid);
+  const name = str(req.body.name, 200, "Name") || (type === "design" ? "Design slide" : type[0].toUpperCase() + type.slice(1));
   const r = run("INSERT INTO media (name, kind, widget_json, customer_id, created_at) VALUES (?, 'widget', ?, ?, ?)", name, JSON.stringify({ type, config }), cid, now());
   res.status(201).json(mediaOut(loadMedia({ cid: null }, r.lastInsertRowid)));
 });
 
-async function cleanWidget(type, config) {
+/** A design slide: a full-screen design (specials, text, pictures, effects) shown as a playlist item. No video layer. */
+function cleanDesign(c, cid) {
+  c = c && typeof c === "object" ? c : {};
+  const img = clientImage(cid);
+  const layers = sanitizeLayers(c.layers || {}, id => !!img(id));
+  layers.video = { enabled: false, region: "full" };
+  return { bg: /^#[0-9a-f]{6}$/i.test(String(c.bg || "")) ? c.bg : "#0f172a", layers };
+}
+async function cleanWidget(type, config, cid) {
+  if (type === "design") return cleanDesign(config, cid);
   try { return await widgets.sanitizeWidget(type, config); }
   catch (e) { if (e instanceof widgets.WidgetError) throw bad(e.message); throw e; }
 }
@@ -818,19 +830,36 @@ router.get("/media/:id/widget-data", async (req, res) => {
 // Live data while designing a widget that isn't saved yet.
 router.post("/widget-preview", async (req, res) => {
   const type = String(req.body.type || "");
-  const config = await cleanWidget(type, req.body.config);
-  res.json({ config, data: await liveData(type, config) });
+  const config = await cleanWidget(type, req.body.config, req.cid || null);
+  res.json({ config, data: type === "design" ? null : await liveData(type, config) });
 });
 
 router.patch("/media/:id", async (req, res) => {
   const m = loadMedia(req, intId(req.params.id));
   if (req.body.config !== undefined && m.kind === "widget") {
     const w = parseWidget(m);
-    run("UPDATE media SET widget_json = ? WHERE id = ?", JSON.stringify({ type: w.type, config: await cleanWidget(w.type, req.body.config) }), m.id);
+    run("UPDATE media SET widget_json = ? WHERE id = ?", JSON.stringify({ type: w.type, config: await cleanWidget(w.type, req.body.config, m.customer_id) }), m.id);
   }
   if (req.body.name !== undefined) run("UPDATE media SET name = ? WHERE id = ?", str(req.body.name, 200, "Name") || m.name, m.id);
   if (req.body.url !== undefined && m.kind === "web") run("UPDATE media SET url = ? WHERE id = ?", checkUrl(req.body.url), m.id);
   res.json(mediaOut(loadMedia(req, m.id)));
+});
+
+// Design slides open in the designer: their layers (with pictures) and background.
+function loadSlide(req) {
+  const m = loadMedia(req, intId(req.params.id));
+  const w = m.kind === "widget" && parseWidget(m);
+  if (!w || w.type !== "design") throw notFound("Design slide");
+  return { m, w };
+}
+const slideOut = (m, w) => ({ id: m.id, name: m.name, slide: true, bg: w.config.bg, layers: designOut(w, m.customer_id).config.layers,
+  usedIn: all("SELECT DISTINCT p.id, p.name FROM playlist_items pi JOIN playlists p ON p.id = pi.playlist_id WHERE pi.media_id = ?", m.id) });
+router.get("/slides/:id", (req, res) => { const { m, w } = loadSlide(req); res.json(slideOut(m, w)); });
+router.put("/slides/:id/layers", (req, res) => {
+  const { m, w } = loadSlide(req);
+  const config = cleanDesign({ bg: req.body && req.body.bg !== undefined ? req.body.bg : w.config.bg, layers: req.body && req.body.layers ? req.body.layers : req.body }, m.customer_id);
+  run("UPDATE media SET widget_json = ? WHERE id = ?", JSON.stringify({ type: "design", config }), m.id);
+  res.json(designOut({ type: "design", config }, m.customer_id).config.layers);
 });
 
 router.delete("/media/:id", (req, res) => {

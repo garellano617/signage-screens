@@ -26,16 +26,7 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         val needed = layers != null && listOf("specials", "text", "effects").any { layers.optJSONObject(it)?.optBoolean("enabled") == true }
         if (layers == null || !needed) { hide(); return }
 
-        // Point each special's photo and each picture on the text layer at the downloaded copy on this device.
-        val localize = { o: JSONObject ->
-            o.optJSONObject("image")?.let { img ->
-                val item = Config.imageItem(img)
-                if (cache.isReady(item)) img.put("localSrc", Uri.fromFile(cache.fileFor(item)).toString())
-            }
-        }
-        layers.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { localize(it) }
-        layers.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { localize(it) }
-        layers.optJSONObject("effects")?.let { localize(it) }
+        localizeImages(layers, cache)
         val json = layers.toString()
         if (json == shown && web != null) return
         shown = json
@@ -88,5 +79,20 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         // JSON is valid JavaScript except for these two characters.
         val js = json.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
         web?.evaluateJavascript("window.showLayers($js)") { r -> if (r != null && r.contains("Error")) Log.w("Overlay", r) }
+    }
+
+    companion object {
+        /** Points each special's photo, each picture on the text layer and the plane's logo at the downloaded copy on this device. */
+        fun localizeImages(layers: JSONObject, cache: MediaCache) {
+            val localize = { o: JSONObject ->
+                o.optJSONObject("image")?.let { img ->
+                    val item = Config.imageItem(img)
+                    if (cache.isReady(item)) img.put("localSrc", Uri.fromFile(cache.fileFor(item)).toString())
+                }
+            }
+            layers.optJSONObject("specials")?.optJSONArray("items")?.forEachObject { localize(it) }
+            layers.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { localize(it) }
+            layers.optJSONObject("effects")?.let { localize(it) }
+        }
     }
 }

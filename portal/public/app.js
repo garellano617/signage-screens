@@ -180,6 +180,7 @@ const clientRoutes = [
   [/^\/walls\/(\d+)$/, "walls", renderWall],
   [/^\/playlists$/, "playlists", renderPlaylists],
   [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
+  [/^\/slides\/(\d+)$/, "playlists", (main, id) => renderLayers(main, id, "slide")],
   [/^\/media$/, "media", renderMedia],
   [/^\/widgets$/, "widgets", renderWidgets],
   [/^\/logins$/, "logins", renderLogins]
@@ -912,8 +913,8 @@ const snapH = v => Math.round(v * 2) / 2;
  * and pictures on, and a timeline with one track per layer. Text and picture bars can be moved to set when they show.
  */
 async function renderLayers(main, id, kind) {
-  const isCh = kind === "channel";
-  const path = (isCh ? "/channels/" : "/screens/") + id;
+  const isCh = kind === "channel", isSlide = kind === "slide";
+  const path = (isCh ? "/channels/" : isSlide ? "/slides/" : "/screens/") + id;
   let [s, media, templates, aiStatus] = await Promise.all([api("GET", path), api("GET", "/media"),
     api("GET", "/layer-templates").catch(() => []), api("GET", "/ai/status").catch(() => ({ enabled: false }))]);
   if (!isCh && s.channelId) {
@@ -947,6 +948,10 @@ async function renderLayers(main, id, kind) {
   const pvVideo = h("div", { class: "pv-video" });
   const pvOverlay = h("div", { class: "pv-overlay" });
   const preview = h("div", { class: "preview ed-preview" + (portrait ? " portrait" : "") }, h("div", { class: "pv-bg" }), pvVideo, pvOverlay);
+  // A design slide has no video: its background colour fills the screen.
+  let slideBg = isSlide ? s.bg || "#0f172a" : null;
+  const paintBg = () => { if (isSlide) preview.querySelector(".pv-bg").style.background = slideBg; };
+  paintBg();
   // (the resize frame is added to the preview below, once it exists)
   preview.addEventListener("pointerdown", e => { if (!e.target.closest(".so-text") && !e.target.closest(".ed-frame")) select(e.target.closest(".pv-video") ? { type: "video" } : null); });
 
@@ -958,7 +963,7 @@ async function renderLayers(main, id, kind) {
   }
   function drawVideo(force) {
     const r = SignageOverlay.REGIONS[L.video.region] || SignageOverlay.REGIONS.full;
-    Object.assign(pvVideo.style, { left: r[0] + "%", top: r[1] + "%", width: r[2] + "%", height: r[3] + "%", display: L.video.enabled ? "" : "none" });
+    Object.assign(pvVideo.style, { left: r[0] + "%", top: r[1] + "%", width: r[2] + "%", height: r[3] + "%", display: L.video.enabled && !isSlide ? "" : "none" });
     pvVideo.classList.toggle("ed-selected", isSel("video"));
     const i = itemAt(playhead);
     if (i === shownItem && !force) return;
@@ -1335,7 +1340,7 @@ async function renderLayers(main, id, kind) {
   }
 
   // ---------- side panel ----------
-  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Video"]];
+  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", isSlide ? "Background" : "Video"]];
   let chainNext = true;
   // Effect for pictures when none is selected: applied to every picture in the design and to the ones added next.
   const firstPic = L.text.blocks.find(x => x.kind === "image" && x.fx && x.fx !== "none");
@@ -1535,6 +1540,11 @@ async function renderLayers(main, id, kind) {
         h("div", { class: "sub-item" }, h("strong", { class: "small" }, "🧱 Video wall effects"),
           h("p", { class: "small muted", style: "margin:.25rem 0 .5rem" }, "On a video wall, effects fly across all its screens: Santa's sleigh or the plane enters on one TV and leaves on the next. Set them on the wall's page."),
           h("a", { class: "btn small", href: base() + "/walls" }, "Open video walls")));
+    } else if (isSlide) {
+      kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Slide background")),
+        field("Background colour", colorIn(slideBg, v => { slideBg = v; paintBg(); change(); }, "Background")),
+        h("p", { class: "small muted" }, "This is a slide in a playlist: it shows full screen for its seconds, like a picture. Its pictures, text, specials and effects go on top of this colour."),
+        s.usedIn && s.usedIn.length ? h("p", { class: "small muted" }, "In: " + s.usedIn.map(p => p.name).join(", ")) : null);
     } else {
       kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Video layer"), sw(L.video.enabled, v => { L.video.enabled = v; drawVideo(true); change(); drawToolbar(); })),
         field("Area on the screen", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(true); change(); } }, opts(REGION_LABELS, L.video.region))),
@@ -1779,10 +1789,10 @@ async function renderLayers(main, id, kind) {
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
-      const saved = await api("PUT", path + "/layers", L);
+      const saved = await api("PUT", path + "/layers", isSlide ? { layers: L, bg: slideBg } : L);
       dirty = false; saveBtn.textContent = "Saved";
       if (undo) { undo = null; if (tab === "templates" || tab === "ai") drawSide(); }
-      toast(isCh ? "Layers saved. Every screen on this channel updates within 30 seconds." : "Layers saved. The screen updates within 30 seconds.");
+      toast(isSlide ? "Slide saved. Screens playing it update within 30 seconds." : isCh ? "Layers saved. Every screen on this channel updates within 30 seconds." : "Layers saved. The screen updates within 30 seconds.");
       // The server drops empty text and unknown pictures: reload if it changed anything we show.
       if (saved.text.blocks.length !== L.text.blocks.length || saved.specials.items.length !== L.specials.items.length) route();
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
@@ -1796,8 +1806,8 @@ async function renderLayers(main, id, kind) {
   document.addEventListener("keydown", onKey);
 
   main.replaceChildren(
-    h("a", { href: base() + path, class: "back", onclick: e => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); } }, "← " + s.name),
-    pageHead("Design", (isCh ? "Channel " : "") + s.name + " · " + clientName(), saveBtn),
+    h("a", { href: isSlide ? (state.slideBack || base() + "/widgets") : base() + path, class: "back", onclick: e => { if (dirty && !confirm("Leave without saving your changes?")) e.preventDefault(); } }, "← " + (isSlide ? "Back" : s.name)),
+    pageHead("Design", (isCh ? "Channel " : isSlide ? "Slide " : "") + s.name + " · " + clientName(), saveBtn),
     h("div", { class: "ed" },
       toolbar, side,
       h("div", { class: "card ed-stage" }, preview,
@@ -1858,7 +1868,12 @@ async function renderPlaylist(main, id) {
       const li = h("li", { class: "pl-item", draggable: true },
         h("span", { class: "handle", title: "Drag to reorder" }, "⠿"),
         thumb(it, "mini"),
-        h("div", { class: "info" }, h("div", { class: "name" }, it.name), h("div", { class: "small muted" }, it.kind === "web" ? "Web page" : it.kind === "video" ? "Video" : it.kind === "widget" ? "Widget" : "Image")),
+        h("div", { class: "info" }, h("div", { class: "name" }, it.name), h("div", { class: "small muted" }, it.kind === "web" ? "Web page" : it.kind === "video" ? "Video" : it.kind === "widget" && it.widget && it.widget.type === "design" ? "Design slide" : it.kind === "widget" ? "Widget" : "Image")),
+        // Design slides (from a template): change their words, prices and pictures in the designer.
+        it.kind === "widget" && it.widget && it.widget.type === "design" ? h("button", { class: "small", title: "Change the words, prices and pictures", onclick: async () => {
+          if (dirty) { await save(); if (dirty) return; }
+          state.slideBack = location.hash; go("/slides/" + it.mediaId);
+        } }, "✏️ Edit") : null,
         it.kind === "video" ? h("div", { class: "dur" }, "full length")
           : h("div", { class: "dur" }, h("input", { type: "number", min: 1, max: 86400, value: it.duration, "aria-label": "Seconds",
             oninput: e => { it.duration = Number(e.target.value); mark(); total(); } }), "sec"),
@@ -1890,13 +1905,48 @@ async function renderPlaylist(main, id) {
   }
   const search = h("input", { type: "search", placeholder: "Search media…" });
   const picker = h("div", { class: "picker" });
+  // The right panel: your media, or the design templates (added as slides).
+  let pickTab = "media", templates = null, adding = false;
+  const pickTabs = h("div", { class: "seg pick-tabs" });
+  const drawTabs = () => pickTabs.replaceChildren(...[["media", "Media"], ["templates", "Templates"]].map(([k, l]) =>
+    h("button", { type: "button", class: pickTab === k ? "on" : "", onclick: () => {
+      pickTab = k; search.value = ""; search.placeholder = k === "media" ? "Search media…" : "Search templates…"; drawTabs(); drawPicker();
+    } }, l)));
+  async function addTemplate(tp) {
+    if (adding) return;
+    adding = true;
+    try {
+      const m = await api("POST", "/media/widget", { type: "design", name: tp.name, config: { bg: "#0f172a", layers: tp.layers } });
+      media.unshift(m);
+      items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, widget: m.widget, duration: 15 }); mark(); draw();
+      list.lastElementChild.scrollIntoView({ block: "nearest" });
+      toast("Added “" + tp.name + "” as a slide. Tap ✏️ Edit on it to change the words and prices.");
+    } catch (e) { fail(e); } finally { adding = false; }
+  }
+  const drawTemplates = () => {
+    if (!templates) {
+      picker.replaceChildren(h("p", { class: "muted small" }, "Loading templates…"));
+      api("GET", "/layer-templates").then(t => { templates = t; }, () => { templates = []; }).then(() => { if (pickTab === "templates") drawPicker(); });
+      return;
+    }
+    const q = search.value.toLowerCase();
+    const list2 = templates.filter(tp => (tp.name + " " + (tp.description || "")).toLowerCase().includes(q));
+    picker.replaceChildren(h("p", { class: "small muted", style: "margin:.25rem .4rem .5rem" }, "A template becomes a full-screen slide in this playlist. Change its words and prices with ✏️ Edit."),
+      ...list2.map(tp => h("div", { class: "pick", title: "Add as a slide", onclick: () => addTemplate(tp) },
+        thumb({ kind: "widget", widget: { type: "design", config: { bg: "#0f172a", layers: tp.layers } } }, "mini"),
+        h("div", { class: "info", style: "flex:1;min-width:0" }, h("div", { class: "small", style: "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, tp.name),
+          h("div", { class: "small muted", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, tp.savedId ? (tp.shared ? "Shared template" : "My template") : tp.category || "Template")),
+        h("span", { class: "btn small" }, "+ Add"))));
+    if (!list2.length) picker.append(h("p", { class: "muted small" }, templates.length ? "No templates match." : "No templates."));
+  };
   const drawPicker = () => {
+    if (pickTab === "templates") return drawTemplates();
     const q = search.value.toLowerCase();
     picker.replaceChildren(...media.filter(m => m.name.toLowerCase().includes(q)).map(m => h("div", { class: "pick", title: "Add to playlist", onclick: () => {
       items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, widget: m.widget, duration: m.kind === "web" ? 30 : m.kind === "widget" ? 15 : 10 }); mark(); draw();
       list.lastElementChild.scrollIntoView({ block: "nearest" });
     } }, thumb(m, "mini"), h("div", { class: "info", style: "flex:1;min-width:0" }, h("div", { class: "small", style: "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, m.name),
-      h("div", { class: "small muted" }, m.kind)), h("span", { class: "btn small" }, "+ Add"))));
+      h("div", { class: "small muted" }, m.kind === "widget" ? widgetName(m.widget && m.widget.type) || "widget" : m.kind)), h("span", { class: "btn small" }, "+ Add"))));
     if (!media.length) picker.append(h("p", { class: "muted small" }, "No media yet. ", h("a", { href: base() + "/media" }, "Upload some"), "."));
   };
   search.addEventListener("input", drawPicker);
@@ -1905,7 +1955,8 @@ async function renderPlaylist(main, id) {
     h("div", { class: "page-head" }, h("div", {}, nameIn, h("div", { class: "muted small", style: "margin-top:.25rem" }, clientName())), h("div", { class: "actions" }, saveBtn)),
     h("div", { class: "grid", style: "grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items:start" },
       h("div", { class: "card", style: "grid-column: span 2; min-width:0" }, h("div", { style: "margin-bottom:.75rem" }, totalEl), list),
-      h("div", { class: "card" }, h("h2", {}, "Add media"), h("div", { class: "field" }, search), picker)));
+      h("div", { class: "card" }, h("h2", {}, "Add to playlist"), pickTabs, h("div", { class: "field" }, search), picker)));
+  drawTabs();
   // On narrow screens the 2-column span would overflow.
   if (window.innerWidth < 760) main.querySelector(".card").style.gridColumn = "auto";
   draw(); drawPicker();
@@ -1956,7 +2007,7 @@ async function renderMedia(main) {
     media.length ? h("div", { class: "media-grid" }, media.map(m => h("div", { class: "media-card" },
       m.kind === "widget" ? h("a", { href: "#", onclick: e => { e.preventDefault(); widgetDialog(m.widget.type, m); } }, thumb(m)) : h("a", { href: m.src, target: "_blank", rel: "noopener" }, thumb(m)),
       h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
-        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind === "widget" ? "Widget · " + (WIDGET_TYPES[m.widget && m.widget.type] || {}).name : m.kind + " · " + bytes(m.size)),
+        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind === "widget" ? "Widget · " + widgetName(m.widget && m.widget.type) : m.kind + " · " + bytes(m.size)),
         h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist")),
       h("div", { class: "acts" },
         h("button", { class: "small", onclick: async () => {
@@ -2192,6 +2243,7 @@ const WIDGET_TYPES = {
 };
 
 async function widgetDialog(type, existing) {
+  if (type === "design" && existing) { state.slideBack = location.hash; go("/slides/" + existing.id); return null; }
   const T = WIDGET_TYPES[type];
   const c = Object.assign({}, T.config, existing ? existing.widget.config : {});
   let data = null, live = null, loadT = 0;
@@ -2264,6 +2316,7 @@ async function widgetDialog(type, existing) {
   return r;
 }
 
+const widgetName = type => type === "design" ? "Design slide" : (WIDGET_TYPES[type] || {}).name;
 async function renderWidgets(main) {
   const media = (await api("GET", "/media")).filter(m => m.kind === "widget");
   main.replaceChildren(
@@ -2274,7 +2327,7 @@ async function renderWidgets(main) {
     media.length ? h("div", { class: "media-grid" }, media.map(m => h("div", { class: "media-card" },
       h("a", { href: "#", onclick: e => { e.preventDefault(); widgetDialog(m.widget.type, m); } }, thumb(m)),
       h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
-        h("div", { class: "small muted" }, (WIDGET_TYPES[m.widget.type] || {}).name),
+        h("div", { class: "small muted" }, widgetName(m.widget.type)),
         h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist")),
       h("div", { class: "acts" },
         h("button", { class: "small", onclick: () => widgetDialog(m.widget.type, m) }, "Edit"),

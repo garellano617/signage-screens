@@ -55,3 +55,7 @@
 .sw-t-message { padding: 6em 8em; }
 .sw-mtitle { font-size: 8em; font-weight: 800; margin-bottom: .3em; }
 .sw-body { font-size: 4em; white-space: pre-wrap; max-width: 100%; }
+
+/* Design slide: the overlay fills the slide. */
+.sw-t-design { display: block; padding: 0; }
+.sw-design { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; }

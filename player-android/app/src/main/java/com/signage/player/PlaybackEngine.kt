@@ -511,7 +511,15 @@ class PlaybackEngine(
     /** Widgets are drawn by the bundled widget page (assets/widget.html), the same code as the portal preview. */
     @SuppressLint("SetJavaScriptEnabled")
     private suspend fun playWidget(item: Item): Boolean {
-        val json = item.widgetJson ?: return false
+        var json = item.widgetJson ?: return false
+        // Design slide: its pictures from the copies downloaded on this device (works offline).
+        Config.designLayers(item)?.let { _ ->
+            runCatching {
+                val w = org.json.JSONObject(json)
+                w.optJSONObject("config")?.optJSONObject("layers")?.let { Overlay.localizeImages(it, cache) }
+                json = w.toString()
+            }
+        }
         val wv = widgetWeb ?: WebView(activity).also { w ->
             w.setBackgroundColor(Color.BLACK)
             w.isFocusable = false
