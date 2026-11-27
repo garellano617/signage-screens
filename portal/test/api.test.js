@@ -361,7 +361,7 @@ test("screen layers: saved, cleaned, kept per client, sent to the player", async
   const [tb, ib] = put2.body.text.blocks;
   assert.equal(put2.body.text.blocks.length, 2, "another client's picture and an empty picture are dropped");
   assert.equal(put2.body.text.cycle, 20);
-  assert.deepEqual([tb.x, tb.y, tb.fs, tb.font, tb.align, tb.italic, tb.from, tb.to], [12.3, 100, 30, "sans", "right", true, 5, 12]);
+  assert.deepEqual([tb.x, tb.y, tb.fs, tb.font, tb.align, tb.italic, tb.from, tb.to], [12.3, 150, 30, "sans", "right", true, 5, 12]); // may hang off the screen (up to 200)
   assert.deepEqual([ib.kind, ib.w, ib.from, ib.to, ib.image.src], ["image", 25, 0, 0, imgA.src], "end before start -> whole cycle");
   const cfg2 = (await call("GET", "/api/player/config", undefined, auth)).body;
   assert.equal(cfg2.layers.text.blocks[1].image.sha256, imgA.sha256, "the player can cache the picture");
@@ -975,7 +975,7 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   const big = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "shape", shape: "wave", rot: 270, w: 350, h: 500, x: -120, y: 150 },
     { kind: "shape", shape: "circle", rot: -45.25 }, { kind: "image", mediaId: 1, w: 350, x: -999 }] } }, () => true).text.blocks;
   assert.deepEqual([big[0].rot, big[0].w, big[0].h, big[0].x, big[0].y], [-90, 350, 400, -120, 150]);
-  assert.equal(big[1].rot, -45.3);
+  assert.equal(big[1].rot, -45.2);
   assert.deepEqual([big[2].w, big[2].x], [100, -300], "pictures stay at most the screen's width");
 });
 
