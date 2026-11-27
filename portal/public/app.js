@@ -2685,7 +2685,11 @@ async function widgetDialog(type, existing, dlg = {}) {
   const inp = (k, label, attrs, server) => field(label, h("input", Object.assign({ value: c[k] == null ? "" : c[k], oninput: e => set(k, e.target.value, server) }, attrs || {})));
   const sel = (k, label, list) => field(label, h("select", { onchange: e => set(k, e.target.value) }, opts(list, c[k])));
   const chk = (k, label) => h("label", { class: "color-in" }, h("input", { type: "checkbox", checked: !!c[k], onchange: e => set(k, e.target.checked) }), label);
-  const colors = h("div", { class: "colors" }, colorIn(c.bg, v => set("bg", v), "Background"), colorIn(c.fg, v => set("fg", v), "Text"), colorIn(c.accent, v => set("accent", v), "Accent"));
+  if (c.bgOpacity === undefined) c.bgOpacity = 100;
+  const opVal = h("span", { class: "small muted", style: "min-width:3rem;text-align:right" }, (100 - c.bgOpacity) + "%");
+  const colors = h("div", {}, h("div", { class: "colors" }, colorIn(c.bg, v => set("bg", v), "Background"), colorIn(c.fg, v => set("fg", v), "Text"), colorIn(c.accent, v => set("accent", v), "Accent")),
+    h("label", { class: "row wd-opacity", title: "0% = solid background, 100% = no background (only the clock / text shows)" }, h("span", { class: "small" }, "Background see-through"),
+      h("input", { type: "range", min: 0, max: 100, step: 1, value: 100 - c.bgOpacity, oninput: e => { opVal.textContent = e.target.value + "%"; set("bgOpacity", 100 - Number(e.target.value)); } }), opVal));
 
   let fields;
   if (type === "clock") fields = [h("div", { class: "row" }, sel("style", "Style", [["digital", "Digital"], ["analog", "Analog"]]), sel("hours", "Hours", [["12", "12-hour"], ["24", "24-hour"]])),

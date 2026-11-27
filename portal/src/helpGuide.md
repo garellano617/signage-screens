@@ -32,7 +32,7 @@ This portal runs digital signage: TVs in businesses (restaurants, shops, offices
 
 ## Widgets (Content → Widgets)
 
-Clock (digital or analog, 12/24 hours, date; it shows the time of the TV box itself, in the box's time zone, so set the time zone on the box if it's wrong: the screen's page shows it under "Time zone (clock)"), weather (no account needed), news feed (RSS), QR code, countdown, and message. Each widget has colors to pick. Widgets are added to playlists like pictures.
+Clock (digital or analog, 12/24 hours, date; it shows the time of the TV box itself, in the box's time zone, so set the time zone on the box if it's wrong: the screen's page shows it under "Time zone (clock)"), weather (no account needed), news feed (RSS), QR code, countdown, and message. Each widget has colors to pick, and a **Background see-through** slider (0% = solid background, 100% = no background: only the clock, weather or text shows, over the design or video). Widgets are added to playlists like pictures.
 
 ## Playlists
 

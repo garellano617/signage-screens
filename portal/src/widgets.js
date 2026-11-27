@@ -17,7 +17,10 @@ class WidgetError extends Error {}
 async function sanitizeWidget(type, c) {
   if (!TYPES.includes(type)) throw new WidgetError("Unknown widget type.");
   c = c && typeof c === "object" ? c : {};
-  const base = { bg: color(c.bg, "#0f172a"), fg: color(c.fg, "#ffffff"), accent: color(c.accent, "#f59e0b") };
+  // bgOpacity: how solid the background is, 0 (see-through: only the clock / text shows) to 100 (solid).
+  const op = Number(c.bgOpacity);
+  const base = { bg: color(c.bg, "#0f172a"), fg: color(c.fg, "#ffffff"), accent: color(c.accent, "#f59e0b"),
+    bgOpacity: Number.isFinite(op) ? Math.max(0, Math.min(100, Math.round(op))) : 100 };
   switch (type) {
     case "clock":
       return { ...base, style: pick(c.style, ["digital", "analog"], "digital"), hours: pick(c.hours, ["12", "24"], "12"),

@@ -499,3 +499,10 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 /* Timeline: + button on the Widgets section. */
 .tl-add { margin-left: .35rem; padding: 0 .4rem; min-height: 0; height: 1.3rem; font-size: .85rem; line-height: 1; border-radius: 4px; }
 .tl-image.tl-widget { background: #0d9488; }
+
+/* Widget dialog: background see-through slider. */
+.wd-opacity { align-items: center; gap: .6rem; margin-top: .6rem; flex-wrap: nowrap; }
+.wd-opacity input[type=range] { flex: 1; min-width: 80px; }
+/* See-through widget previews: a checkerboard behind, so you can tell. */
+.widget-dialog .sw-root { background-clip: padding-box; }
+.widget-preview { background: repeating-conic-gradient(#cbd5e1 0 25%, #f8fafc 0 50%) 0 0 / 16px 16px; }

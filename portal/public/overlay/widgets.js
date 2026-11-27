@@ -10,6 +10,12 @@
 
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
+  /** The background colour at its opacity (0-100; missing = solid, as widgets were before). */
+  function bgColor(hex, opacity) {
+    if (opacity === undefined || opacity === null || opacity >= 100 || !/^#[0-9a-f]{6}$/i.test(hex || "")) return hex;
+    var n = parseInt(hex.slice(1), 16);
+    return "rgba(" + (n >> 16) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + Math.max(0, opacity) / 100 + ")";
+  }
   /**
    * The time on this device. On a TV the player passes the box's current time-zone offset (window.deviceClock),
    * because the built-in browser can keep the time zone it had when the app started. Elsewhere: the browser's own time.
@@ -49,7 +55,7 @@
     var every = function (fn, ms) { if (!opts.still) timers.push(setInterval(fn, ms)); };
     root.innerHTML = "";
     root.className = (root.className.replace(/\bsw-\S+/g, "") + " sw-root sw-t-" + type).trim();
-    root.style.background = c.bg; root.style.color = c.fg;
+    root.style.background = bgColor(c.bg, c.bgOpacity); root.style.color = c.fg;
     var fit = function () { root.style.fontSize = (Math.min(root.clientWidth, root.clientHeight * 16 / 9) / 100) + "px"; };
     fit();
     var onResize = function () { fit(); };

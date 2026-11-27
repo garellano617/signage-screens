@@ -1209,6 +1209,10 @@ test("widgets on a design: the client's own widgets only, attached for the previ
   const A = (await call("POST", "/api/customers", { name: "Widget Shop" })).body;
   scopeId = A.id;
   const clock = (await call("POST", "/api/media/widget", { type: "clock", name: "Front clock", config: {} })).body;
+  assert.equal(clock.widget.config.bgOpacity, 100, "solid background unless asked");
+  const seeThrough = (await call("POST", "/api/media/widget", { type: "clock", config: { bgOpacity: 30 } })).body;
+  assert.equal(seeThrough.widget.config.bgOpacity, 30);
+  assert.equal((await call("POST", "/api/media/widget", { type: "clock", config: { bgOpacity: 500 } })).body.widget.config.bgOpacity, 100);
   const slide = (await call("POST", "/api/media/widget", { type: "design", name: "Slide", config: { layers: {} } })).body;
   const reg = (await call("POST", "/api/player/register", { deviceId: "android-wblock-0001" })).body;
   const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode })).body;
