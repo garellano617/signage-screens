@@ -534,7 +534,6 @@
   // ---- animated effects on a canvas ----
   var COUNTS = { light: 25, medium: 55, heavy: 110 };
   var CONFETTI = ["#f43f5e", "#f59e0b", "#10b981", "#3b82f6", "#a855f7", "#facc15"];
-  var LEAVES = ["#c2410c", "#ea580c", "#b45309", "#a16207", "#dc2626"];
 
   function effects(root, ef) {
     var cv = el("canvas", "so-effects");
@@ -554,10 +553,9 @@
       var u = W / 100;
       var p = { x: Math.random() * W, y: initial ? Math.random() * H : (rising ? H + 20 : -20),
         s: (0.4 + Math.random()) * u * (type === "snow" ? 0.5 : type === "confetti" ? 0.7 : type === "bubbles" ? 1.4 : 1),
-        vy: (0.4 + Math.random() * 0.6) * u * (type === "snow" ? 4 : type === "confetti" ? 9 : type === "leaves" ? 5 : 6),
+        vy: (0.4 + Math.random() * 0.6) * u * (type === "snow" ? 4 : type === "confetti" ? 9 : 6),
         sway: Math.random() * Math.PI * 2, rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 4,
-        life: Math.random(), color: type === "confetti" ? CONFETTI[Math.random() * CONFETTI.length | 0]
-          : type === "leaves" ? LEAVES[Math.random() * LEAVES.length | 0] : ef.color };
+        life: Math.random(), color: type === "confetti" ? CONFETTI[Math.random() * CONFETTI.length | 0] : ef.color };
       return p;
     }
     function heart(s) {
@@ -593,7 +591,6 @@
           else if (type === "bubbles") { ctx.globalAlpha = 0.6; ctx.lineWidth = Math.max(1, p.s / 8); ctx.beginPath(); ctx.arc(0, 0, p.s, 0, 7); ctx.stroke(); }
           else if (type === "confetti") ctx.fillRect(-p.s, -p.s * 0.4, p.s * 2, p.s * 0.8);
           else if (type === "hearts") { ctx.globalAlpha = 0.85; heart(p.s * 1.6); }
-          else if (type === "leaves") { ctx.beginPath(); ctx.ellipse(0, 0, p.s * 1.3, p.s * 0.6, 0, 0, 7); ctx.fill(); }
         }
         ctx.restore();
       }
@@ -610,7 +607,64 @@
   // ---- clock-driven effects: the same on every screen of a video wall ----
   // Every position is worked out from the time alone (no randomness that differs between screens), in the
   // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
-  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1 };
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1 };
+
+  // Autumn maple leaves: each colour pair is [centre, edge]. Pictures are drawn once, front and (duller) back.
+  var LEAF_COLORS = [["#fde047", "#ea580c"], ["#fb923c", "#b91c1c"], ["#dc2626", "#7f1d1d"], ["#fbbf24", "#b45309"],
+    ["#f87171", "#b91c1c"], ["#f97316", "#7c2d12"], ["#ef4444", "#881337"], ["#d97706", "#78350f"],
+    ["#e3b341", "#6b7a1f"], ["#c2410c", "#451a03"], ["#fcd34d", "#dc2626"]];
+  var leafSprites = null, leafOrder = null;
+  function mapleLeaf() {
+    // Five pointed lobes (angle in degrees, length), valleys between them, a small tooth on every edge.
+    var A = [[90, .1], [158, .64], [190, .36], [217, .9], [244, .4], [270, 1], [296, .4], [323, .9], [350, .36], [382, .64], [450, .1]];
+    var pts = [], tips = [];
+    function P(a, r) { a = a * Math.PI / 180; return [Math.cos(a) * r, Math.sin(a) * r]; }
+    for (var i = 0; i < A.length - 1; i++) {
+      var a = A[i], b = A[i + 1], tipR = Math.max(a[1], b[1]);
+      pts.push(P(a[0], a[1]));
+      if (a[1] > b[1]) tips.push(P(a[0], a[1]));
+      [[.38, 0], [.5, .16], [.6, -.02], [.74, 0], [.8, .08]].forEach(function (f) {
+        if (tipR < .5 && f[0] > .7) return;
+        pts.push(P(a[0] + (b[0] - a[0]) * f[0], a[1] + (b[1] - a[1]) * f[0] + f[1] * tipR));
+      });
+    }
+    return { pts: pts, tips: tips };
+  }
+  function makeLeafSprites() {
+    var S = 160, R = S * 0.47, shape = mapleLeaf();
+    leafSprites = LEAF_COLORS.map(function (c, ci) {
+      return [0, 1].map(function (back) {
+        var cv = document.createElement("canvas"); cv.width = cv.height = S;
+        var g = cv.getContext("2d");
+        g.translate(S / 2, S * 0.6); g.scale(R, R); g.lineJoin = "round"; g.lineCap = "round";
+        g.beginPath(); shape.pts.forEach(function (p, i) { if (i) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); }); g.closePath();
+        var gr = g.createRadialGradient(-0.1, -0.35, 0.05, 0, -0.2, 1.05);
+        gr.addColorStop(0, c[0]); gr.addColorStop(0.55, c[0]); gr.addColorStop(1, c[1]);
+        g.fillStyle = gr; g.fill();
+        g.lineWidth = 0.03; g.strokeStyle = "rgba(60,20,0,.35)"; g.stroke();
+        g.save(); g.clip();
+        // A few darker blotches so no two leaves look painted on.
+        for (var k = 0; k < 4; k++) {
+          var bx = (rnd(ci * 9 + k, 21) - 0.5) * 1.2, by = -rnd(ci * 9 + k, 22) * 0.9, br = 0.08 + rnd(ci * 9 + k, 23) * 0.18;
+          var bg = g.createRadialGradient(bx, by, 0, bx, by, br);
+          bg.addColorStop(0, "rgba(90,30,0,.28)"); bg.addColorStop(1, "rgba(90,30,0,0)");
+          g.fillStyle = bg; g.fillRect(bx - br, by - br, br * 2, br * 2);
+        }
+        // Veins from the stem to every point.
+        g.strokeStyle = "rgba(255,240,200,.45)"; g.lineWidth = 0.035;
+        shape.tips.concat([P0(270)]).forEach(function (p) {
+          g.beginPath(); g.moveTo(0, 0.06); g.quadraticCurveTo(p[0] * 0.4, p[1] * 0.5 + 0.03, p[0] * 0.86, p[1] * 0.86); g.stroke();
+        });
+        if (back) { g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(70,35,10,.32)"; g.fillRect(-2, -2, 4, 4); }
+        g.restore();
+        // Stem.
+        g.strokeStyle = c[1]; g.lineWidth = 0.05;
+        g.beginPath(); g.moveTo(0, 0.06); g.quadraticCurveTo(0.02, 0.3, 0.1, 0.48); g.stroke();
+        return cv;
+      });
+    });
+    function P0(a) { a = a * Math.PI / 180; return [Math.cos(a), Math.sin(a)]; }
+  }
   var BALLOONS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#facc15"];
   var FIREWORKS = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#c084fc", "#f472b6", "#ffffff"];
   function rnd(a, b) { var x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); }
@@ -651,21 +705,55 @@
           ctx.restore();
           continue;
         }
-        var vy = (0.4 + rnd(k, 2) * 0.6) * u * (kind === "snow" ? 4 : kind === "confetti" ? 9 : kind === "leaves" ? 5 : kind === "balloons" ? 4 : 6);
+        var vy = (0.4 + rnd(k, 2) * 0.6) * u * (kind === "snow" ? 4 : kind === "confetti" ? 9 : kind === "balloons" ? 4 : 6);
         var travel = VH + 8 * s + 60;
         var y = mod(t * vy + rnd(k, 3) * travel, travel) - 4 * s - 30;
         if (rising) y = VH - y;
         var x = rnd(k, 4) * VW + Math.sin(t * 1.5 + rnd(k, 6) * 6.28) * s * 1.5;
         ctx.translate(x, y);
         ctx.rotate(kind === "snow" || kind === "bubbles" || kind === "balloons" ? Math.sin(t + k) * 0.08 : rnd(k, 8) * 6.28 + t * (rnd(k, 9) - 0.5) * 4);
-        ctx.fillStyle = kind === "confetti" ? CONFETTI[k % CONFETTI.length] : kind === "leaves" ? LEAVES[k % LEAVES.length] : color;
+        ctx.fillStyle = kind === "confetti" ? CONFETTI[k % CONFETTI.length] : color;
         ctx.strokeStyle = ctx.fillStyle;
         if (kind === "snow") { ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(0, 0, s, 0, 7); ctx.fill(); }
         else if (kind === "bubbles") { ctx.globalAlpha = 0.6; ctx.lineWidth = Math.max(1, s / 8); ctx.beginPath(); ctx.arc(0, 0, s, 0, 7); ctx.stroke(); }
         else if (kind === "confetti") ctx.fillRect(-s, -s * 0.4, s * 2, s * 0.8);
         else if (kind === "hearts") { ctx.globalAlpha = 0.85; heart(s * 1.6); }
-        else if (kind === "leaves") { ctx.beginPath(); ctx.ellipse(0, 0, s * 1.3, s * 0.6, 0, 0, 7); ctx.fill(); }
         else if (kind === "balloons") balloon(s, BALLOONS[k % BALLOONS.length]);
+        ctx.restore();
+      }
+    }
+    // Falling maple leaves, worked out from the clock alone (so a video wall stays in step). Every leaf swings
+    // like a pendulum (slowing at each end of the swing, dropping faster through the middle), tilts with the
+    // swing, flips over now and then, and the whole lot drifts with a breeze that comes in gusts. Each time a
+    // leaf falls it gets a new place, colour and way of falling, so the pattern never repeats.
+    function leaves(t, count) {
+      if (!leafSprites) makeLeafSprites();
+      var u = W / 100, n = Math.min(600, Math.round(count * 0.8 * v.cols * v.rows));
+      if (!leafOrder || leafOrder.length !== n) {
+        leafOrder = []; for (var i = 0; i < n; i++) leafOrder.push(i);
+        leafOrder.sort(function (a, b) { return rnd(a, 1) - rnd(b, 1); }); // far (small) leaves first
+      }
+      var wind = u * (0.7 * t + 6 * Math.sin(t * 0.19) + 3 * Math.sin(t * 0.47 + 1.3) + 1.2 * Math.sin(t * 1.3 + 4));
+      for (var j = 0; j < n; j++) {
+        var k = leafOrder[j];
+        var z = rnd(k, 1), s = u * (1.1 + z * z * 3.4);
+        var w = 0.6 + rnd(k, 2) * 1.1, ph = rnd(k, 3) * 6.28, th = w * t + ph;
+        var vy = u * (1.5 + z * 2.5) * (0.85 + rnd(k, 4) * 0.4);
+        var Y = vy * t + vy * 0.5 * Math.sin(2 * th) / (2 * w);
+        var margin = 2.5 * s + 20, travel = VH + 2 * margin;
+        var q = Y + rnd(k, 5) * travel, round = Math.floor(q / travel), y = q - round * travel - margin;
+        var g = k * 7.13 + round * 131.7;
+        var A = s * (0.8 + rnd(g, 6) * 2.2), spanX = VW + 2 * margin;
+        var x = mod(rnd(g, 7) * spanX + wind * (1.3 - z * 0.5) + A * Math.sin(th), spanX) - margin;
+        if (x < OX - margin || x > OX + W + margin || y < OY - margin || y > OY + H + margin) continue;
+        var tumbler = rnd(g, 8) < 0.3;
+        var rot = rnd(g, 9) * 6.28 + (rnd(g, 10) - 0.5) * (tumbler ? 4 : 0.5) * t + (0.3 + rnd(g, 11) * 0.5) * Math.cos(th);
+        var flip = Math.cos((tumbler ? 2 + rnd(g, 12) * 2.5 : 0.4 + rnd(g, 12) * 1.1) * t + rnd(g, 13) * 6.28);
+        var sp = leafSprites[rnd(g, 14) * leafSprites.length | 0][flip < 0 ? 1 : 0];
+        ctx.save();
+        ctx.globalAlpha = 0.8 + z * 0.2;
+        ctx.translate(x, y); ctx.rotate(rot); ctx.scale(Math.max(0.07, Math.abs(flip)), 1);
+        ctx.drawImage(sp, -s, -s, 2 * s, 2 * s);
         ctx.restore();
       }
     }
@@ -890,6 +978,7 @@
       else if (type === "fireworks") fireworks(t);
       else if (type === "shooting") shooting(t);
       else if (type === "balloons") particles("balloons", t, base * 0.35, ef.color);
+      else if (type === "leaves") leaves(t, base);
       else if (type === "plane") plane(t);
       else particles(type, t, base, ef.color);
       raf = requestAnimationFrame(frame);
