@@ -1199,6 +1199,17 @@ async function renderLayers(main, id, kind) {
     // Keep following it while it's selected (it can animate, the timeline can hide it, the page can resize).
     if (node) frameRaf = requestAnimationFrame(placeFrame);
   }
+  /**
+   * How much bigger / smaller a corner drag makes something: the pointer's distance from the opposite (fixed) corner,
+   * along the diagonal, compared with where the drag started. Smooth whatever the shape's proportions, and never so
+   * small that it disappears (at least minPx on its shorter side).
+   */
+  function cornerFactor(ev, r, dx, dy, sx, sy, minPx) {
+    const ax = dx < 0 ? r.right : r.left, ay = dy < 0 ? r.bottom : r.top;
+    const vx = sx - ax, vy = sy - ay, len2 = vx * vx + vy * vy || 1;
+    const f = ((ev.clientX - ax) * vx + (ev.clientY - ay) * vy) / len2;
+    return clampN(f, Math.max(0.02, minPx / Math.max(1, Math.min(r.right - r.left, r.bottom - r.top))), 20);
+  }
   /** Corner: bigger / smaller (text size or picture width), the opposite corner stays put. Side (text): wrap width. */
   function resizeDrag(e, dx, dy) {
     if (multi.size >= 2) return resizeGroup(e, dx, dy);
@@ -1211,7 +1222,8 @@ async function renderLayers(main, id, kind) {
     const right = x0 + r.width / box.width * 100, bottom = y0 + r.height / box.height * 100;
     const fs0 = b.fs || SIZE_EM[b.size] || 2.8, sx = e.clientX, sy = e.clientY;
     const w0 = b.kind === "shape" ? 0 : b.w || 0;
-    if (b.kind === "shape") { b.w = b.w || r.width / unit; b.h = b.h || r.height / unit; }
+    // Sizes when the drag started (every move scales from these, not from the last move).
+    const sw0 = b.w || r.width / unit, sh0 = b.h || r.height / unit, iw0 = b.w || r.width / unit;
     node.className = node.className.replace(/\bso-pos-\S+/, "").trim();
     node.classList.add("so-free");
     let moved = false;
@@ -1219,23 +1231,22 @@ async function renderLayers(main, id, kind) {
       const d = (ev.clientX - sx) * dx, dv = dy ? (ev.clientY - sy) * dy : 0;
       if (!moved && Math.abs(d) < 2 && Math.abs(dv) < 2) return;
       moved = true;
-      // Corners: follow whichever way the finger / mouse moved more (wrapped text barely gets wider as it grows).
-      const fx = dx ? (r.width + d) / r.width : 1, fy = dy ? (r.height + dv) / r.height : 1;
-      const f = clampN(Math.abs(fy - 1) > Math.abs(fx - 1) ? fy : fx, 0.05, 20);
+      const f = dx && dy ? cornerFactor(ev, r, dx, dy, sx, sy, b.kind === "shape" ? 10 : 14) : 1;
       if (b.kind === "shape") {
         // Shapes: corners keep the shape, sides stretch the width, top / bottom the height (all in % of the screen width).
-        const sw0 = b.w || r.width / unit, sh0 = b.h || r.height / unit;
+        // Never thinner than about 8 px on the screen, so it can't disappear.
+        const minW = 8 / unit;
         if (dx && dy) { b.w = sw0 * f; b.h = sh0 * f; }
-        else if (dx) b.w = (r.width + d) / unit;
-        else b.h = (r.height + dv) / unit;
-        b.w = Math.round(clampN(b.w, 0.5, 400) * 10) / 10; b.h = Math.round(clampN(b.h, 0.2, 400) * 10) / 10;
+        else if (dx) b.w = Math.max(minW, (r.width + d) / unit);
+        else b.h = Math.max(b.shape === "line" ? 2 / unit : minW, (r.height + dv) / unit);
+        b.w = Math.round(clampN(b.w, 0.3, 400) * 100) / 100; b.h = Math.round(clampN(b.h, 0.1, 400) * 100) / 100;
         node.style.width = b.w + "em"; node.style.height = b.h + "em";
       } else if (!dy) {
         // Side handle on text: how wide it wraps (in % of the screen).
         b.w = Math.round(clampN((r.width + d) / unit, 3, 100) * 10) / 10;
         node.style.width = (b.w * unit) + "px"; node.style.maxWidth = "none";
       } else if (b.kind === "image") {
-        b.w = Math.round(clampN((w0 || r.width / unit) * f, 2, 100) * 10) / 10;
+        b.w = Math.round(clampN(iw0 * f, 2, 100) * 10) / 10;
         node.style.width = b.w + "em";
       } else {
         b.fs = Math.round(clampN(fs0 * f, 0.5, 30) * 10) / 10;
@@ -1273,8 +1284,7 @@ async function renderLayers(main, id, kind) {
       const d = (ev.clientX - sx) * dx, dv = (ev.clientY - sy) * dy;
       if (!moved && Math.abs(d) < 2 && Math.abs(dv) < 2) return;
       moved = true;
-      const fx = (uw + d) / uw, fy = (uh + dv) / uh;
-      const f = clampN(Math.abs(fy - 1) > Math.abs(fx - 1) ? fy : fx, 0.05, 20);
+      const f = cornerFactor(ev, U, dx, dy, sx, sy, 14);
       items.forEach(({ b, n, r, fs0, w0, h0 }) => {
         if (b.kind === "image") { b.w = Math.round(clampN(w0 * f, 2, 100) * 10) / 10; n.style.width = b.w + "em"; }
         else if (b.kind === "shape") {
