@@ -889,6 +889,7 @@ const TEXT_FX_LABELS = [["none", "None"], ["glow", "✨ Glow"], ["neon", "💡 N
 // A good starting color for each look.
 const TEXT_FX_COLORS = { glow: "#facc15", neon: "#ec4899", shadow: "#000000", shine: "#fde047", grow: "#facc15" };
 const TD_OPTIONS = [[0.3, "0.3 s (fast)"], [0.5, "0.5 s"], [0.8, "0.8 s"], [1, "1 s"], [1.5, "1.5 s"], [2, "2 s"], [3, "3 s (slow)"]];
+const FIREWORK_SHAPES = [["mixed", "Random mix"], ["peony", "Classic round"], ["chrysanthemum", "Sparkling trails"], ["willow", "Golden willow"], ["palm", "Palm tree"], ["ring", "Ring"], ["heart", "Heart"], ["star", "Star"]];
 const EVERY_OPTIONS = [[15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"], [45, "Every 45 seconds"], [60, "Every minute"], [120, "Every 2 minutes"], [300, "Every 5 minutes"]];
 const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
   ["leaves", "🍂 Falling leaves"], ["stars", "★ Twinkling stars"]];
@@ -1857,6 +1858,7 @@ async function renderLayers(main, id, kind) {
           field("Santa flies by", h("select", { onchange: e => { ef.every = Number(e.target.value); change(); } }, opts(EVERY_OPTIONS, ef.every))),
           h("label", { class: "check-row", style: "align-self:flex-end" }, h("input", { type: "checkbox", checked: ef.snow, onchange: e => { ef.snow = e.target.checked; change(); } }), "Falling snow too")) : null,
         ef.enabled && ef.type === "plane" ? planeFields(ef, images, change) : null,
+        ef.enabled && ef.type === "fireworks" ? field("Firework shape", h("select", { onchange: e => { ef.shape = e.target.value; change(); } }, opts(FIREWORK_SHAPES, ef.shape || "mixed"))) : null,
         ef.enabled && ef.type === "plane" ? null : field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
         ef.enabled && ef.type === "plane" ? null : h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")),
         h("div", { class: "sub-item" }, h("strong", { class: "small" }, "🧱 Video wall effects"),
@@ -2712,7 +2714,8 @@ async function renderWall(main, id) {
       fx.enabled && fx.type === "plane" ? planeFields(fx, images, drawPreview) : null,
       fx.enabled && fx.type !== "plane" ? h("div", { class: "row" },
         field("Amount", h("select", { onchange: e => { fx.intensity = e.target.value; drawPreview(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], fx.intensity))),
-        fx.type === "santa" ? field("Santa flies by", h("select", { onchange: e => { fx.every = Number(e.target.value); drawPreview(); } }, opts(EVERY_OPTIONS, fx.every))) : null) : null,
+        fx.type === "santa" ? field("Santa flies by", h("select", { onchange: e => { fx.every = Number(e.target.value); drawPreview(); } }, opts(EVERY_OPTIONS, fx.every))) : null,
+        fx.type === "fireworks" ? field("Firework shape", h("select", { onchange: e => { fx.shape = e.target.value; drawPreview(); } }, opts(FIREWORK_SHAPES, fx.shape || "mixed"))) : null) : null,
       fx.enabled && fx.type === "santa" ? h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: fx.snow, onchange: e => { fx.snow = e.target.checked; drawPreview(); } }), "Falling snow too") : null,
       fx.enabled && ["snow", "sparkles", "bubbles", "hearts", "stars", "shooting", "balloons"].includes(fx.type) ? h("div", { class: "colors" }, colorIn(fx.color, v => { fx.color = v; drawPreview(); }, "Color")) : null);
   }

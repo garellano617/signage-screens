@@ -666,7 +666,17 @@
     function P0(a) { a = a * Math.PI / 180; return [Math.cos(a), Math.sin(a)]; }
   }
   var BALLOONS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#facc15"];
-  var FIREWORKS = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#c084fc", "#f472b6", "#ffffff"];
+  // Kinds of firework burst: n sparks, how long they last (s), gravity, air drag, trail length (s), spark width, size.
+  var FW_SPEC = {
+    peony: { n: 80, life: 1.7, g: 5, drag: 2.6, trail: 0.09, w: 0.34, size: 1, crackle: true },
+    chrysanthemum: { n: 90, life: 2.1, g: 5, drag: 2.2, trail: 0.35, w: 0.22, size: 1.05, crackle: true, tips: true },
+    willow: { n: 70, life: 3.6, g: 9, drag: 1.6, trail: 1.1, w: 0.2, size: 1 },
+    palm: { n: 0, life: 2.4, g: 7, drag: 1.9, trail: 0.8, w: 0.6, size: 1.1, tips: true },
+    ring: { n: 60, life: 1.8, g: 2.5, drag: 2.6, trail: 0.08, w: 0.34, size: 0.9 },
+    heart: { n: 70, life: 2, g: 2, drag: 2.6, trail: 0.08, w: 0.34, size: 0.85 },
+    star: { n: 70, life: 2, g: 2, drag: 2.6, trail: 0.08, w: 0.34, size: 0.9 }
+  };
+  var FW_SHAPES = ["peony", "peony", "chrysanthemum", "chrysanthemum", "willow", "palm", "ring", "heart", "star"];
   function rnd(a, b) { var x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); }
   function mod(a, n) { return ((a % n) + n) % n; }
 
@@ -849,31 +859,98 @@
       sleigh(x, yAt(x), u);
     }
     // Fireworks bursting all over the wall.
+    // Fireworks, worked out from the clock alone (so a video wall stays in step). A rocket climbs with a
+    // sparking tail, then bursts with a flash. Sparks fly out, slow down in the air, sag under gravity, leave
+    // trails, crackle and fade. Every burst gets its own random colour (sometimes two), size, place and
+    // timing; ef.shape picks one kind of burst, or "mixed" picks a random kind for every burst.
     function fireworks(t) {
-      var slot = ef.intensity === "heavy" ? 0.45 : ef.intensity === "light" ? 1.4 : 0.8;
+      var slot = (ef.intensity === "heavy" ? 0.5 : ef.intensity === "light" ? 1.5 : 0.9) / Math.pow(v.cols * v.rows, 0.6);
       var cur = Math.floor(t / slot), u = W / 100;
-      for (var b = cur - 5; b <= cur; b++) {
-        var age = t - b * slot;
-        if (age < 0 || age > 2.8) continue;
-        var cx = VW * (0.05 + 0.9 * rnd(b, 1)), cy = VH * (0.12 + 0.45 * rnd(b, 2));
-        var col = FIREWORKS[Math.floor(rnd(b, 3) * FIREWORKS.length)];
-        if (age < 0.6) {
-          var p = age / 0.6, ry = VH + (cy - VH) * (1 - (1 - p) * (1 - p));
-          ctx.globalAlpha = 1; ctx.fillStyle = "#fff3c4";
-          ctx.beginPath(); ctx.arc(cx, ry, u * 0.35, 0, 7); ctx.fill();
-          continue;
+      ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round";
+      for (var b = cur - 12; b <= cur; b++) {
+        var shape = FW_SPEC[ef.shape] ? ef.shape : FW_SHAPES[rnd(b, 10) * FW_SHAPES.length | 0], sp = FW_SPEC[shape];
+        var rise = 0.9 + rnd(b, 11) * 0.5, age = t - (b * slot + rnd(b, 0) * slot * 0.9);
+        if (age < 0 || age > rise + sp.life * 1.2) continue;
+        var cx = VW * (0.08 + 0.84 * rnd(b, 1)), cy = VH * (0.12 + 0.38 * rnd(b, 2));
+        var R = Math.min(VH * 0.3, u * (9 + rnd(b, 12) * 9)) * sp.size;
+        if (cx + R * 1.6 < OX || cx - R * 1.6 > OX + W) continue;
+        if (age < rise) { rocket(cx, cy, age / rise, b, u); continue; }
+        var a = age - rise, hue = rnd(b, 3) * 360;
+        var c1 = "hsl(" + Math.round(hue) + ",100%,62%)";
+        var c2 = rnd(b, 4) < 0.35 ? "hsl(" + Math.round((hue + 140 + rnd(b, 5) * 80) % 360) + ",100%,66%)" : c1;
+        if (shape === "willow" || (shape === "palm" && rnd(b, 6) < 0.6)) c1 = "hsl(40,100%,60%)";
+        if (shape === "willow") c2 = rnd(b, 6) < 0.5 ? c1 : "hsl(30,100%,58%)";
+        if (a < 0.3) {
+          var fl = 1 - a / 0.3, gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.45);
+          gr.addColorStop(0, "rgba(255,246,225," + (0.5 * fl * fl) + ")"); gr.addColorStop(1, "rgba(255,246,225,0)");
+          ctx.globalAlpha = 1; ctx.fillStyle = gr; ctx.fillRect(cx - R * 0.45, cy - R * 0.45, R * 0.9, R * 0.9);
         }
-        var a = age - 0.6, fade = Math.max(0, 1 - a / 2.2), n = 40;
-        for (var i = 0; i < n; i++) {
-          var ang = i / n * 6.283 + rnd(b, 4), sp = u * (14 + 6 * rnd(b * 7 + i, 5));
-          var r = sp * a * (1 - a * 0.18);
-          var px = cx + Math.cos(ang) * r, py = cy + Math.sin(ang) * r + 0.5 * u * 9 * a * a;
-          ctx.globalAlpha = fade * (0.6 + 0.4 * Math.sin(t * 30 + i));
-          ctx.fillStyle = i % 5 ? col : "#ffffff";
-          ctx.beginPath(); ctx.arc(px, py, u * 0.5 * (0.4 + fade), 0, 7); ctx.fill();
+        var dirs = fwDirs(shape, sp.n, b);
+        for (var i = 0; i < dirs.length; i++) {
+          var d = dirs[i], life = sp.life * (0.8 + 0.4 * rnd(b * 13 + i, 6));
+          if (a > life) continue;
+          var fade = 1 - a / life, alpha = Math.pow(fade, 1.3);
+          if (sp.crackle && a > life * 0.55) alpha *= Math.sin(t * 47 + i * 7.3) > -0.2 ? 1 : 0.15;
+          var a0 = Math.max(0, a - sp.trail), am = Math.max(0, a - sp.trail * 0.35);
+          var x0 = fwX(cx, d, R, sp, a0), y0 = fwY(cy, d, R, sp, a0, u), xm = fwX(cx, d, R, sp, am), ym = fwY(cy, d, R, sp, am, u);
+          var x1 = fwX(cx, d, R, sp, a), y1 = fwY(cy, d, R, sp, a, u), lw = u * sp.w * (0.45 + 0.55 * fade);
+          ctx.strokeStyle = a < 0.12 ? "#fff8e7" : (i % 2 ? c2 : c1);
+          ctx.globalAlpha = alpha * 0.35; ctx.lineWidth = lw * 0.6;
+          ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(xm, ym); ctx.stroke();
+          ctx.globalAlpha = alpha; ctx.lineWidth = lw;
+          ctx.beginPath(); ctx.moveTo(xm, ym); ctx.lineTo(x1, y1); ctx.stroke();
+          if (sp.tips) { ctx.fillStyle = "#fffbea"; ctx.fillRect(x1 - lw * 0.4, y1 - lw * 0.4, lw * 0.8, lw * 0.8); }
         }
       }
-      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    // Spark position: it flies out fast, slows down in the air (drag), and sags under gravity.
+    function fwX(cx, d, R, sp, a) { return cx + d[0] * R * (1 - Math.exp(-sp.drag * a)); }
+    function fwY(cy, d, R, sp, a, u) { return cy + d[1] * R * (1 - Math.exp(-sp.drag * a)) + 0.5 * sp.g * u * a * a; }
+    function rocket(cx, cy, p, b, u) {
+      var sx = cx + (rnd(b, 7) - 0.5) * u * 8;
+      for (var j = 7; j >= 0; j--) {
+        var q = Math.max(0, p - j * 0.025), e = 1 - (1 - q) * (1 - q);
+        var x = sx + (cx - sx) * e + Math.sin(q * 9 + b) * u * 0.25, y = VH + 10 + (cy - VH - 10) * e;
+        ctx.globalAlpha = j ? (1 - j / 8) * 0.7 * (0.6 + 0.4 * rnd(b + j, Math.floor(p * 40))) : 1;
+        ctx.fillStyle = j ? "#ffcf8a" : "#fffbea";
+        ctx.beginPath(); ctx.arc(x, y, u * (j ? 0.22 * (1 - j / 9) : 0.3), 0, 7); ctx.fill();
+      }
+    }
+    // The directions the sparks fly in. Round bursts are a ball of sparks seen from the front.
+    function fwDirs(shape, n, b) {
+      var out = [], i, k;
+      if (shape === "palm") {
+        var m = 9 + Math.floor(rnd(b, 20) * 5);
+        for (i = 0; i < m; i++) { k = i / m * 6.283 + rnd(b, 21) + (rnd(b * 3 + i, 22) - 0.5) * 0.3; out.push([Math.cos(k), Math.sin(k) * 0.9 - 0.15]); }
+        return out;
+      }
+      if (shape === "ring") {
+        var tilt = rnd(b, 20) * 3.14, sq = 0.3 + rnd(b, 21) * 0.7, ct = Math.cos(tilt), st = Math.sin(tilt);
+        for (i = 0; i < n; i++) { k = i / n * 6.283; var rx = Math.cos(k), ry = Math.sin(k) * sq; out.push([rx * ct - ry * st, rx * st + ry * ct]); }
+        return out;
+      }
+      if (shape === "heart") {
+        for (i = 0; i < n; i++) {
+          k = i / n * 6.283; var hs = Math.sin(k);
+          out.push([16 * hs * hs * hs / 17, -(13 * Math.cos(k) - 5 * Math.cos(2 * k) - 2 * Math.cos(3 * k) - Math.cos(4 * k)) / 17 - 0.1]);
+        }
+        return out;
+      }
+      if (shape === "star") {
+        var rot = (rnd(b, 20) - 0.5) * 0.6, pts = [];
+        for (i = 0; i <= 10; i++) { k = i * Math.PI / 5 - Math.PI / 2 + rot; var r = i % 2 ? 0.42 : 1; pts.push([Math.cos(k) * r, Math.sin(k) * r]); }
+        for (i = 0; i < n; i++) {
+          var f = i / n * 10, e = Math.floor(f), g = f - e;
+          out.push([pts[e][0] + (pts[e + 1][0] - pts[e][0]) * g, pts[e][1] + (pts[e + 1][1] - pts[e][1]) * g]);
+        }
+        return out;
+      }
+      for (i = 0; i < n; i++) {
+        var z = 2 * rnd(b * 17 + i, 23) - 1, ph = rnd(b * 17 + i, 24) * 6.283, rr = Math.sqrt(1 - z * z) * (0.92 + 0.16 * rnd(b * 17 + i, 25));
+        out.push([Math.cos(ph) * rr, Math.sin(ph) * rr]);
+      }
+      return out;
     }
     // Shooting stars streaking across the wall over a field of twinkling stars.
     function shooting(t) {
