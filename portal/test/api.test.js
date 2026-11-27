@@ -977,6 +977,10 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   assert.deepEqual([big[0].rot, big[0].w, big[0].h, big[0].x, big[0].y], [-90, 350, 400, -120, 150]);
   assert.equal(big[1].rot, -45.2);
   assert.deepEqual([big[2].w, big[2].x], [100, -300], "pictures stay at most the screen's width");
+  // Locked at the bottom: always first in the list and never over the Specials panel; text can't be locked.
+  const lk = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "Hi", locked: true }, { kind: "shape", shape: "circle" },
+    { kind: "image", mediaId: 1, locked: true, above: true }] } }, () => true).text.blocks;
+  assert.deepEqual(lk.map(b => [b.kind, b.locked, b.above]), [["image", true, false], ["text", false, false], ["shape", false, false]]);
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {

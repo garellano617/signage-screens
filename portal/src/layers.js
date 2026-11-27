@@ -110,6 +110,8 @@ function sanitizeLayers(input, checkImage) {
       // Thickness 100 (thin) to 900 (heavy) for the whole text (0 = bold or normal) and for parts.
       wt: kind === "text" ? (v => (v ? Math.round(Math.min(900, Math.max(100, v))) : 0))(Number(b.wt) || 0) : 0,
       wruns: kind === "text" && Array.isArray(b.wruns) ? b.wruns.slice(0, 60).map(r => ({ s: num(r && r.s, 0, 600, 0), e: num(r && r.e, 0, 600, 0), wt: num(r && r.wt, 100, 900, 400) })).filter(r => r.e > r.s) : [],
+      // Locked at the bottom (backgrounds): always under everything, can't be clicked or dragged in the designer.
+      locked: kind !== "text" && !!b.locked,
       // Stacking: true = over the Specials panel (and over the pictures/text under it). Order among blocks = list order.
       above: !!b.above,
       enter: pick(b.enter, TRANSITIONS, "none"),
@@ -119,7 +121,9 @@ function sanitizeLayers(input, checkImage) {
       fx: pick(b.fx, TEXT_FX, "none"),
       fxColor: color(b.fxColor, "#facc15")
     };
-  }).filter(b => (b.kind === "text" ? b.text.trim() : b.kind === "shape" ? true : b.mediaId));
+  }).filter(b => (b.kind === "text" ? b.text.trim() : b.kind === "shape" ? true : b.mediaId))
+    .map(b => (b.locked ? Object.assign(b, { above: false }) : b))
+    .sort((a, c) => (c.locked ? 1 : 0) - (a.locked ? 1 : 0));
   return {
     video: { enabled: v.enabled !== false, region: pick(v.region, REGIONS, d.video.region) },
     specials: {

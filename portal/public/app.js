@@ -975,6 +975,8 @@ async function renderLayers(main, id, kind) {
 
   function hookBlock(node, b, i) {
     blockNodes[i] = node;
+    // Locked at the bottom (backgrounds): not clickable on the screen; pick it from its timeline bar to unlock it.
+    if (b.locked) { node.style.pointerEvents = "none"; node.classList.toggle("ed-selected", isSelB(i)); return; }
     node.style.pointerEvents = "auto";
     node.style.cursor = "move";
     node.classList.toggle("ed-selected", isSelB(i));
@@ -1080,8 +1082,10 @@ async function renderLayers(main, id, kind) {
     addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 100, x: 0, y: 0, text: "", fx: "none" });
     const bg = L.text.blocks.pop();
     bg.above = false;
+    bg.locked = true;
     L.text.blocks.unshift(bg);
-    change(); select({ type: "block", i: 0 });
+    change(); select(null);
+    toast("Background added and locked at the bottom: clicks go to what's on top. To change it, tap its 📌 bar in the timeline, then Unlock.");
   }
   function removeBlock(i) { L.text.blocks.splice(i, 1); sel = null; change(); select(null); }
 
@@ -1093,18 +1097,19 @@ async function renderLayers(main, id, kind) {
   const specialsRect = () => { const p = pvOverlay.querySelector(".so-specials"); return p && p.style.display !== "none" ? p.getBoundingClientRect() : null; };
   /** The stack as a list, bottom first: blocks and "S" for the Specials panel. */
   const stack = () => {
-    const under = L.text.blocks.filter(x => !x.above), over = L.text.blocks.filter(x => x.above);
+    const under = L.text.blocks.filter(x => !x.above && !x.locked), over = L.text.blocks.filter(x => x.above && !x.locked);
     return hasSpecials() ? [...under, "S", ...over] : [...under, ...over];
   };
   /** Rebuilds the blocks list (and each block's "above") from a stack order. */
   function setStack(st) {
     const s = st.indexOf("S");
-    L.text.blocks = st.filter(x => x !== "S");
+    L.text.blocks = [...L.text.blocks.filter(x => x.locked), ...st.filter(x => x !== "S")];
     L.text.blocks.forEach(x => { x.above = s >= 0 && st.indexOf(x) > s; });
   }
   /** Moves the selected item: "front" / "back" all the way, "up" / "down" past the next thing it overlaps. */
   function restack(dir) {
     const b = L.text.blocks[sel.i];
+    if (b.locked) { toast("It's locked at the bottom. Tap Unlock first."); return; }
     const st = stack(), at = st.indexOf(b);
     const rect = x => x === "S" ? specialsRect() : rectOf(blockNodes[L.text.blocks.indexOf(x)]);
     const me = rect(b);
@@ -1172,7 +1177,7 @@ async function renderLayers(main, id, kind) {
     const host = preview.parentNode;
     if (host && frame.parentNode !== host) { if (getComputedStyle(host).position === "static") host.style.position = "relative"; host.append(frame); }
     const group = multi.size >= 2;
-    const nodes = group ? selectedBlocks().map(x => blockNodes[L.text.blocks.indexOf(x)]) : isSel("block") ? [blockNodes[sel.i]] : [];
+    const nodes = group ? selectedBlocks().map(x => blockNodes[L.text.blocks.indexOf(x)]) : isSel("block") && !L.text.blocks[sel.i].locked ? [blockNodes[sel.i]] : [];
     const node = nodes.length ? nodes[0] : null;
     const r0 = unionRect(nodes), pv = preview.getBoundingClientRect();
     frame.classList.toggle("group", group);
@@ -1451,7 +1456,21 @@ async function renderLayers(main, id, kind) {
           colorIn(b.bg, v => { b.bg = v; if (!b.bgOpacity) { b.bgOpacity = 100; drawToolbar(); } change(); }, "Frame"),
           h("label", { class: "tb-num" }, "", h("input", { type: "range", min: 0, max: 100, value: b.bgOpacity, style: "width:70px", title: "Frame opacity", oninput: upd(e => { b.bgOpacity = Number(e.target.value); }) })));
       }
+      if (b.locked) {
+        kids.length = 0;
+        kids.push(h("strong", { class: "small" }, "📌 " + (b.kind === "shape" ? shapeLabel(b) : (b.image && b.image.name) || "Picture") + " is locked at the bottom"),
+          h("span", { class: "small muted" }, "It stays under everything and can't be clicked or moved on the screen."),
+          h("button", { type: "button", class: "small primary", onclick: () => { b.locked = false; change(); drawToolbar(); placeFrame(); toast("Unlocked: you can move and resize it again."); } }, "🔓 Unlock"),
+          h("button", { type: "button", class: "small danger", onclick: () => removeBlock(i) }, "Delete"));
+        toolbar.replaceChildren(...kids);
+        return;
+      }
       const free = typeof b.x === "number";
+      if (b.kind !== "text") kids.push(tbBtn("📌 Lock at bottom", false, () => {
+        b.locked = true; b.above = false; b.grp = 0;
+        L.text.blocks.splice(i, 1); L.text.blocks.unshift(b); sel.i = 0;
+        change(); drawToolbar(); placeFrame(); toast("Locked at the bottom: it stays under everything and clicks go to what's on top.");
+      }, "Keep it under everything and stop it being clicked or moved on the screen (for backgrounds)"));
       kids.push(
         h("select", { title: "Snap to a spot", onchange: e => { b.position = e.target.value; b.x = null; b.y = null; change(); drawToolbar(); } },
           free ? h("option", { value: "", selected: true }, "Placed by hand") : null, opts(POSITION_LABELS, free ? "" : b.position)),
@@ -1931,7 +1950,7 @@ async function renderLayers(main, id, kind) {
       idx.forEach(i => {
         const b = L.text.blocks[i], from = b.from || 0, to = b.to || len, label = blockLabel(b);
         const bar = tlClip((b.kind === "text" ? "tl-text" : "tl-image") + (L.text.enabled ? "" : " off") + (isSelB(i) ? " sel" : "") + (b.grp ? " tl-grp" : ""),
-          from, to, (b.grp ? "🔒 " : "") + label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
+          from, to, (b.locked ? "📌 " : "") + (b.grp ? "🔒 " : "") + label, len, { onpointerdown: e => barDrag(e, b, i, "move") });
         bar.dataset.i = i;
         if (b.grp) bar.style.setProperty("--gh", String((b.grp * 67) % 360));
         // Light ends: the entrance and exit transitions.
