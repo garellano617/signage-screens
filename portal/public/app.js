@@ -123,6 +123,62 @@ function applyBrand() {
   const b = state.brand;
   document.title = b.name;
   document.documentElement.style.setProperty("--accent", b.color);
+  // Home-screen shortcut: its name and icons (new icons after a branding change: ?v=).
+  const v = "?v=" + (b.iconVersion || "0");
+  const setHead = (sel, attr, val) => { const e = document.querySelector(sel); if (e) e.setAttribute(attr, val); };
+  setHead("meta[name=apple-mobile-web-app-title]", "content", b.name.length <= 12 ? b.name : (b.iconWord || "Signage").charAt(0) + (b.iconWord || "Signage").slice(1).toLowerCase());
+  setHead("meta[name=theme-color]", "content", b.color);
+  setHead("link[rel=apple-touch-icon]", "href", "/icons/180.png" + v);
+  setHead("link[rel=icon][sizes]", "href", "/icons/32.png" + v);
+  setHead("link[rel=manifest]", "href", "/manifest.webmanifest" + v);
+}
+
+/**
+ * The home-screen icon: the logo (or the TV mark) on white, with the icon word under it in the main color.
+ * Returns PNG data URLs by size. Kept inside the middle 80% so Android's round/squircle masks don't cut it.
+ */
+async function makeIcons(b) {
+  const big = document.createElement("canvas"); big.width = big.height = 512;
+  const g = big.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, 512, 512);
+  const word = (b.iconWord || "").trim();
+  const box = { x: 70, y: word ? 84 : 102, w: 372, h: word ? 236 : 308 };
+  const load = src => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+  let im;
+  try { im = b.logo ? await load(b.logo) : await load("data:image/svg+xml," + encodeURIComponent(LOGO.replace(/#2563eb/g, b.color).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" '))); } catch (_) { im = null; }
+  if (im) {
+    const k = Math.min(box.w / im.width, box.h / im.height);
+    const w = im.width * k, hh = im.height * k;
+    g.drawImage(im, box.x + (box.w - w) / 2, box.y + (box.h - hh) / 2, w, hh);
+  }
+  if (word) {
+    g.fillStyle = b.color; g.textAlign = "center"; g.textBaseline = "alphabetic";
+    let fs = 78;
+    const font = s => "800 " + s + "px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+    g.font = font(fs);
+    if ("letterSpacing" in g) g.letterSpacing = "3px";
+    while (g.measureText(word).width > 340 && fs > 30) g.font = font(--fs);
+    g.fillText(word, 256, 404);
+  }
+  const out = {};
+  for (const s of [512, 192, 180, 32]) {
+    const c = document.createElement("canvas"); c.width = c.height = s;
+    const cg = c.getContext("2d"); cg.imageSmoothingQuality = "high";
+    if (s === 32) { cg.drawImage(big, 72, 72, 368, 368, 0, 0, 32, 32); } // tiny tab icon: mostly the logo
+    else cg.drawImage(big, 0, 0, s, s);
+    out[s] = c.toDataURL("image/png");
+  }
+  return out;
+}
+/** After a branding change (or the first time), an admin's browser draws and saves the icons. */
+async function refreshIcons() {
+  const b = state.brand;
+  if (!isAdmin() || !isStaff() || !b.iconKey || b.iconKey === b.iconsSaved) return;
+  try {
+    const icons = await makeIcons(b);
+    state.brand = await api("POST", "/branding/icons", { key: b.iconKey, icons });
+    applyBrand();
+  } catch (e) { console.warn("Couldn't update the home-screen icons:", e.message); }
 }
 async function loadBrand() {
   try { state.brand = await (await fetch("/api/branding")).json(); } catch (_) {}
@@ -461,7 +517,7 @@ function renderLogin() {
     const f = new FormData(form);
     try {
       const r = await api("POST", "/auth/login", { email: f.get("email"), password: f.get("password") });
-      state.user = r.user; await loadCustomers(); route();
+      state.user = r.user; await loadCustomers(); route(); refreshIcons();
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
   });
   app().replaceChildren(h("div", { class: "login-wrap" }, form, I18N.switcher()));
@@ -555,9 +611,14 @@ async function renderClients(main) {
 function whiteLabelCard() {
   const b = Object.assign({}, state.brand);
   const nameIn = h("input", { value: b.name, maxlength: 40, oninput: e => { b.name = e.target.value; preview(); } });
+  const wordIn = h("input", { value: b.iconWord == null ? "SIGNAGE" : b.iconWord, maxlength: 14, placeholder: "SIGNAGE", oninput: e => { b.iconWord = e.target.value; preview(); } });
+  const iconPv = h("img", { class: "icon-preview", alt: "Home-screen icon" });
   const colorIn2 = h("input", { type: "color", value: b.color, oninput: e => { b.color = e.target.value; preview(); } });
   const pv = h("div", { class: "brand-preview" });
+  let iconTimer;
   const preview = () => {
+    clearTimeout(iconTimer);
+    iconTimer = setTimeout(() => makeIcons(b).then(x => { iconPv.src = x[512]; }).catch(() => {}), 250);
     pv.style.setProperty("--accent", b.color);
     pv.replaceChildren(h("div", { class: "bp-nav" }, b.logo ? h("img", { src: b.logo, alt: "", class: "brand-logo" }) : h("span", { class: "brand-icon", html: LOGO }), h("strong", {}, b.name || "…")),
       h("div", { class: "bp-body" }, h("span", { class: "btn primary small", style: `background:${b.color};border-color:${b.color}` }, "Button"), h("span", { class: "pill", style: `color:${b.color}` }, "Link color")));
@@ -569,7 +630,7 @@ function whiteLabelCard() {
       const res = await fetch("/api/branding/logo", { method: "POST", headers: { "Content-Type": f.type }, body: f });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Upload failed.");
-      state.brand = d; b.logo = d.logo; preview(); toast("Logo uploaded."); route();
+      state.brand = d; b.logo = d.logo; preview(); await refreshIcons(); toast("Logo uploaded."); route();
     } catch (ex) { fail(ex); }
   } });
   return h("div", { class: "card" },
@@ -580,11 +641,14 @@ function whiteLabelCard() {
         h("div", { class: "row" }, field("Portal name", nameIn), h("div", { class: "field", style: "flex:0 0 auto" }, h("label", {}, "Main color"), colorIn2)),
         h("div", { class: "field" }, h("label", {}, "Logo (PNG, JPG or WebP, up to 2 MB; square works best)"),
           h("div", { class: "cmds" }, h("button", { type: "button", class: "small", onclick: () => file.click() }, b.logo ? "Replace logo" : "Upload logo"),
-            b.logo ? h("button", { type: "button", class: "small danger", onclick: async () => { try { state.brand = await api("DELETE", "/branding/logo"); applyBrand(); toast("Logo removed."); route(); } catch (e) { fail(e); } } }, "Remove logo") : null), file),
+            b.logo ? h("button", { type: "button", class: "small danger", onclick: async () => { try { state.brand = await api("DELETE", "/branding/logo"); applyBrand(); await refreshIcons(); toast("Logo removed."); route(); } catch (e) { fail(e); } } }, "Remove logo") : null), file),
         h("button", { class: "primary", onclick: async () => {
-          try { state.brand = await api("PUT", "/branding", { name: nameIn.value, color: colorIn2.value }); applyBrand(); toast("Branding saved."); route(); } catch (e) { fail(e); }
+          try { state.brand = await api("PUT", "/branding", { name: nameIn.value, color: colorIn2.value, iconWord: wordIn.value }); applyBrand(); await refreshIcons(); toast("Branding saved."); route(); } catch (e) { fail(e); }
         } }, "Save branding")),
-      pv));
+      h("div", {}, pv,
+        h("div", { class: "icon-row" }, iconPv,
+          h("div", {}, field("Word on the home-screen icon", wordIn),
+            h("p", { class: "small muted", style: "margin:0" }, "When someone saves the portal to their phone's home screen or as a desktop shortcut, this icon shows: your logo with this word under it. Leave it empty for just the logo."))))));
 }
 
 // ---------- inside a client: overview ----------
@@ -3161,6 +3225,6 @@ async function renderDownload(main) {
 // ---------- start ----------
 (async () => {
   await loadBrand();
-  try { state.user = (await api("GET", "/auth/me")).user; await loadCustomers(); } catch (_) { state.user = null; }
+  try { state.user = (await api("GET", "/auth/me")).user; await loadCustomers(); setTimeout(refreshIcons, 1500); } catch (_) { state.user = null; }
   route();
 })();

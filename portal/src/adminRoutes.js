@@ -1027,6 +1027,7 @@ router.put("/branding", auth.requireStaff, auth.requireAdmin, (req, res) => {
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw bad("Pick a main color.");
   brand.setSetting("brand_name", name);
   brand.setSetting("brand_color", color.toLowerCase());
+  if (req.body.iconWord !== undefined) brand.setSetting("icon_word", String(req.body.iconWord || "").trim().slice(0, 14));
   res.json(brand.branding());
 });
 router.post("/branding/logo", auth.requireStaff, auth.requireAdmin,
@@ -1036,6 +1037,17 @@ router.post("/branding/logo", auth.requireStaff, auth.requireAdmin,
     res.status(201).json(brand.branding());
   });
 router.delete("/branding/logo", auth.requireStaff, auth.requireAdmin, (req, res) => { brand.removeLogo(); res.json(brand.branding()); });
+// Home-screen icons drawn by an admin's browser: { key, icons: { "512": "data:image/png;base64,…", … } }.
+router.post("/branding/icons", auth.requireStaff, auth.requireAdmin, express.json({ limit: "4mb" }), (req, res) => {
+  const b = req.body || {}, icons = {};
+  for (const s of brand.ICON_SIZES) {
+    const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String((b.icons || {})[s] || ""));
+    if (!m) throw bad("The icon pictures aren't valid PNG files.");
+    icons[s] = Buffer.from(m[1], "base64");
+  }
+  try { brand.saveIcons(icons, String(b.key || "").slice(0, 600)); } catch (e) { throw bad(e.message); }
+  res.status(201).json(brand.branding());
+});
 
 // ---------- player app download info ----------
 const { latestApk, installApk } = require("./apk");

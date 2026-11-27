@@ -540,3 +540,8 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
   .nav .brand { order: -2; }
   .nav .lang-switch { order: -1; margin: 0 .25rem; }
 }
+
+/* White label: the home-screen icon preview. */
+.icon-row { display: flex; gap: 1rem; align-items: flex-start; margin-top: 1rem; }
+.icon-preview { width: 96px; height: 96px; border-radius: 22px; border: 1px solid var(--border); box-shadow: var(--shadow); background: #fff; flex: 0 0 auto; }
+.icon-row .field { margin-bottom: .35rem; }

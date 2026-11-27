@@ -28,6 +28,26 @@ function createApp() {
 
   // White label: public, so the login page can show it.
   app.get("/api/branding", (req, res) => res.json(brand.branding()));
+  // Home-screen icons and the web app manifest (Add to Home Screen on iPhone/Android, install on desktop).
+  app.get("/icons/:size.png", (req, res) => {
+    const f = brand.iconFile(Number(req.params.size));
+    if (!f || !fs.existsSync(f)) return res.status(404).end();
+    res.set("Cache-Control", "public, max-age=3600");
+    res.sendFile(f);
+  });
+  app.get("/manifest.webmanifest", (req, res) => {
+    const b = brand.branding(), v = "?v=" + b.iconVersion;
+    const short = b.name.length <= 12 ? b.name : b.iconWord.charAt(0) + b.iconWord.slice(1).toLowerCase();
+    res.type("application/manifest+json").set("Cache-Control", "no-cache").send(JSON.stringify({
+      name: b.name, short_name: short || b.name, start_url: "/", scope: "/", display: "standalone",
+      background_color: "#ffffff", theme_color: b.color,
+      icons: [
+        { src: "/icons/192.png" + v, sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: "/icons/512.png" + v, sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: "/icons/512.png" + v, sizes: "512x512", type: "image/png", purpose: "maskable" }
+      ]
+    }));
+  });
   app.get("/branding/logo", (req, res) => {
     const f = brand.logoFile();
     if (!f) return res.status(404).end();
