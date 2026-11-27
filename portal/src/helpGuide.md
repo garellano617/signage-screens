@@ -37,7 +37,7 @@ Clock (digital or analog, 12/24 hours, date; it shows the time of the TV box its
 ## Playlists
 
 - **Playlists → New playlist**, then add items from the panel on the right (**Add to playlist**). It has two tabs: **Media** (your pictures, videos, web pages and widgets) and **Templates** (the same ready-made designs as in the designer, plus your saved ones).
-- **Templates in a playlist** become **design slides**: a full-screen slide (specials, text, pictures, effects on a background colour) that shows for its seconds like a picture. Tap **✏️ Edit** on the slide to change its words, prices, pictures and background in the designer (the **Background** tab sets the colour); **← Back** returns to the playlist. Design slides are also listed under Widgets. Each one is its own copy, so editing it doesn't change the template.
+- **Templates in a playlist** become **design slides**: a full-screen slide (specials, text, pictures, effects on a background colour) that shows for its seconds like a picture. Tap **✏️ Edit** on the slide to change its words, prices, pictures and background in the designer (the **Background** tab sets the colour); **← Back** returns to the playlist. Design slides have their own **Design slides** tab in the Media library (and are listed on the Design page), not with the widgets. The playlist's Templates tab lists **your design slides** first, so you can add one you already edited to another playlist without making a new copy. Each one is its own copy, so editing it doesn't change the template.
 - Drag to reorder (or Move up / Move down). Set **Seconds** for each picture, web page or widget. Videos play to their end.
 - Click **Save**. Every screen using the playlist updates within 30 seconds.
 

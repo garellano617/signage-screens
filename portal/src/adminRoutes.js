@@ -749,7 +749,7 @@ const designOut = (w, cid) => w && w.type === "design" && w.config
   ? { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), clientImage(cid)) } } : w;
 /** Library categories. Videos, web pages and widgets go by their kind; pictures can be moved between these. */
 const PICTURE_CATEGORIES = ["picture", "background", "png", "shape"];
-const mediaCategory = m => m.kind === "image" ? (PICTURE_CATEGORIES.includes(m.category) ? m.category : m.mime === "image/png" ? "png" : "picture") : m.kind;
+const mediaCategory = m => m.kind === "image" ? (PICTURE_CATEGORIES.includes(m.category) ? m.category : m.mime === "image/png" ? "png" : "picture") : m.kind === "widget" && m.widget_json && /"type":"design"/.test(m.widget_json) ? "slide" : m.kind;
 const pictureCategory = v => PICTURE_CATEGORIES.includes(v) ? v : null;
 const mediaOut = m => ({ ...m, category: mediaCategory(m), widget_json: undefined, widget: m.kind === "widget" ? designOut(parseWidget(m), m.customer_id) : undefined,
   customerId: m.customer_id, customerName: m.customer_name, src: m.kind === "web" ? m.url : m.kind === "widget" ? "widget:" + m.id : "/media/" + m.file,

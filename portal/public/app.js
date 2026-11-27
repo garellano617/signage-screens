@@ -2140,6 +2140,7 @@ async function renderPlaylist(main, id) {
       media.unshift(m);
       items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, widget: m.widget, duration: 15 }); mark(); draw();
       list.lastElementChild.scrollIntoView({ block: "nearest" });
+      drawPicker(); // it now shows under "Your design slides"
       toast("Added “" + tp.name + "” as a slide. Tap ✏️ Edit on it to change the words and prices.");
     } catch (e) { fail(e); } finally { adding = false; }
   }
@@ -2151,7 +2152,15 @@ async function renderPlaylist(main, id) {
     }
     const q = search.value.toLowerCase();
     const list2 = templates.filter(tp => (tp.name + " " + (tp.description || "")).toLowerCase().includes(q));
-    picker.replaceChildren(h("p", { class: "small muted", style: "margin:.25rem .4rem .5rem" }, "A template becomes a full-screen slide in this playlist. Change its words and prices with ✏️ Edit."),
+    const mine = media.filter(m => m.category === "slide" && m.name.toLowerCase().includes(q));
+    const addMine = m => { items.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, widget: m.widget, duration: 15 }); mark(); draw(); list.lastElementChild.scrollIntoView({ block: "nearest" }); toast("Added your slide “" + m.name + "”."); };
+    picker.replaceChildren(
+      mine.length ? h("div", { class: "small muted ed-cat", style: "margin:.25rem .4rem" }, "Your design slides (already edited)") : null,
+      ...mine.map(m => h("div", { class: "pick", title: "Add this slide", onclick: () => addMine(m) }, thumb(m, "mini"),
+        h("div", { class: "info", style: "flex:1;min-width:0" }, h("div", { class: "small", style: "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, m.name),
+          h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist")), h("span", { class: "btn small" }, "+ Add"))),
+      h("div", { class: "small muted ed-cat", style: "margin:.6rem .4rem .25rem" }, "Templates"),
+      h("p", { class: "small muted", style: "margin:.25rem .4rem .5rem" }, "A template becomes a new full-screen slide in this playlist. Change its words and prices with ✏️ Edit."),
       ...list2.map(tp => h("div", { class: "pick", title: "Add as a slide", onclick: () => addTemplate(tp) },
         thumb({ kind: "widget", widget: { type: "design", config: { bg: "#0f172a", layers: tp.layers } } }, "mini"),
         h("div", { class: "info", style: "flex:1;min-width:0" }, h("div", { class: "small", style: "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, tp.name),
@@ -2187,13 +2196,14 @@ async function renderPlaylist(main, id) {
 
 // ---------- inside a client: media ----------
 // ---------- media library categories ----------
-const MEDIA_TABS = [["all", "All"], ["video", "Videos"], ["picture", "Pictures"], ["background", "Backgrounds"], ["png", "PNG files"], ["shape", "Shapes"], ["web", "Web pages"], ["widget", "Widgets & slides"]];
+const MEDIA_TABS = [["all", "All"], ["video", "Videos"], ["picture", "Pictures"], ["background", "Backgrounds"], ["png", "PNG files"], ["shape", "Shapes"], ["web", "Web pages"], ["widget", "Widgets"], ["slide", "Design slides"]];
 const PICTURE_CATS = [["picture", "Picture"], ["background", "Background"], ["png", "PNG file"], ["shape", "Shape"]];
 const CAT_HINT = {
   background: "Full-screen pictures to put behind a design. In the designer they fill the screen behind everything.",
   png: "PNG files, usually with a see-through background: logos, cut-out food photos, stickers.",
   shape: "Shapes for designs: banners, price bursts, arrows, circles… Make one in any colour with “+ Add shape”, or upload your own.",
-  video: "Videos play in the playlist (the Video layer), to their end."
+  video: "Videos play in the playlist (the Video layer), to their end.",
+  slide: "Templates you added to a playlist: each is its own full-screen slide you can edit (tap it). To add one, open a playlist and use its Templates tab."
 };
 /** Category chips with counts; onpick(key). Empty extra tabs (web pages, widgets) are hidden. */
 function categoryChips(media, current, onpick, keys) {
@@ -2310,7 +2320,7 @@ async function renderMedia(main) {
     shown.length ? h("div", { class: "media-grid" }, shown.map(m => h("div", { class: "media-card" },
       m.kind === "widget" ? h("a", { href: "#", onclick: e => { e.preventDefault(); widgetDialog(m.widget.type, m); } }, thumb(m)) : h("a", { href: m.src, target: "_blank", rel: "noopener" }, thumb(m)),
       h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
-        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.kind === "widget" ? "Widget · " + widgetName(m.widget && m.widget.type) : m.kind + " · " + bytes(m.size)),
+        h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.category === "slide" ? "Design slide (from a template)" : m.kind === "widget" ? "Widget · " + widgetName(m.widget && m.widget.type) : m.kind + " · " + bytes(m.size)),
         h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist"),
         // Pictures: move to another category.
         m.kind === "image" ? h("label", { class: "cat-move small" }, "Category ", h("select", { "aria-label": "Category", onchange: async e => {
@@ -2653,7 +2663,7 @@ async function widgetDialog(type, existing) {
 
 const widgetName = type => type === "design" ? "Design slide" : (WIDGET_TYPES[type] || {}).name;
 async function renderWidgets(main) {
-  const media = (await api("GET", "/media")).filter(m => m.kind === "widget");
+  const media = (await api("GET", "/media")).filter(m => m.kind === "widget" && !(m.widget && m.widget.type === "design")); // design slides are listed in the Media library and Design, not here
   main.replaceChildren(
     pageHead("Widgets", clientName() + " · ready-made slides for your playlists"),
     h("div", { class: "widget-gallery" }, Object.entries(WIDGET_TYPES).map(([type, T]) => h("button", { type: "button", class: "widget-type", onclick: () => widgetDialog(type) },

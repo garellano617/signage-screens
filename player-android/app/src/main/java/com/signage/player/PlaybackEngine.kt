@@ -461,6 +461,8 @@ class PlaybackEngine(
     private fun webView(): WebView = web ?: WebView(activity).also { wv ->
         wv.setBackgroundColor(Color.BLACK)
         wv.settings.javaScriptEnabled = true
+        // Web pages at their normal size, whatever the TV's text-size (accessibility) setting is.
+        wv.settings.textZoom = 100
         wv.settings.domStorageEnabled = true
         wv.settings.mediaPlaybackRequiresUserGesture = false
         wv.settings.loadWithOverviewMode = true
@@ -524,6 +526,9 @@ class PlaybackEngine(
             w.setBackgroundColor(Color.BLACK)
             w.isFocusable = false
             w.settings.javaScriptEnabled = true
+            // Same size as designed, whatever the TV's text-size (accessibility) setting is.
+            w.settings.textZoom = 100
+            if (android.os.Build.VERSION.SDK_INT >= 23) w.settings.offscreenPreRaster = true
             w.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) { widgetReady = true }
             }
