@@ -337,7 +337,11 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .tl-tr { position: absolute; top: 0; bottom: 0; pointer-events: none; }
 .tl-tr.in { left: 0; background: linear-gradient(90deg, rgba(255,255,255,.55), rgba(255,255,255,0)); }
 .tl-tr.out { right: 0; background: linear-gradient(270deg, rgba(255,255,255,.55), rgba(255,255,255,0)); }
-.tl-overlap { background: repeating-linear-gradient(135deg, rgba(250,204,21,.85) 0 4px, rgba(250,204,21,.35) 4px 8px); border: 1px solid #ca8a04; z-index: 2; pointer-events: none; padding: 0; }
+.tl-overlap { background: repeating-linear-gradient(135deg, rgba(250,204,21,.85) 0 4px, rgba(250,204,21,.35) 4px 8px); border: 1px solid #ca8a04; z-index: 2; padding: 0 .2rem; cursor: pointer;
+  color: #422006; font-size: .68rem; font-weight: 700; overflow: hidden; white-space: nowrap; text-shadow: 0 0 2px #fef9c3; }
+.tl-overlap:hover { outline: 2px solid #a16207; }
+.trans-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .4rem; }
+.trans-grid button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .tl-row.tl-drop .tl-lane { outline: 2px dashed #a855f7; outline-offset: -2px; background: rgba(168,85,247,.12); }
 .tl-newrow .tl-name { color: var(--muted); font-style: italic; }
 .tl-image, .tl-text { touch-action: none; }

@@ -19,7 +19,7 @@ const MAX_BLOCKS = 30;
 // How a text or picture comes in and goes out. small = small to big on the way in, big to small on the way out; big = the opposite.
 // Looks for a text or picture: glow, neon glow (flickers a little), shadow, shine (a light sweeps across), grow (gentle pulse).
 const TEXT_FX = ["none", "glow", "neon", "shadow", "shine", "grow"];
-const TRANSITIONS = ["none", "fade", "small", "big", "left", "right", "top", "bottom", "spin", "pop"];
+const TRANSITIONS = ["none", "fade", "small", "big", "left", "right", "top", "bottom", "spin", "pop", "flip"];
 const time = v =>(/^([01]\d|2[0-3]):[0-5]\d$/.test(v || "") ? v : "");
 
 function defaultLayers() {

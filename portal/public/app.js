@@ -860,9 +860,9 @@ const SPECIAL_POSITIONS = [["right", "Right panel"], ["left", "Left panel"], ["b
 const SIZE_LABELS = [["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Extra large"]];
 const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"], ["plane", "✈ Plane & banner"]];
 const ENTER_LABELS = [["none", "None (just appears)"], ["fade", "Fade in"], ["small", "Small → big (zoom in)"], ["big", "Big → small (zoom down)"],
-  ["left", "Slide in from the left"], ["right", "Slide in from the right"], ["top", "Drop down from the top"], ["bottom", "Rise up from the bottom"], ["spin", "Spin in"], ["pop", "Pop in (bounce)"]];
+  ["left", "Slide in from the left"], ["right", "Slide in from the right"], ["top", "Drop down from the top"], ["bottom", "Rise up from the bottom"], ["spin", "Spin in"], ["pop", "Pop in (bounce)"], ["flip", "Flip in"]];
 const EXIT_LABELS = [["none", "None (just disappears)"], ["fade", "Fade out"], ["small", "Big → small (shrink away)"], ["big", "Small → big (grow away)"],
-  ["left", "Slide out to the left"], ["right", "Slide out to the right"], ["top", "Fly up and out"], ["bottom", "Drop down and out"], ["spin", "Spin out"], ["pop", "Pop out"]];
+  ["left", "Slide out to the left"], ["right", "Slide out to the right"], ["top", "Fly up and out"], ["bottom", "Drop down and out"], ["spin", "Spin out"], ["pop", "Pop out"], ["flip", "Flip out"]];
 const TEXT_FX_LABELS = [["none", "None"], ["glow", "✨ Glow"], ["neon", "💡 Neon glow"], ["shadow", "🌑 Shadow"], ["shine", "🌟 Shine"], ["grow", "🔎 Grow (pulse)"]];
 // A good starting color for each look.
 const TEXT_FX_COLORS = { glow: "#facc15", neon: "#ec4899", shadow: "#000000", shine: "#fde047", grow: "#facc15" };
@@ -1874,8 +1874,15 @@ async function renderLayers(main, id, kind) {
   const playBtn = h("button", { type: "button", class: "ed-play", title: "Play / pause", onclick: () => setPlaying(!playing) }, "▶");
   const tlBody = h("div", { class: "tl-body" });
   const cycleIn = h("input", { type: "number", min: 5, max: 3600, step: 1, style: "width:80px",
-    onchange: e => { const v = Math.round(Number(e.target.value)); L.text.cycle = v >= 5 ? Math.min(3600, v) : 0;
-      L.text.blocks.forEach(b => { if (b.from >= T()) b.from = 0; if (b.to > T()) b.to = 0; }); playhead = playhead % T(); change(); } });
+    onchange: e => {
+      const v = Math.round(Number(e.target.value)), oldLen = T();
+      // A longer timeline doesn't stretch anything: items that ran "until the end" keep ending where they did.
+      if (v > oldLen) L.text.blocks.forEach(b => { if (!b.to) b.to = oldLen; });
+      L.text.cycle = v >= 5 ? Math.min(3600, v) : 0;
+      L.text.blocks.forEach(b => { if (b.from >= T()) b.from = 0; if (b.to >= T()) b.to = 0; });
+      playhead = playhead % T(); change();
+      if (v > oldLen) toast("Timeline is " + v + " s. Everything keeps its times: drag a bar's end to make it longer.");
+    } });
   const multiBtn = h("button", { type: "button", class: "small", title: "Tap bars to pick several (or hold Ctrl / Shift and click)",
     onclick: () => { multiMode = !multiMode; multiBtn.classList.toggle("on", multiMode); multiBtn.textContent = multiMode ? "☑ Selecting several: tap bars" : "☐ Select several"; } }, "☐ Select several");
   const timeline = h("div", { class: "card ed-timeline" },
@@ -1911,6 +1918,39 @@ async function renderLayers(main, id, kind) {
     c.style.width = Math.max(0.5, (Math.min(to, len) - from) / len * 100) + "%";
     return c;
   }
+  // ---------- transitions between two items taking turns on a row ----------
+  // [name, how the first one leaves, how the next one arrives]. "cut" = no overlap: the next one just replaces it.
+  const TRANS_PAIRS = [["Crossfade", "fade", "fade"], ["Cut (no transition)", "none", "none"], ["Push left", "left", "right"], ["Push right", "right", "left"],
+    ["Push up", "top", "bottom"], ["Push down", "bottom", "top"], ["Zoom in", "big", "small"], ["Zoom out", "small", "big"], ["Flip", "flip", "flip"],
+    ["Spin", "spin", "spin"], ["Pop", "small", "pop"]];
+  const transName = (a, b) => { const p = TRANS_PAIRS.find(x => x[1] === (a.exit || "none") && x[2] === (b.enter || "none")); return p ? (p[0] === "Cut (no transition)" ? "Crossfade" : p[0]) : "Custom"; };
+  async function transitionDialog(a, b) {
+    const len = T(), aEnd = a.to || len, now = Math.max(0.2, aEnd - (b.from || 0));
+    let pick = TRANS_PAIRS.find(x => x[1] === (a.exit || "none") && x[2] === (b.enter || "none")) || TRANS_PAIRS[0];
+    if (pick[1] === "none" && pick[2] === "none") pick = TRANS_PAIRS[0];
+    const lenVal = h("span", { class: "small muted" }, now.toFixed(1) + " s");
+    const lenIn = h("input", { type: "range", min: 0.2, max: 5, step: 0.1, value: Math.min(5, now), oninput: e => { lenVal.textContent = Number(e.target.value).toFixed(1) + " s"; } });
+    const grid = h("div", { class: "trans-grid" });
+    const draw = () => grid.replaceChildren(...TRANS_PAIRS.map(p => h("button", { type: "button", class: "small" + (p === pick ? " on" : ""), onclick: () => { pick = p; draw(); } }, p[0])));
+    draw();
+    const label = x => x.kind === "widget" ? widgetLabel(x) : x.kind === "image" ? (x.image && x.image.name) || "Picture" : x.kind === "shape" ? shapeLabel(x) : (x.text || "").split("\n")[0].slice(0, 24);
+    const ok = await dialog("Transition: " + label(a) + " → " + label(b), h("div", {}, grid,
+      h("label", { class: "row", style: "align-items:center;gap:.6rem;margin-top:.8rem" }, h("span", { class: "small" }, "Length"), lenIn, lenVal),
+      h("p", { class: "small muted" }, "How “" + label(a) + "” leaves and “" + label(b) + "” arrives. The length is how long they overlap on the timeline.")),
+      { submit: "Use this transition", onSubmit: () => true });
+    if (!ok) return;
+    if (pick[0] === "Cut (no transition)") { b.from = aEnd; a.exit = "none"; b.enter = "none"; }
+    else {
+      a.exit = pick[1]; b.enter = pick[2];
+      // Overlap = the transition's length (the next one starts that much before the first one ends).
+      const d = Number(lenIn.value);
+      b.from = Math.max((a.from || 0) + 0.2, Math.round((aEnd - d) * 10) / 10);
+      a.td = b.td = d;
+    }
+    if (!L.text.cycle) L.text.cycle = len;
+    change(); drawSide(); toast(pick[0] === "Cut (no transition)" ? "Cut: the next one replaces it right away." : pick[0] + " (" + Number(lenIn.value).toFixed(1) + " s).");
+  }
+
   function row(name, type, on, toggle, clips, group) {
     const lane = h("div", { class: "tl-lane", onpointerdown: e => { if (e.target === lane) { seekFrom(e, lane); if (type) select({ type }); } } }, clips);
     return h("div", { class: "tl-row" + (group ? " tl-group" : "") },
@@ -2029,10 +2069,13 @@ async function renderLayers(main, id, kind) {
         clips.push(bar);
       });
       // Where two bars on the row overlap: a transition marker.
-      const spans = idx.map(i => [L.text.blocks[i].from || 0, L.text.blocks[i].to || len]).sort((a, c) => a[0] - c[0]);
+      const spans = idx.map(i => [L.text.blocks[i].from || 0, L.text.blocks[i].to || len, i]).sort((a, c) => a[0] - c[0]);
       for (let k = 1; k < spans.length; k++) {
         const o0 = spans[k][0], o1 = Math.min(spans[k - 1][1], spans[k][1]);
-        if (o1 > o0) clips.push(tlClip("tl-overlap", o0, o1, "", len, { title: "Transition: these overlap for " + Math.round((o1 - o0) * 10) / 10 + " s" }));
+        const ia = spans[k - 1][2], ib = spans[k][2];
+        if (o1 > o0) clips.push(tlClip("tl-overlap", o0, o1, transName(L.text.blocks[ia], L.text.blocks[ib]), len, {
+          title: "Transition (" + Math.round((o1 - o0) * 10) / 10 + " s): tap to change it",
+          onpointerdown: e => { e.stopPropagation(); e.preventDefault(); transitionDialog(L.text.blocks[ia], L.text.blocks[ib]); } }));
       }
       const name = idx.length === 1 ? blockLabel(L.text.blocks[idx[0]]) : idx.length + " " + (idx.every(i => L.text.blocks[i].kind === "image") ? "pictures" : idx.every(i => isW(L.text.blocks[i])) ? "widgets" : "items");
       const r = row(name, null, false, null, clips);

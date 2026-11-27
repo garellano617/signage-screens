@@ -108,6 +108,7 @@
       case "bottom": return { o: 1, t: "translateY(" + ((1 - e) * H) + "px)" };
       case "spin": return { o: fade, t: "rotate(" + ((1 - e) * (out ? 360 : -360)) + "deg) scale(" + e + ")" };
       case "pop": return { o: fade, t: "scale(" + Math.max(0, easeBack(q)) + ")" };
+      case "flip": return { o: fade, t: "perspective(60em) rotateY(" + ((1 - e) * (out ? -90 : 90)) + "deg)" };
     }
     return { o: 1, t: "" };
   }

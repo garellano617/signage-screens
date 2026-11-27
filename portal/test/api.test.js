@@ -981,6 +981,9 @@ test("text and pictures: timeline rows and entrance/exit transitions are kept an
   const lk = sanitizeLayers({ text: { enabled: true, blocks: [{ kind: "text", text: "Hi", locked: true }, { kind: "shape", shape: "circle" },
     { kind: "image", mediaId: 1, locked: true, above: true }] } }, () => true).text.blocks;
   assert.deepEqual(lk.map(b => [b.kind, b.locked, b.above]), [["image", true, false], ["text", false, false], ["shape", false, false]]);
+  // Transitions: the new "flip" is kept, unknown ones become "none".
+  const tr = sanitizeLayers({ text: { enabled: true, cycle: 30, blocks: [{ kind: "text", text: "A", exit: "flip", enter: "wobble", from: 0, to: 12 }] } }, () => true).text.blocks[0];
+  assert.deepEqual([tr.exit, tr.enter], ["flip", "none"]);
 });
 
 test("player app crashes are reported, even before pairing, and listed for admins", async () => {
