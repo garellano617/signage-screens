@@ -25,6 +25,9 @@ function forPlayer(w) {
   return { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), imageMedia, widgetMedia) } };
 }
 
+/** A screen's design with no video layer underneath (there's no playlist to play). */
+const designOnly = layers => ({ ...layers, video: { enabled: false, region: "full" } });
+
 function playlistForPlayer(playlistId) {
   if (!playlistId) return null;
   const pl = get("SELECT id, name FROM playlists WHERE id = ?", playlistId);
@@ -53,9 +56,8 @@ function playlistForPlayer(playlistId) {
 /** Everything a player needs, plus a version hash so it only re-downloads when something changed. */
 function buildConfig(screen) {
   if (!screen.paired_at) return { paired: false, pairingCode: screen.pairing_code, version: "unpaired-" + screen.pairing_code };
-  const schedules = all("SELECT * FROM schedules WHERE screen_id = ? ORDER BY position, id", screen.id)
-    .map(s => ({ id: s.id, days: s.days, start: s.start_time, end: s.end_time, playlist: playlistForPlayer(s.playlist_id) }))
-    .filter(s => s.playlist);
+  // Playlists and schedules aren't used for screens any more: each screen shows its design. (The data is kept.)
+  const schedules = [];
   // A screen in a video wall plays the wall's playlist, cropped to its tile, in step with the other screens.
   const wall = screen.wall_id ? get("SELECT * FROM walls WHERE id = ?", screen.wall_id) : null;
   if (wall && screen.wall_col < wall.cols && screen.wall_row < wall.rows) {
@@ -78,9 +80,9 @@ function buildConfig(screen) {
   const cfg = {
     paired: true,
     screen: { id: screen.id, name: screen.name, orientation: screen.orientation, volume: screen.volume },
-    defaultPlaylist: playlistForPlayer(channel ? channel.playlist_id : screen.playlist_id),
+    defaultPlaylist: null,
     schedules,
-    layers: withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia, widgetMedia)
+    layers: designOnly(withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia, widgetMedia))
   };
   cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
   return cfg;

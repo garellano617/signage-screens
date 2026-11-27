@@ -204,6 +204,8 @@
     var timers = [], frames = { id: 0 }, cleanups = [];
     root.innerHTML = "";
     root.classList.add("so-root");
+    // The design's background colour (screens show only their design); none = whatever is behind (black on the TV).
+    root.style.background = layers.background || "";
 
     // Room taken by a ticker, so specials and text at that edge move out of its way.
     var tick = layers.text && layers.text.enabled && layers.text.ticker && layers.text.ticker.enabled && (layers.text.ticker.text || "").trim() ? layers.text.ticker : null;

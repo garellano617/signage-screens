@@ -261,7 +261,7 @@ router.get("/dashboard", (req, res) => {
     online: screens.filter(s => s.online).length,
     offline: screens.filter(s => !s.online && !s.planned),
     planned: screens.filter(s => s.planned),
-    noContent: screens.filter(s => !s.playlistId && !s.scheduleCount),
+    noContent: screens.filter(s => !s.wallId && !(s.layersOn || []).some(k => k !== "video")),
     media: m.n, mediaBytes: m.bytes,
     playlists: get("SELECT COUNT(*) n FROM playlists WHERE 1=1" + mw, ...mp).n,
     customers: req.isStaff && !req.cid ? get("SELECT COUNT(*) n FROM customers").n : null

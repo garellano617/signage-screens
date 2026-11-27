@@ -5,20 +5,21 @@ This portal runs digital signage: TVs in businesses (restaurants, shops, offices
 ## Who sees what
 
 - **Staff (the signage company's team)** see every client. The main menu has: Dashboard (all clients, offline screens), White Label & Clients, Screen Monitoring, Reports, Billing, Download App, Profile & Admins.
-- **Inside a client** (staff open a client from Clients or the Dashboard): Dashboard, Content (Media library, Widgets), Wizard, Channels, Video walls, Design, Playlists, Screens, Screen Monitoring, Reports, Billing, Logins. **← All clients** goes back to the main level.
+- **Inside a client** (staff open a client from Clients or the Dashboard): Dashboard, Content (Media library, Widgets), Wizard, Channels, Video walls, Design, Screens, Screen Monitoring, Reports, Billing, Logins. **← All clients** goes back to the main level.
 - **A client's own login** goes straight into that client's account, with the same menu, and can never see other clients. A client admin can add more logins for their business (Logins page). Clients can't upload the player app.
-- Every screen, playlist and media file belongs to one client.
+- Every screen, design and media file belongs to one client.
+- **There are no playlists:** each screen shows its **design** (Design in the menu): pictures, text, shapes, widgets, specials and effects on a background, timed on the design's timeline. (Playlists were removed; video walls have their own list of pictures and videos.)
 
 ## Clients (staff)
 
 - **White Label & Clients → Clients:** add, edit, pause or delete clients. A client can have a screen limit.
 - **Pausing** a client logs their users out and blocks their logins. Their TVs keep playing.
-- A client can only be deleted after its screens are removed. Deleting a client deletes its playlists, media and logins too.
+- A client can only be deleted after its screens are removed. Deleting a client deletes its designs, media and logins too.
 - **White label:** portal name, logo (PNG, JPG or WebP) and main color, shown on the login page, the menu and the browser tab.
 
 ## Quick start: the Wizard
 
-**Wizard** (in the menu under Content) walks through it step by step: add content → design the screen → make a playlist → connect a TV. Designing can come before the TV is installed: the Wizard sets up the screen and you connect the TV later.
+**Wizard** (in the menu under Content) walks through it step by step: add content → design the screen → connect a TV. Designing can come before the TV is installed: the Wizard sets up the screen and you connect the TV later.
 
 ## Media library (Content → Media)
 
@@ -26,20 +27,13 @@ This portal runs digital signage: TVs in businesses (restaurants, shops, offices
 - **Add a web page:** type a web address; it shows full screen on the TV (some websites block being shown inside other apps).
 - **Categories** (tabs at the top): All, **Videos**, **Pictures**, **Backgrounds**, **PNG files**, **Shapes** (plus Web pages and Widgets & slides when there are any). Files are sorted automatically (videos, PNG files, other pictures); move a picture with the **Category** menu on its card. Uploading while a picture tab is open (for example **Upload to Backgrounds**) puts the files there.
 - **Shapes:** in the Shapes tab, **+ Add shape** makes a ready-made shape (rectangle, rounded box, circle, price burst, star, banner, tag, arrow, speech bubble, heart, triangle, bar, ring) in any colour, with an optional outline, as a see-through PNG to use in designs.
-- **Backgrounds** in the designer's Media tab fill the whole screen behind the other pictures and text, and are **locked at the bottom**: they can't be clicked or dragged on the screen (clicks go to what's on top), and nothing can be sent under them. To change one, tap its 📌 bar in the timeline, then **🔓 Unlock**. Any picture or shape can be locked the same way with **📌 Lock at bottom** in the toolbar. The designer's Media tab and the playlist's media list have the same category chips.
-- Search, rename and delete files. Deleting a file removes it from playlists too. This can't be undone.
+- **Backgrounds** in the designer's Media tab fill the whole screen behind the other pictures and text, and are **locked at the bottom**: they can't be clicked or dragged on the screen (clicks go to what's on top), and nothing can be sent under them. To change one, tap its 📌 bar in the timeline, then **🔓 Unlock**. Any picture or shape can be locked the same way with **📌 Lock at bottom** in the toolbar. The designer's Media tab has the same category chips.
+- Search, rename and delete files. Deleting a file removes it from designs and video walls too. This can't be undone.
 - Tip: for TVs, landscape 1920×1080 pictures and MP4 (H.264) videos work best. Very large 4K videos may stutter on cheap TV sticks.
 
 ## Widgets (Content → Widgets)
 
-Clock (digital or analog, 12/24 hours, date; it shows the time of the TV box itself, in the box's time zone, so set the time zone on the box if it's wrong: the screen's page shows it under "Time zone (clock)"), weather (no account needed), news feed (RSS), QR code, countdown, and message. Each widget has colors to pick, and a **Background see-through** slider (0% = solid background, 100% = no background: only the clock, weather or text shows, over the design or video). Widgets are added to playlists like pictures.
-
-## Playlists
-
-- **Playlists → New playlist**, then add items from the panel on the right (**Add to playlist**). It has two tabs: **Media** (your pictures, videos, web pages and widgets) and **Templates** (the same ready-made designs as in the designer, plus your saved ones).
-- **Templates in a playlist** become **design slides**: a full-screen slide (specials, text, pictures, effects on a background colour) that shows for its seconds like a picture. Tap **✏️ Edit** on the slide to change its words, prices, pictures and background in the designer (the **Background** tab sets the colour); **← Back** returns to the playlist. Design slides have their own **Design slides** tab in the Media library (and are listed on the Design page), not with the widgets. The playlist's Templates tab lists **your design slides** first, so you can add one you already edited to another playlist without making a new copy. Each one is its own copy, so editing it doesn't change the template.
-- Drag to reorder (or Move up / Move down). Set **Seconds** for each picture, web page or widget. Videos play to their end.
-- Click **Save**. Every screen using the playlist updates within 30 seconds.
+Clock (digital or analog, 12/24 hours, date; it shows the time of the TV box itself, in the box's time zone, so set the time zone on the box if it's wrong: the screen's page shows it under "Time zone (clock)"), weather (no account needed), news feed (RSS), QR code, countdown, and message. Each widget has colors to pick, and a **Background see-through** slider (0% = solid background, 100% = no background: only the clock, weather or text shows, over the design or video). Put a widget on a design from the designer's **Widgets** tab.
 
 ## Screens
 
@@ -48,13 +42,12 @@ Clock (digital or analog, 12/24 hours, date; it shows the time of the TV box its
 2. Open the app; it asks for the portal address the first time, then shows a 6-character code.
 3. In the portal: **Screens → Add screen**, type the code and a name. Or scan the **QR code** on the TV's screen with a phone camera: it opens the portal with Add screen already filled in (log in if asked; staff first pick which client the TV is for).
 
-- **Set up before the TV is installed:** in Add screen choose **Set up now, connect the TV later**. Prepare the playlist, schedule and design. It shows "No TV yet". When the TV is there, open the screen, click **Connect TV** and type its code.
+- **Set up before the TV is installed:** in Add screen choose **Set up now, connect the TV later**. Prepare its design. It shows "No TV yet". When the TV is there, open the screen, click **Connect TV** and type its code.
 - **Replace a TV:** on the screen's page click **Replace TV** and type the new TV's code. It takes over everything; the old TV goes back to showing a code.
-- **Remove screen:** the TV goes back to showing a pairing code. Its playlist, schedule and layers are deleted.
+- **Remove screen:** the TV goes back to showing a pairing code. Its design is deleted.
 
 ### A screen's page
-- **Settings:** name, location, notes, main playlist (or a Channel), orientation (landscape, portrait rotated left/right, landscape upside down), volume, "Show name on TV". Click **Save settings**.
-- **Schedule:** play different playlists at different days and times (for example a breakfast menu 6–11 am on weekdays). With no schedule the screen always plays its main playlist. Click **Save schedule**.
+- **Settings:** name, location, notes, Channel (to share one design with other screens), orientation (landscape, portrait rotated left/right, landscape upside down), volume, "Show name on TV". Click **Save settings**.
 - **Designing a screen:** in the menu, **Design** lists every screen, channel and design slide with its layers (Video, Specials, Text, Effects); tap **Design** next to one to open the designer (see below). Screens on a channel open the channel's design; screens in a video wall don't use layers.
 - **Picture quality** (in the device details): what the TV plays at: **4K**, **2K** (1440p) or **Full HD**. The app picks the best the TV and box can handle (the TV panel, the box's video chip and memory) and switches the TV's output to it. Rotated (portrait) screens and video walls play at the box's normal app size (often Full HD). For 4K, upload 3840×2160 pictures and 4K MP4 videos; on a Full HD box they're shown at Full HD automatically.
 - **Live view / screenshot:** ask the TV for a screenshot; it appears within about 30 seconds.
@@ -65,28 +58,28 @@ Press **BACK three times** on the remote (or long-press on a touch screen) for t
 
 ## Channels
 
-One playlist plus one layers design shared by many screens (for example every TV in a chain of stores). Set a screen's playlist to the channel on its page. Each screen's own schedule still applies. Editing the channel's design updates all its screens.
+One design shared by many screens (for example every TV in a chain of stores). Pick the channel on a screen's page (Settings → Channel). Editing the channel's design updates all its screens.
 
 ## Video walls
 
 One big picture or video across several TVs hung next to each other (up to 6 × 6).
-- **Video walls → New wall:** choose the grid (columns × rows), the playlist, and which screen hangs in each spot.
+- **Video walls → New wall:** choose the grid (columns × rows), then on the wall's page add its **pictures and videos** (in order; pictures for their seconds, videos to their end) and pick which screen hangs in each spot.
 - **Fill** crops the picture to fill the wall; **Fit** shows the whole picture. **Gap between screens** makes the picture line up across the TV frames.
 - Pictures and videos only (web pages and widgets are skipped), no layers; sound only from the top-left screen. All TVs play in step.
 - **Wall effects:** an animation that moves across all the wall's screens: Santa & reindeer, plane with banner (your text or logo), fireworks, shooting stars, balloons, snow, confetti, hearts, leaves.
-- While in a wall, a screen's own playlist, channel, schedule and layers are not used.
+- While in a wall, a screen's own design and channel are not used.
 
 ## The designer (menu → Design)
 
 A screen's design has four layers, bottom to top:
-1. **Video:** the playlist. It can fill the screen or a smaller area (left 70%, right 70%, top 85% for room for a ticker) to leave room for the other layers.
+1. **Background:** a colour behind everything (Background tab), or a picture from Media → Backgrounds.
 2. **Specials:** offers with title, price, description and an optional photo, taking turns every few seconds, each limited to certain days and times if wanted. Shown as a side panel (left/right) or a card.
 3. **Text & pictures:** text and pictures placed anywhere, plus a scrolling ticker at the top or bottom.
 4. **Effects:** an animation on top: snow, confetti, sparkles, bubbles, hearts, leaves, stars, Santa & reindeer, fireworks, shooting stars, balloons, or a plane pulling a banner with your text or logo.
 
 How the designer works (like a simple video editor):
 - **Toolbar** (top): settings for whatever is selected: font (5 fonts), size, bold, italic, alignment, text color, box color and opacity, width (in % of the screen), snap to a spot, Order (over / under), Duplicate, Delete.
-- **Preview** (middle): tap text or a picture to select it, drag to move it. Tap the video area to select the video layer.
+- **Preview** (middle): tap text or a picture to select it, drag to move it.
 - **Side panel tabs:**
   - **Templates:** ready-made designs (menu board, daily deal, price list, coffee shop, happy hour, grand opening, big sale, new arrivals, welcome lobby, holiday, Valentine's Day, fall harvest, Santa's sleigh, plane with banner…). Applying one replaces the design; **Undo** brings the old one back until you save. **💾 Save this design as a template** keeps the current design under **My templates** to reuse on the client's other screens. Staff can tick "Share with all clients" (shared templates leave out the client's pictures). The × on a saved template deletes it; screens using it keep their design.
   - **✨ AI:** describe the screen in your own words ("Taco Tuesday, 3 tacos and a drink for $7.99, festive") and the AI designs it with the client's name and pictures. "Write new words, keep my layout" only rewrites the text (to change an offer or translate). The AI only uses prices you give it. Each client has a daily limit of AI requests.
@@ -94,7 +87,7 @@ How the designer works (like a simple video editor):
   - **Shapes:** tap a shape to put it on the screen: square, rectangle, rounded box, circle, oval, triangle, right triangle, diamond, wave, waves, wavy line, star, price burst, arrow, banner, speech bubble, heart, line. With a shape selected: **Inside** colour and **See-through** (or **No inside** for just the outline), **Border** colour and **Thickness**, **Width** and **Height**. On the screen, the corner dots resize it keeping its shape, the side dots stretch the width and the top / bottom dots the height. To **turn** a shape, drag the ⟳ handle above it (hold Shift for steps of 15°), or use **Angle** / ↺ 90° / ↻ 90° / Straight. A shape can be bigger than the screen (up to 3 times its width) and can hang off any edge: the screen cuts it off. Shapes can be ordered over / under, grouped, timed and given effects like pictures.
   - **Widgets:** tap one of your widgets (clock, weather, news feed, QR code, countdown, message) to put it on the screen, or make a new one with the buttons below the list. Then move it, size it with the dots (corners keep its shape, sides stretch it), order it over / under, time it, group it, or lock it at the bottom, like a picture. **⚙ Widget settings** changes its colours, city, feed and so on without leaving the designer; that changes the widget everywhere it's used. On the TV, weather and news refresh every 15 minutes and the clock shows the box's own time.
   - **Text:** presets (Heading, Subheading, Body text, Price list, Label, Neon sign, Glowing heading) and the **Scrolling ticker** (messages one per line, top or bottom, speed, size, colors).
-  - **Specials**, **Effects**, **Video:** the settings of those layers.
+  - **Specials**, **Effects**, **Background:** the settings of those layers.
 - **Moving and resizing on the screen:** drag a text or picture to move it. The selected one gets a purple frame with dots: drag a **corner dot** to make it bigger or smaller (pictures keep their shape; the opposite corner stays put), and on text the **side handles** set how wide it is before it wraps. Works with a finger on a phone too.
 - **Over / under (when things overlap):** in the toolbar, **Order**: ⤒ to front (over everything), ↑ forward (over the next thing it overlaps), ↓ backward (under the next thing it overlaps), ⤓ to back. This includes the Specials panel: a picture or text can sit over it or under it. The ticker and effects always stay on top. To pick something that's underneath another item, **click it again**: each click selects the next one down at that spot.
 - **Spacing & thickness** (text selected → **↔↕ Spacing & thickness** in the toolbar): three sliders, **↔ Letter spacing** (sideways), **↕ Line spacing** (up and down) and **𝐁 Thickness** (Thin → Light → Normal → Bold → Black, any step in between). They change the whole text, or only part of it: highlight that part in the **Selected text** box first (letter spacing and thickness change just those letters, line spacing just those lines). The **B** button goes back to plain bold / normal. **Reset** puts it back.

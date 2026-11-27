@@ -99,17 +99,21 @@ test("full flow: login, media, playlist, pairing, player config, commands", asyn
   let cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
   assert.equal(cfg.paired, true);
   assert.equal(cfg.screen.name, "Lobby");
-  assert.equal(cfg.defaultPlaylist.items.length, 2);
-  assert.equal(cfg.defaultPlaylist.items[0].src, img.src);
-  assert.equal(cfg.defaultPlaylist.items[1].src, "https://example.com/menu");
+  // Screens show only their design: no playlist, no schedule, no video layer underneath.
+  assert.equal(cfg.defaultPlaylist, null);
+  assert.deepEqual(cfg.schedules, []);
+  assert.equal(cfg.layers.video.enabled, false);
   const v1 = cfg.version;
-
-  // Schedule changes the config version.
+  // (Schedules are still checked and stored, but not sent to the TV.)
   assert.equal((await call("PUT", "/api/screens/" + sid + "/schedules", [{ playlistId: dup.body.id, days: 0, start: "09:00", end: "17:00" }])).status, 400);
   assert.equal((await call("PUT", "/api/screens/" + sid + "/schedules", [{ playlistId: dup.body.id, days: 31, start: "22:00", end: "06:00" }])).status, 200);
   cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
+  assert.deepEqual(cfg.schedules, []);
+  // A design change changes the config version.
+  await call("PUT", "/api/screens/" + sid + "/layers", { background: "#123456", text: { enabled: true, blocks: [{ kind: "text", text: "Hi" }] } });
+  cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
   assert.notEqual(cfg.version, v1);
-  assert.equal(cfg.schedules[0].start, "22:00");
+  assert.equal(cfg.layers.background, "#123456");
 
   // Re-registering keeps the device paired.
   const reg2 = await call("POST", "/api/player/register", { deviceId: "android-abc12345" });
@@ -347,7 +351,7 @@ test("screen layers: saved, cleaned, kept per client, sent to the player", async
   // The player gets the layers, with the photo's checksum so it can download it for offline use.
   const cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
   assert.notEqual(cfg.version, v1);
-  assert.equal(cfg.layers.video.region, "left70");
+  assert.equal(cfg.layers.video.enabled, false, "no video layer: screens show only their design");
   assert.equal(cfg.layers.specials.items[0].image.sha256, imgA.sha256);
 
   // Text & pictures: placed by hand, fonts, timing within a cycle, pictures from this client only.
@@ -455,16 +459,15 @@ test("widgets: create each type, cleaned settings, feed parsing, private-network
   assert.deepEqual([ed.widget.type, ed.widget.config.style, ed.widget.config.hours], ["clock", "digital", "24"]);
   assert.equal((await call("PATCH", "/api/media/" + cd.id, { config: { target: "bad" } })).status, 400);
 
-  // In a playlist the player gets the widget settings; nothing to download.
-  const pl = (await call("POST", "/api/playlists", { name: "Widgets" })).body;
-  await call("PUT", "/api/playlists/" + pl.id, { items: [clock, qr, weather, cd, msg].map(m => ({ mediaId: m.id, duration: 15 })) });
+  // On a design the player gets the widget settings; nothing to download.
   const reg = (await call("POST", "/api/player/register", { deviceId: "android-widget-0001" })).body;
-  await call("POST", "/api/screens/pair", { code: reg.pairingCode, playlistId: pl.id });
+  const ws = (await call("POST", "/api/screens/pair", { code: reg.pairingCode })).body;
+  await call("PUT", "/api/screens/" + ws.id + "/layers", { text: { enabled: true, blocks: [clock, qr, weather, cd, msg].map((m, k) => ({ kind: "widget", mediaId: m.id, x: k * 10, y: 0 })) } });
   const auth = { authorization: "Bearer " + reg.token };
   const cfg = (await call("GET", "/api/player/config", undefined, auth)).body;
-  const items = cfg.defaultPlaylist.items;
+  const items = cfg.layers.text.blocks;
   assert.deepEqual(items.map(i => i.kind), ["widget", "widget", "widget", "widget", "widget"]);
-  assert.equal(items[0].src, "widget:" + clock.id);
+  assert.equal(items[0].mediaId, clock.id);
   assert.equal(items[0].widget.type, "clock");
 
   // Widgets without live data return null; other clients' widgets are hidden from this screen.
@@ -505,14 +508,14 @@ test("channels: one design on many screens, per client", async () => {
   assert.equal(assigned.screens.length, 2);
   for (const t of [one, two]) {
     const cfg = (await call("GET", "/api/player/config", undefined, t.auth)).body;
-    assert.equal(cfg.defaultPlaylist.name, "Menu");
+    assert.equal(cfg.defaultPlaylist, null);
     assert.equal(cfg.layers.text.ticker.text, "Fresh daily");
   }
   // Changing the channel changes every screen's config.
   const v1 = (await call("GET", "/api/player/config", undefined, one.auth)).body.version;
-  await call("PATCH", "/api/channels/" + ch.id, { playlistId: own.id });
+  await call("PUT", "/api/channels/" + ch.id + "/layers", { text: { enabled: true, ticker: { enabled: true, text: "New ticker" } } });
   const after = (await call("GET", "/api/player/config", undefined, two.auth)).body;
-  assert.equal(after.defaultPlaylist.name, "Own");
+  assert.equal(after.layers.text.ticker.text, "New ticker");
   assert.notEqual((await call("GET", "/api/player/config", undefined, one.auth)).body.version, v1);
 
   // Taking a screen off (via the screen page) restores its own settings.
@@ -535,7 +538,7 @@ test("channels: one design on many screens, per client", async () => {
   // Deleting the channel puts its screens back on their own settings.
   await call("DELETE", "/api/channels/" + ch.id);
   assert.equal((await call("GET", "/api/screens/" + two.s.id)).body.channelId, null);
-  assert.equal((await call("GET", "/api/player/config", undefined, two.auth)).body.defaultPlaylist.name, "Own");
+  assert.equal((await call("GET", "/api/player/config", undefined, two.auth)).body.defaultPlaylist, null);
 });
 
 test("reports: proof of play from heartbeats, no double counting, per client, CSV", async () => {
@@ -717,7 +720,7 @@ test("screens set up before the TV is connected, then paired into", async () => 
   assert.equal(cfg.paired, true);
   assert.equal(cfg.screen.name, "Front counter");
   assert.equal(cfg.layers.text.blocks[0].text, "Grand opening");
-  assert.equal(cfg.schedules.length, 1);
+  assert.deepEqual(cfg.schedules, [], "schedules aren't sent any more");
   const hb = (await call("POST", "/api/player/heartbeat", { playing: "" }, auth)).body;
   assert.equal(hb.paired, true);
   // Restarting the app (re-register) keeps it on the same screen.
@@ -754,7 +757,7 @@ test("layout templates and the AI designer (fake AI client, no paid calls)", asy
   for (const t of tpl) {
     assert.ok(t.id && t.name && t.category && t.description);
     assert.ok(t.layers.specials.enabled || t.layers.text.enabled, t.id + " has content");
-    assert.deepEqual(Object.keys(t.layers), ["video", "specials", "text", "effects"]);
+    assert.deepEqual(Object.keys(t.layers), ["video", "background", "specials", "text", "effects"]);
   }
   assert.equal(new Set(tpl.map(t => t.id)).size, tpl.length);
 
@@ -918,7 +921,7 @@ test("video walls: tiles, cropped config per screen, sound from the first screen
   assert.deepEqual(small.tiles.map(t => t.screenId), [left.s.id]);
   const rc2 = (await call("GET", "/api/player/config", undefined, right.auth)).body;
   assert.equal(rc2.wall, undefined);
-  assert.equal(rc2.defaultPlaylist.name, "Own");
+  assert.equal(rc2.defaultPlaylist, null, "back to its own design");
   // Moving a screen to another wall takes it out of the first.
   const w2 = (await call("POST", "/api/walls", { name: "Counter", cols: 2, rows: 2 })).body;
   await call("PUT", "/api/walls/" + w2.id + "/screens", { tiles: [{ screenId: left.s.id, col: 1, row: 1 }, { screenId: extra.s.id, col: 0, row: 0 }] });
@@ -1144,17 +1147,8 @@ test("design slides: a template as a playlist slide, with its pictures, editable
   assert.equal(m.widget.config.layers.video.enabled, false);
   assert.deepEqual(m.widget.config.layers.text.blocks.map(b => b.kind), ["text", "image"]);
   assert.equal(m.widget.config.layers.text.blocks[1].image.name, "Taco photo");
-  // In a playlist, the player gets the slide with its picture attached (to download it).
   const pl = (await call("POST", "/api/playlists", { name: "Slides" })).body;
   await call("PUT", "/api/playlists/" + pl.id, { name: "Slides", items: [{ mediaId: m.id, duration: 12 }] });
-  const reg = (await call("POST", "/api/player/register", { deviceId: "android-slide-0001" })).body;
-  await call("POST", "/api/screens/pair", { code: reg.pairingCode, playlistId: pl.id });
-  const auth = { authorization: "Bearer " + reg.token };
-  let item = (await call("GET", "/api/player/config", undefined, auth)).body.defaultPlaylist.items[0];
-  assert.equal(item.kind, "widget");
-  assert.equal(item.duration, 12);
-  assert.equal(item.widget.type, "design");
-  assert.equal(item.widget.config.layers.text.blocks[1].image.sha256, pic.sha256);
   // Edit in the designer: new words, new background.
   const s = (await call("GET", "/api/slides/" + m.id)).body;
   assert.equal(s.name, "Menu board");
@@ -1164,9 +1158,9 @@ test("design slides: a template as a playlist slide, with its pictures, editable
   const saved = await call("PUT", "/api/slides/" + m.id + "/layers", { layers: s.layers, bg: "#000000" });
   assert.equal(saved.status, 200);
   assert.equal(saved.body.video.enabled, false, "slides never have a video layer");
-  item = (await call("GET", "/api/player/config", undefined, auth)).body.defaultPlaylist.items[0];
-  assert.equal(item.widget.config.layers.text.blocks[0].text, "Tacos $4");
-  assert.equal(item.widget.config.bg, "#000000");
+  const again = (await call("GET", "/api/slides/" + m.id)).body;
+  assert.equal(again.layers.text.blocks[0].text, "Tacos $4");
+  assert.equal(again.bg, "#000000");
   // Not a design slide → 404; another client's slide → 404.
   const clock = (await call("POST", "/api/media/widget", { type: "clock", config: {} })).body;
   assert.equal((await call("GET", "/api/slides/" + clock.id)).status, 404);

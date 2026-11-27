@@ -182,8 +182,8 @@ const clientRoutes = [
   [/^\/channels\/(\d+)\/layers$/, "design", (main, id) => renderLayers(main, id, "channel")],
   [/^\/walls$/, "walls", renderWalls],
   [/^\/walls\/(\d+)$/, "walls", renderWall],
-  [/^\/playlists$/, "playlists", renderPlaylists],
-  [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
+  // Playlists were removed: screens show only their design. Old links go to Design.
+  [/^\/playlists(\/\d+)?$/, "design", main => { go("/design"); }],
   [/^\/slides\/(\d+)$/, "design", (main, id) => renderLayers(main, id, "slide")],
   [/^\/media$/, "media", renderMedia],
   [/^\/widgets$/, "widgets", renderWidgets],
@@ -236,7 +236,6 @@ function shell(section, inClient) {
       link(base() + "/channels", "channels", "Channels"),
       link(base() + "/walls", "walls", "Video walls"),
       link(base() + "/design", "design", "Design"),
-      link(base() + "/playlists", "playlists", "Playlists"),
       link(base() + "/screens", "screens", "Screens"),
       link(base() + "/monitoring", "monitoring", "Screen Monitoring"),
       link(base() + "/reports", "reports", "Reports"),
@@ -310,11 +309,10 @@ function poll(fn, ms) {
 // ---------- AI help: the ? button on every page ----------
 const HELP_SUGGEST = {
   dashboard: ["How do I connect a new TV?", "Why is a screen offline?", "How do I change what a TV shows?"],
-  screens: ["How do I connect a new TV?", "How do I play a different playlist in the morning?", "How do I rotate a screen to portrait?"],
+  screens: ["How do I connect a new TV?", "How do I design what a screen shows?", "How do I rotate a screen to portrait?"],
   screen: ["How do I set a schedule?", "How do I replace a broken TV?", "The TV doesn't show my changes"],
   layers: ["How do I add a price list?", "How do pictures take turns as a slideshow?", "How do I make text glow like neon?", "How do I move several items together on the timeline?"],
-  playlists: ["How do I make a playlist?", "How long does each picture show?", "How do I add a video?"],
-  playlist: ["How do I change the order?", "How long does each picture show?"],
+  design: ["How do I start from a template?", "How do I add a clock or the weather?", "How do I make pictures take turns?"],
   media: ["Which video format works best?", "How do I add a web page?"],
   widgets: ["How do I add a clock or weather?", "How do I add a QR code?"],
   walls: ["How do I set up a video wall?", "How do I line up the picture across TV frames?"],
@@ -352,7 +350,6 @@ function helpKey() {
   if (/\/layers$/.test(p)) return "layers";
   if (/^\/screens\/\d+$/.test(p)) return "screen";
   if (/^\/walls\/\d+$/.test(p)) return "wall";
-  if (/^\/playlists\/\d+$/.test(p)) return "playlist";
   return state.section;
 }
 /** The screen whose page is open (its page or its designer), for "show the AI this TV's screenshot". */
@@ -517,12 +514,12 @@ async function clientDialog(c) {
   if (!r) return;
   await loadCustomers();
   if (c) { toast("Saved."); route(); }
-  else { toast("Client added. Now add their screens, playlists and media."); location.hash = "#/c/" + r.id; }
+  else { toast("Client added. Now add their screens, media and designs."); location.hash = "#/c/" + r.id; }
 }
 
 async function deleteClient(c) {
   if (c.screens) return fail(new Error(`Remove ${c.name}'s ${c.screens} screen(s) first (open the client, then Screens).`));
-  if (!await confirmDlg("Delete " + c.name + "?", "This permanently deletes their playlists, media and logins.")) return;
+  if (!await confirmDlg("Delete " + c.name + "?", "This permanently deletes their screens' designs, media and logins.")) return;
   try {
     await api("DELETE", "/customers/" + c.id, undefined, { "X-Customer-Id": "" });
     await loadCustomers(); toast("Client deleted."); location.hash = "#/clients"; route();
@@ -605,10 +602,10 @@ async function renderDashboard(main) {
       stat(d.screens + (c && c.screenLimit !== null ? " / " + c.screenLimit : ""), "Screens", base() + "/screens"),
       stat(d.online, "Online now"), stat(d.offline.length, "Offline"),
       d.planned.length ? stat(d.planned.length, "Waiting for a TV", base() + "/screens") : null,
-      stat(d.playlists, "Playlists", base() + "/playlists"), stat(d.media, "Media files · " + bytes(d.mediaBytes), base() + "/media")),
+      stat(d.media, "Media files · " + bytes(d.mediaBytes), base() + "/media")),
     h("div", { class: "grid two", style: "margin-top:1rem" },
       list("Offline screens", d.offline, d.screens ? "All screens are online. 👍" : "No screens yet. Click “Add screen” to pair a TV.", s => "Last seen " + ago(s.lastSeen)),
-      list("Screens with nothing to play", d.noContent, "Every screen has a playlist.", () => "No playlist"),
+      list("Screens with nothing designed yet", d.noContent, "Every screen has a design. 👍", () => "No design yet"),
       d.planned.length ? list("Set up, waiting for a TV", d.planned, "", () => "No TV yet") : null),
     c && isAdmin() ? h("div", { style: "margin-top:2rem;text-align:right" },
       h("button", { class: "small danger", onclick: () => deleteClient(c) }, "Delete this client")) : null);
@@ -624,7 +621,7 @@ const codeInput = () => h("input", { name: "code", required: true, maxlength: 7,
 
 /** Add a screen: pair a TV now, or set the screen up now and connect its TV later. */
 async function pairDialog(prefill) {
-  const [playlists, screens] = await Promise.all([api("GET", "/playlists"), api("GET", "/screens")]);
+  const screens = await api("GET", "/screens");
   const planned = screens.filter(s => s.planned);
   let mode = "now";
   const code = codeInput();
@@ -633,11 +630,10 @@ async function pairDialog(prefill) {
     planned.map(s => h("option", { value: s.id }, s.name + " (set up, waiting for its TV)")));
   const name = h("input", { name: "name", placeholder: "e.g. Lobby TV", maxlength: 100 });
   const details = h("div", {}, field("Screen name", name),
-    field("Location", h("input", { name: "location", placeholder: "e.g. Main St store", maxlength: 200 })),
-    field("Playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— none yet —"))));
+    field("Location", h("input", { name: "location", placeholder: "e.g. Main St store", maxlength: 200 })));
   const codeBox = h("div", {}, h("p", { class: "muted small" }, "Install the Premier Signage app on the TV and open it. It shows a 6-character code. Type it here."),
     field("Pairing code", code), planned.length ? field("Connect it to", into) : null);
-  const later = h("p", { class: "muted small hidden" }, "The screen is created now without a TV, so you can pick its playlist and schedule and design its layers ahead of time. When the TV is installed, open the screen and click Connect TV, then type the code the TV shows.");
+  const later = h("p", { class: "muted small hidden" }, "The screen is created now without a TV, so you can design what it shows ahead of time. When the TV is installed, open the screen and click Connect TV, then type the code the TV shows.");
   const sync = () => {
     codeBox.classList.toggle("hidden", mode !== "now"); later.classList.toggle("hidden", mode === "now");
     code.required = mode === "now"; name.required = mode !== "now";
@@ -653,7 +649,7 @@ async function pairDialog(prefill) {
   const r = await dialog("Add a screen for " + clientName(), h("div", {}, modeBtns, codeBox, later, details),
     { submit: "Pair screen", onSubmit: f => {
       const b = Object.fromEntries(f);
-      if (mode === "later") return api("POST", "/screens/plan", { name: b.name, location: b.location, playlistId: b.playlistId || null });
+      if (mode === "later") return api("POST", "/screens/plan", { name: b.name, location: b.location });
       return api("POST", "/screens/pair", b.screenId ? { code: b.code, screenId: b.screenId } : b);
     } });
   if (!r) return;
@@ -679,40 +675,29 @@ async function renderPairPick(main, code) {
 async function connectTvDialog(s) {
   const r = await dialog(s.planned ? "Connect the TV for " + s.name : "Replace the TV for " + s.name, h("div", {},
     h("p", { class: "muted small" }, s.planned
-      ? "Open the Premier Signage app on the TV. It shows a 6-character code. Type it here. The TV starts playing this screen's playlist and layers right away."
-      : "Open the Premier Signage app on the new TV and type the code it shows. It takes over this screen's playlist, schedule and layers. The old TV goes back to showing a pairing code."),
+      ? "Open the Premier Signage app on the TV. It shows a 6-character code. Type it here. The TV starts showing this screen's design right away."
+      : "Open the Premier Signage app on the new TV and type the code it shows. It takes over this screen's design. The old TV goes back to showing a pairing code."),
     field("Pairing code", codeInput())),
   { submit: "Connect TV", onSubmit: f => api("POST", "/screens/pair", { code: f.get("code"), screenId: s.id }) });
   if (r) { loadCustomers().catch(() => {}); toast("TV connected. It will start playing within a few seconds."); route(); }
 }
 
 async function renderScreens(main) {
-  const [screens, playlists] = await Promise.all([api("GET", "/screens"), api("GET", "/playlists")]);
+  const screens = await api("GET", "/screens");
   const selected = new Set();
-  const countEl = h("strong", {}, "0");
-  const plSel = h("select", {}, playlistOptions(playlists, null, "— no playlist —"));
-  const bar = h("div", { class: "bulkbar hidden" }, countEl, " selected · assign", plSel,
-    h("button", { class: "primary small", onclick: async () => {
-      try { await api("POST", "/screens/bulk-assign", { screenIds: [...selected], playlistId: plSel.value || null }); toast("Playlist assigned."); route(); } catch (e) { fail(e); }
-    } }, "Apply"));
-  const sync = () => { countEl.textContent = selected.size; bar.classList.toggle("hidden", !selected.size); };
-  const all = h("input", { type: "checkbox", "aria-label": "Select all", onchange: e => {
-    main.querySelectorAll("tbody input[type=checkbox]").forEach(cb => { cb.checked = e.target.checked; cb.dispatchEvent(new Event("change")); });
-  } });
+  const designHref = s => base() + (s.channelId ? "/channels/" + s.channelId + "/layers" : "/screens/" + s.id + "/layers");
   main.replaceChildren(
     pageHead("Screens", clientName(), h("button", { class: "primary", onclick: () => pairDialog() }, "+ Add screen")),
-    screens.length ? h("div", { class: "card" }, bar, h("div", { class: "table-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, h("th", {}, all), h("th", {}, "Screen"), h("th", {}, "Status"), h("th", {}, "Playing"), h("th", {}, "Playlist"))),
-      h("tbody", {}, screens.map(s => h("tr", { class: "click", onclick: e => { if (e.target.type !== "checkbox") go("/screens/" + s.id); } },
-        h("td", {}, h("input", { type: "checkbox", onchange: e => { e.target.checked ? selected.add(s.id) : selected.delete(s.id); sync(); } })),
+    screens.length ? h("div", { class: "card" }, h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Screen"), h("th", {}, "Status"), h("th", {}, "Design"), h("th", {}, ""))),
+      h("tbody", {}, screens.map(s => h("tr", { class: "click", onclick: e => { if (!e.target.closest("a")) go("/screens/" + s.id); } },
         h("td", {}, h("strong", {}, s.name), h("div", { class: "small muted" }, s.location)),
         h("td", {}, statusPill(s), h("div", { class: "small muted" }, s.online || s.planned ? "" : ago(s.lastSeen))),
-        h("td", { class: "small" }, s.online && s.status.playing ? s.status.playing : h("span", { class: "muted" }, "—")),
-        h("td", { class: "small" }, s.playlistName || h("span", { class: "pill warn" }, "None"), s.scheduleCount ? h("div", { class: "muted" }, "+ " + s.scheduleCount + " scheduled") : null)))))))
+        h("td", { class: "small" }, s.wallId ? h("span", { class: "muted" }, "Video wall “" + s.wallName + "”") : s.channelId ? h("span", {}, "Channel “" + s.channelName + "”") : layerChips(s.layersOn || [])),
+        h("td", { style: "text-align:right" }, s.wallId ? null : h("a", { class: "btn small", href: designHref(s) }, "🎨 Design"))))))))
       : h("div", { class: "card empty" }, h("p", {}, "No screens yet."), h("p", { class: "small" }, "Install the player app on a TV, open it, and pair it with the code it shows."),
         h("button", { class: "primary", onclick: () => pairDialog() }, "+ Add screen")));
   poll(async () => {
-    if (selected.size) return;
     try { const fresh = await api("GET", "/screens"); if (JSON.stringify(fresh.map(s => [s.online, s.status.playing])) !== JSON.stringify(screens.map(s => [s.online, s.status.playing]))) route(); } catch (_) {}
   }, 15000);
 }
@@ -720,7 +705,7 @@ async function renderScreens(main) {
 function deviceRows(s) {
   const st = s.status || {};
   return [
-    ["Status", statusPill(s)], ["Last seen", ago(s.lastSeen)], ["Now playing", st.playing || "—"], ["From playlist", st.playlist || "—"],
+    ["Status", statusPill(s)], ["Last seen", ago(s.lastSeen)], 
     ["Device", s.model || "—"], ["Android", st.androidVersion || "—"], ["App version", s.appVersion || "—"], ["Picture quality", st.quality || "—"], ["Time zone (clock)", st.timeZone ? st.timeZone + (st.deviceTime ? " · it was " + st.deviceTime + " on the TV at its last check-in" : "") : "—"], ["Resolution", st.resolution || "—"],
     ["IP address", s.ip || "—"], ["Offline cache", st.cacheBytes ? bytes(st.cacheBytes) : "—"], ["Free storage", st.freeBytes ? bytes(st.freeBytes) : "—"],
     ["Uptime", st.uptimeSec ? dur(Math.round(st.uptimeSec)) : "—"], ["App updates", st.update || "—"], ["Last error", st.error || "—"]
@@ -728,61 +713,31 @@ function deviceRows(s) {
 }
 
 async function renderScreen(main, id) {
-  const [s, playlists, channels] = await Promise.all([api("GET", "/screens/" + id), api("GET", "/playlists"), api("GET", "/channels")]);
+  const [s, channels] = await Promise.all([api("GET", "/screens/" + id), api("GET", "/channels")]);
 
   // settings
   const f = {
     name: h("input", { value: s.name, maxlength: 100 }),
     location: h("input", { value: s.location, maxlength: 200 }),
-    playlistId: h("select", {}, playlistOptions(playlists, s.playlistId, "— none —")),
-    channelId: h("select", {}, h("option", { value: "" }, "— none (this screen's own playlist and layers) —"),
+    channelId: h("select", {}, h("option", { value: "" }, "— none (this screen's own design) —"),
       channels.map(c => h("option", { value: c.id, selected: c.id === s.channelId }, c.name))),
     orientation: h("select", {}, [[0, "Landscape"], [90, "Portrait (rotated right)"], [180, "Landscape, upside down"], [270, "Portrait (rotated left)"]]
       .map(([v, l]) => h("option", { value: v, selected: v === s.orientation }, l))),
     volume: h("input", { type: "range", min: 0, max: 100, value: s.volume }),
     notes: h("textarea", { rows: 2, maxlength: 2000 }, s.notes)
   };
-  // On a channel, the main playlist comes from the channel.
-  const plNote = h("div", { class: "small muted", style: "margin-top:.3rem" });
-  const plField = h("div", { class: "field" }, h("label", {}, "Main playlist"), f.playlistId, plNote);
-  const syncChannel = () => {
-    const ch = channels.find(c => c.id === Number(f.channelId.value));
-    f.playlistId.disabled = !!ch;
-    plNote.textContent = ch ? "From the channel: " + (ch.playlistName || "no playlist yet") + "." : "";
-  };
-  f.channelId.addEventListener("change", syncChannel);
-  syncChannel();
+
   const volLbl = h("span", { class: "muted" }, s.volume + "%");
   f.volume.addEventListener("input", () => (volLbl.textContent = f.volume.value + "%"));
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
-      await api("PATCH", "/screens/" + id, { name: f.name.value, location: f.location.value, playlistId: f.playlistId.value || null, channelId: f.channelId.value || null,
+      await api("PATCH", "/screens/" + id, { name: f.name.value, location: f.location.value, channelId: f.channelId.value || null,
         orientation: Number(f.orientation.value), volume: Number(f.volume.value), notes: f.notes.value });
       toast("Saved. The screen updates within 30 seconds.");
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
   } }, "Save settings");
 
-  // schedule
-  const slots = s.schedules.map(x => ({ ...x }));
-  const slotsBox = h("div", {});
-  function drawSlots() {
-    slotsBox.replaceChildren(...slots.map((sl, i) => h("div", { class: "slot" },
-      h("select", { "aria-label": "Playlist", onchange: e => (sl.playlistId = Number(e.target.value) || null) }, playlistOptions(playlists, sl.playlistId, "Pick a playlist…")),
-      h("div", { class: "days" }, DAYS.map((d, b) => h("button", { type: "button", class: sl.days & (1 << b) ? "on" : "",
-        onclick: e => { sl.days ^= 1 << b; e.target.classList.toggle("on"); } }, d))),
-      h("div", { class: "times" },
-        h("input", { type: "time", value: sl.start, "aria-label": "Start", onchange: e => (sl.start = e.target.value) }), "to",
-        h("input", { type: "time", value: sl.end, "aria-label": "End", onchange: e => (sl.end = e.target.value) })),
-      h("button", { type: "button", class: "icon danger", title: "Remove", onclick: () => { slots.splice(i, 1); drawSlots(); } }, "✕"))));
-    if (!slots.length) slotsBox.append(h("p", { class: "muted small" }, "No schedule. The screen always plays its main playlist."));
-  }
-  drawSlots();
-  const schedSave = h("button", { class: "primary", onclick: async () => {
-    schedSave.disabled = true;
-    try { await api("PUT", "/screens/" + id + "/schedules", slots); toast("Schedule saved."); }
-    catch (e) { fail(e); } finally { schedSave.disabled = false; }
-  } }, "Save schedule");
 
   // live view & commands
   const dl = h("dl", { class: "kv" }, deviceRows(s));
@@ -801,7 +756,7 @@ async function renderScreen(main, id) {
 
   const deviceCards = s.planned ? [
     h("div", { class: "card" }, h("h2", {}, "TV"),
-      h("p", { class: "muted small" }, "No TV is connected yet. Set up the playlist, schedule and layers now. When the TV is installed, open the Premier Signage app on it and type the code it shows."),
+      h("p", { class: "muted small" }, "No TV is connected yet. Design what it shows now. When the TV is installed, open the Premier Signage app on it and type the code it shows."),
       h("button", { class: "primary", onclick: () => connectTvDialog(s) }, "Connect TV"))
   ] : [
     h("div", { class: "card" }, h("h2", {}, "Live view"), shotBox,
@@ -819,25 +774,22 @@ async function renderScreen(main, id) {
   main.replaceChildren(
     h("a", { href: base() + "/screens", class: "back" }, "← All screens"),
     pageHead(s.name, [clientName(), s.location].filter(Boolean).join(" · "),
+      s.wallId ? null : h("a", { class: "btn primary", href: base() + (s.channelId ? "/channels/" + s.channelId + "/layers" : "/screens/" + id + "/layers") }, s.channelId ? "🎨 Design (channel)" : "🎨 Design this screen"),
       s.planned ? h("button", { class: "primary", onclick: () => connectTvDialog(s) }, "Connect TV") : null,
       h("button", { class: "danger", onclick: async () => {
-        if (!await confirmDlg("Remove this screen?", s.planned ? "Its playlist, schedule and layers will be deleted." : "The TV will go back to showing a pairing code. You can pair it again later.", "Remove")) return;
+        if (!await confirmDlg("Remove this screen?", s.planned ? "Its design will be deleted." : "The TV will go back to showing a pairing code. You can pair it again later.", "Remove")) return;
         try { await api("DELETE", "/screens/" + id); toast("Screen removed."); go("/screens"); } catch (e) { fail(e); }
       } }, "Remove screen")),
     h("div", { class: "grid two" },
       h("div", { class: "stack" },
         h("div", { class: "card" }, h("h2", {}, "Settings"),
-          field("Name", f.name), field("Location", f.location), field("Channel", f.channelId), plField,
+          field("Name", f.name), field("Location", f.location), field("Channel", f.channelId),
           h("div", { class: "row" }, field("Orientation", f.orientation), h("div", { class: "field" }, h("label", {}, "Volume ", volLbl), f.volume)),
-          field("Notes", f.notes), saveBtn),
-        h("div", { class: "card" }, h("h2", {}, "Schedule"),
-          h("p", { class: "muted small" }, "During these times the screen plays the chosen playlist instead of its main one. The first matching slot wins. A slot that ends before it starts (e.g. 22:00 to 06:00) runs overnight."),
-          slotsBox,
-          h("div", { class: "row" }, h("button", { onclick: () => { slots.push({ playlistId: null, days: 127, start: "09:00", end: "17:00" }); drawSlots(); } }, "+ Add time slot"), schedSave))),
+          field("Notes", f.notes), saveBtn)),
       h("div", { class: "stack" },
         s.wallId ? h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Video wall"),
             h("a", { class: "btn small", href: base() + "/walls/" + s.wallId }, "Open wall")),
-          h("p", { class: "small muted", style: "margin:0" }, "This screen is part of the video wall “" + s.wallName + "” (column " + (s.wallCol + 1) + ", row " + (s.wallRow + 1) + "). It plays the wall's playlist, so its own playlist, channel, schedule and layers are not used while it's in the wall.")) : null,
+          h("p", { class: "small muted", style: "margin:0" }, "This screen is part of the video wall “" + s.wallName + "” (column " + (s.wallCol + 1) + ", row " + (s.wallRow + 1) + "). It shows the wall's pictures and videos, so its own design and channel are not used while it's in the wall.")) : null,
         ...deviceCards)));
 
   poll(async () => {
@@ -948,7 +900,7 @@ async function renderLayers(main, id, kind) {
   const preview = h("div", { class: "preview ed-preview" + (portrait ? " portrait" : "") }, h("div", { class: "pv-bg" }), pvVideo, pvOverlay);
   // A design slide has no video: its background colour fills the screen.
   let slideBg = isSlide ? s.bg || "#0f172a" : null;
-  const paintBg = () => { if (isSlide) preview.querySelector(".pv-bg").style.background = slideBg; };
+  const paintBg = () => { preview.querySelector(".pv-bg").style.background = isSlide ? slideBg : L.background || "#000"; };
   paintBg();
   // (the resize frame is added to the preview below, once it exists)
   preview.addEventListener("pointerdown", e => { if (!e.target.closest(".so-text") && !e.target.closest(".ed-frame")) select(e.target.closest(".pv-video") ? { type: "video" } : null); });
@@ -961,7 +913,7 @@ async function renderLayers(main, id, kind) {
   }
   function drawVideo(force) {
     const r = SignageOverlay.REGIONS[L.video.region] || SignageOverlay.REGIONS.full;
-    Object.assign(pvVideo.style, { left: r[0] + "%", top: r[1] + "%", width: r[2] + "%", height: r[3] + "%", display: L.video.enabled && !isSlide ? "" : "none" });
+    Object.assign(pvVideo.style, { left: r[0] + "%", top: r[1] + "%", width: r[2] + "%", height: r[3] + "%", display: "none" }); // no video layer (screens show only their design)
     pvVideo.classList.toggle("ed-selected", isSel("video"));
     const i = itemAt(playhead);
     if (i === shownItem && !force) return;
@@ -1096,7 +1048,7 @@ async function renderLayers(main, id, kind) {
       enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1, fx: prev.fx || "none", fxColor: prev.fxColor });
   }
   /** A background: the whole screen, behind everything else. */
-  /** Change a widget's settings (it's the same widget in playlists and other designs). */
+  /** Change a widget's settings (it's the same widget in every design that uses it). */
   async function editWidget(b, m) {
     const r = await widgetDialog(m.widget.type, m, { stay: true });
     if (!r) return;
@@ -1546,7 +1498,7 @@ async function renderLayers(main, id, kind) {
   }
 
   // ---------- side panel ----------
-  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["shapes", "Shapes"], ["widgets", "Widgets"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", isSlide ? "Background" : "Video"]];
+  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["shapes", "Shapes"], ["widgets", "Widgets"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Background"]];
   let chainNext = true;
   // Effect for pictures when none is selected: applied to every picture in the design and to the ones added next.
   const firstPic = L.text.blocks.find(x => x.kind === "image" && x.fx && x.fx !== "none");
@@ -1583,7 +1535,7 @@ async function renderLayers(main, id, kind) {
   function templatesPanel() {
     const out = [undoBar(),
       h("button", { type: "button", class: "primary", style: "width:100%;margin-bottom:.6rem", onclick: saveAsTemplate }, "💾 Save this design as a template"),
-      h("p", { class: "small muted" }, "Pick a design to start from, then change the words, colors and positions. Your playlist keeps playing in the video area.")];
+      h("p", { class: "small muted" }, "Pick a design to start from, then change the words, colors and positions.")];
     const byCat = {};
     templates.forEach(tp => (byCat[tp.category] = byCat[tp.category] || []).push(tp));
     for (const [cat, list] of Object.entries(byCat)) {
@@ -1711,7 +1663,7 @@ async function renderLayers(main, id, kind) {
           : addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: m.category === "shape" ? 20 : 30, x: 35, y: 30, text: "", fx: picFx.fx, fxColor: picFx.fxColor }) }, h("img", { src: m.src, alt: m.name, loading: "lazy" }))))
         : images.length ? h("p", { class: "small" }, "Nothing here yet. ", h("a", { href: base() + "/media", onclick: () => { state.libTab = edCat; } }, "Add some in the Media library"), ".")
         : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
-      kids.push(h("p", { class: "small muted" }, "Videos and the main slideshow play in the Video layer (the playlist)."));
+      kids.push(h("p", { class: "small muted" }, "For pictures that take turns, add them one after another (keep a picture selected and tap the next one)."));
     } else if (tab === "widgets") {
       const b = isSel("block") && L.text.blocks[sel.i].kind === "widget" ? L.text.blocks[sel.i] : null;
       if (b) {
@@ -1814,17 +1766,21 @@ async function renderLayers(main, id, kind) {
         h("div", { class: "sub-item" }, h("strong", { class: "small" }, "🧱 Video wall effects"),
           h("p", { class: "small muted", style: "margin:.25rem 0 .5rem" }, "On a video wall, effects fly across all its screens: Santa's sleigh or the plane enters on one TV and leaves on the next. Set them on the wall's page."),
           h("a", { class: "btn small", href: base() + "/walls" }, "Open video walls")));
+    } else if (!isSlide) {
+      // Screens and channels: the design fills the screen on this background colour (or a background picture from Media).
+      kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Background")),
+        h("div", { class: "row", style: "gap:.6rem;align-items:center" }, colorIn(L.background || "#000000", v => { L.background = v; paintBg(); change(); }, "Background colour"),
+          L.background ? h("button", { type: "button", class: "small", onclick: () => { L.background = ""; paintBg(); change(); drawSide(); } }, "Black (none)") : null),
+        h("p", { class: "small muted" }, "The design fills the whole screen on this colour. For a picture behind everything, use Media → Backgrounds."));
     } else if (isSlide) {
       kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Slide background")),
         field("Background colour", colorIn(slideBg, v => { slideBg = v; paintBg(); change(); }, "Background")),
-        h("p", { class: "small muted" }, "This is a slide in a playlist: it shows full screen for its seconds, like a picture. Its pictures, text, specials and effects go on top of this colour."),
+        h("p", { class: "small muted" }, "This is a full-screen slide made from a template. Its pictures, text, specials and effects go on top of this colour."),
         s.usedIn && s.usedIn.length ? h("p", { class: "small muted" }, "In: " + s.usedIn.map(p => p.name).join(", ")) : null);
     } else {
       kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Video layer"), sw(L.video.enabled, v => { L.video.enabled = v; drawVideo(true); change(); drawToolbar(); })),
         field("Area on the screen", h("select", { onchange: e => { L.video.region = e.target.value; drawVideo(true); change(); } }, opts(REGION_LABELS, L.video.region))),
-        h("p", { class: "small muted" }, isCh ? "Plays the channel's playlist (" + (s.playlistName || "none yet") + ")." : "Plays this screen's playlist and schedule (" + (s.playlistName || "no playlist yet") + ").",
-          " Use a smaller area to leave room for specials or a ticker."),
-        h("a", { class: "btn small", href: base() + path }, isCh ? "Change the channel's playlist" : "Change the playlist or schedule"));
+        null);
     }
     panel.replaceChildren(...kids.filter(k => k != null && k !== false));
   }
@@ -2033,7 +1989,7 @@ async function renderLayers(main, id, kind) {
         t += d;
       }
     }
-    rows.push(row("Video", "video", L.video.enabled, v => { L.video.enabled = v; drawVideo(true); }, vClips));
+
     // specials: each one for `seconds`, taking turns
     const sp = L.specials, spClips = [];
     if (sp.items.length) {
@@ -2145,7 +2101,7 @@ async function renderLayers(main, id, kind) {
     h("div", { class: "ed" },
       toolbar, side,
       h("div", { class: "card ed-stage" }, preview,
-        h("p", { class: "small muted", style: "margin:.5rem 0 0" }, "Bottom to top: Video → Specials → Text & pictures → Effects.")),
+        h("p", { class: "small muted", style: "margin:.5rem 0 0" }, "Bottom to top: Background → Specials → Text, pictures, shapes & widgets → Effects.")),
       timeline));
   drawToolbar(); drawSide(); drawTimeline(); drawVideo(true); renderOverlay();
   window.onbeforeunload = () => (dirty ? true : undefined);
@@ -2317,7 +2273,7 @@ const CAT_HINT = {
   png: "PNG files, usually with a see-through background: logos, cut-out food photos, stickers.",
   shape: "Shapes for designs: banners, price bursts, arrows, circles… Make one in any colour with “+ Add shape”, or upload your own.",
   video: "Videos play in the playlist (the Video layer), to their end.",
-  slide: "Templates you added to a playlist: each is its own full-screen slide you can edit (tap it). To add one, open a playlist and use its Templates tab."
+  slide: "Full-screen slides made from templates for the old playlists. Screens don't play them any more; you can delete them, or start a screen's design from the same template in Design → Templates."
 };
 /** Category chips with counts; onpick(key). Empty extra tabs (web pages, widgets) are hidden. */
 function categoryChips(media, current, onpick, keys) {
@@ -2435,7 +2391,7 @@ async function renderMedia(main) {
       m.kind === "widget" ? h("a", { href: "#", onclick: e => { e.preventDefault(); widgetDialog(m.widget.type, m); } }, thumb(m)) : h("a", { href: m.src, target: "_blank", rel: "noopener" }, thumb(m)),
       h("div", { class: "meta" }, h("div", { class: "name", title: m.name }, m.name),
         h("div", { class: "small muted" }, m.kind === "web" ? new URL(m.src).hostname : m.category === "slide" ? "Design slide (from a template)" : m.kind === "widget" ? "Widget · " + widgetName(m.widget && m.widget.type) : m.kind + " · " + bytes(m.size)),
-        h("div", { class: "small muted" }, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist"),
+        m.usedIn.length ? h("div", { class: "small muted" }, "In " + m.usedIn.map(p => p.name).join(", ")) : null,
         // Pictures: move to another category.
         m.kind === "image" ? h("label", { class: "cat-move small" }, "Category ", h("select", { "aria-label": "Category", onchange: async e => {
           try { await api("PATCH", "/media/" + m.id, { category: e.target.value }); toast("Moved to " + PICTURE_CATS.find(([k]) => k === e.target.value)[1] + "s."); route(); } catch (er) { fail(er); }
@@ -2456,7 +2412,7 @@ async function renderMedia(main) {
 }
 
 // ---------- inside a client: channels ----------
-const layerChips = on => h("div", { class: "chips" }, [["video", "Video"], ["specials", "Specials"], ["text", "Text"], ["effects", "Effects"]].map(([k, l]) =>
+const layerChips = on => h("div", { class: "chips" }, [["specials", "Specials"], ["text", "Text & pictures"], ["effects", "Effects"]].map(([k, l]) =>
   h("span", { class: "pill" + (on.includes(k) ? " ok" : "") }, (on.includes(k) ? "● " : "○ ") + l)));
 
 /** Design (menu): every screen, channel and design slide of the client, with its layers and a Design button. */
@@ -2479,30 +2435,29 @@ async function renderDesign(main) {
         : h("p", { class: "muted" }, "No screens yet. ", h("a", { href: "#", onclick: e => { e.preventDefault(); pairDialog(); } }, "Add a screen"), " (it can be set up before the TV is connected).")),
     channels.length ? h("div", { class: "card" }, h("h2", {}, "Channels"),
       table(channels.map(c => row(c.name, c.screens.length + " screen(s)", layerChips(c.layersOn), base() + "/channels/" + c.id + "/layers", "Design", true)))) : null,
-    h("div", { class: "card" }, h("h2", {}, "Design slides"),
-      slides.length ? table(slides.map(m => row(m.name, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist", h("span", { class: "small muted" }, "Full-screen slide"),
-        base() + "/slides/" + m.id, "Design", true)))
-        : h("p", { class: "muted small" }, "Templates added to a playlist become slides you can design here. Open a playlist and use its Templates tab.")));
+    // Slides made for the old playlists: only listed if there are any (screens don't play them any more).
+    slides.length ? h("div", { class: "card" }, h("h2", {}, "Old design slides"),
+      h("p", { class: "small muted" }, "These were made from templates for playlists, which screens no longer use. You can delete them in Media → Design slides."),
+      table(slides.map(m => row(m.name, "Full-screen slide", h("span", { class: "small muted" }, ""), base() + "/slides/" + m.id, "Open", false)))) : null);
   state.slideBack = location.hash;
 }
 
 async function renderChannels(main) {
-  const [channels, playlists] = await Promise.all([api("GET", "/channels"), api("GET", "/playlists")]);
+  const channels = await api("GET", "/channels");
   const create = async () => {
     const r = await dialog("New channel", h("div", {},
-      h("p", { class: "muted small" }, "A channel is a design you can put on many screens: a main playlist plus specials, text and effects layers. Change the channel once and every screen on it updates."),
+      h("p", { class: "muted small" }, "A channel is one design you can put on many screens. Change the channel once and every screen on it updates."),
       field("Name", h("input", { name: "name", required: true, maxlength: 100, placeholder: "e.g. Lunch menu boards" })),
-      field("Main playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— choose later —")))),
+      ),
     { submit: "Create channel", onSubmit: f => api("POST", "/channels", Object.fromEntries(f)) });
     if (r) go("/channels/" + r.id);
   };
   main.replaceChildren(
     pageHead("Channels", clientName() + " · one design for many screens", h("button", { class: "primary", onclick: create }, "+ New channel")),
     channels.length ? h("div", { class: "card table-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, h("th", {}, "Channel"), h("th", {}, "Playlist"), h("th", {}, "Layers"), h("th", {}, "Screens"))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Channel"), h("th", {}, "Design"), h("th", {}, "Screens"))),
       h("tbody", {}, channels.map(c => h("tr", { class: "click", onclick: () => go("/channels/" + c.id) },
         h("td", {}, h("strong", {}, c.name)),
-        h("td", { class: "small" }, c.playlistName || h("span", { class: "pill warn" }, "None")),
         h("td", {}, layerChips(c.layersOn)),
         h("td", { class: "small" }, c.screens.length ? c.screens.length + " (" + c.screens.filter(s => s.online).length + " online)" : h("span", { class: "muted" }, "—")))))))
       : h("div", { class: "card empty" }, h("p", {}, "No channels yet. Use a channel when several screens should show the same thing, like all the menu boards in one store."),
@@ -2510,14 +2465,13 @@ async function renderChannels(main) {
 }
 
 async function renderChannel(main, id) {
-  const [c, playlists, screens] = await Promise.all([api("GET", "/channels/" + id), api("GET", "/playlists"), api("GET", "/screens")]);
+  const [c, screens] = await Promise.all([api("GET", "/channels/" + id), api("GET", "/screens")]);
   const nameIn = h("input", { value: c.name, maxlength: 100 });
-  const plSel = h("select", {}, playlistOptions(playlists, c.playlistId, "— none —"));
   const picked = new Set(c.screens.map(s => s.id));
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
-      await api("PATCH", "/channels/" + id, { name: nameIn.value, playlistId: plSel.value || null });
+      await api("PATCH", "/channels/" + id, { name: nameIn.value });
       await api("PUT", "/channels/" + id + "/screens", { screenIds: [...picked] });
       toast("Channel saved. Its screens update within 30 seconds."); route();
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
@@ -2525,13 +2479,12 @@ async function renderChannel(main, id) {
   main.replaceChildren(
     h("a", { href: base() + "/channels", class: "back" }, "← All channels"),
     pageHead(c.name, "Channel · " + clientName(), h("button", { class: "danger", onclick: async () => {
-      if (!await confirmDlg("Delete channel “" + c.name + "”?", "Its screens go back to their own playlist and layers. Playlists and media are kept.")) return;
+      if (!await confirmDlg("Delete channel “" + c.name + "”?", "Its screens go back to their own design. Media is kept.")) return;
       try { await api("DELETE", "/channels/" + id); toast("Channel deleted."); go("/channels"); } catch (e) { fail(e); }
     } }, "Delete"), saveBtn),
     h("div", { class: "grid two" },
       h("div", { class: "stack" },
-        h("div", { class: "card" }, h("h2", {}, "Content"), field("Name", nameIn), field("Main playlist", plSel),
-          h("p", { class: "small muted" }, "Each screen's own schedule still applies on top (e.g. a breakfast playlist in the morning).")),
+        h("div", { class: "card" }, h("h2", {}, "Channel"), field("Name", nameIn)),
         h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
           h("a", { class: "btn primary small", href: base() + "/channels/" + id + "/layers" }, "Design layers")), layerChips(c.layersOn))),
       h("div", { class: "card" }, h("h2", {}, "Screens on this channel"),
@@ -2540,43 +2493,61 @@ async function renderChannel(main, id) {
           h("span", { style: "flex:1" }, h("strong", {}, s.name), h("span", { class: "small muted" }, s.channelId && s.channelId !== c.id ? " · now on “" + s.channelName + "”" : s.location ? " · " + s.location : "")),
           statusPill(s))))
           : h("p", { class: "muted" }, "No screens yet."),
-        h("p", { class: "small muted", style: "margin-bottom:0" }, "Ticked screens show this channel's playlist and layers. Click Save to apply."))));
+        h("p", { class: "small muted", style: "margin-bottom:0" }, "Ticked screens show this channel's design. Click Save to apply."))));
 }
 
 // ---------- inside a client: video walls ----------
 const wallSize = w => w.cols + " × " + w.rows;
 
 async function renderWalls(main) {
-  const [walls, playlists] = await Promise.all([api("GET", "/walls"), api("GET", "/playlists")]);
+  const walls = await api("GET", "/walls");
   const create = async () => {
     const r = await dialog("New video wall", h("div", {},
       h("p", { class: "muted small" }, "A video wall shows one big picture across several screens mounted next to each other. Each screen shows its own part, and they play in step."),
       field("Name", h("input", { name: "name", required: true, maxlength: 100, placeholder: "e.g. Front window wall" })),
       h("div", { class: "row" },
         field("Screens across", h("select", { name: "cols" }, [1, 2, 3, 4, 5, 6].map(n => h("option", { value: n, selected: n === 2 }, n)))),
-        field("Screens down", h("select", { name: "rows" }, [1, 2, 3, 4, 5, 6].map(n => h("option", { value: n, selected: n === 1 }, n))))),
-      field("Playlist", h("select", { name: "playlistId" }, playlistOptions(playlists, null, "— choose later —")))),
+        field("Screens down", h("select", { name: "rows" }, [1, 2, 3, 4, 5, 6].map(n => h("option", { value: n, selected: n === 1 }, n)))))),
     { submit: "Create wall", onSubmit: f => api("POST", "/walls", Object.fromEntries(f)) });
     if (r) go("/walls/" + r.id);
   };
   main.replaceChildren(
     pageHead("Video walls", clientName() + " · one picture across several screens", h("button", { class: "primary", onclick: create }, "+ New video wall")),
     walls.length ? h("div", { class: "card table-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, h("th", {}, "Wall"), h("th", {}, "Size"), h("th", {}, "Playlist"), h("th", {}, "Screens"))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Wall"), h("th", {}, "Size"), h("th", {}, "Content"), h("th", {}, "Screens"))),
       h("tbody", {}, walls.map(w => h("tr", { class: "click", onclick: () => go("/walls/" + w.id) },
         h("td", {}, h("strong", {}, w.name)),
         h("td", { class: "small" }, wallSize(w)),
-        h("td", { class: "small" }, w.playlistName || h("span", { class: "pill warn" }, "None")),
+        h("td", { class: "small" }, w.playlistId ? "Pictures & videos" : h("span", { class: "pill warn" }, "None yet")),
         h("td", { class: "small" }, w.tiles.length + " of " + (w.cols * w.rows) + " placed (" + w.tiles.filter(t => t.online).length + " online)"))))))
       : h("div", { class: "card empty" }, h("p", {}, "No video walls yet. Use one when two or more TVs hang side by side and should show one big picture or video."),
         h("button", { class: "primary", onclick: create }, "+ New video wall")));
 }
 
 async function renderWall(main, id) {
-  const [w, playlists, screens, media] = await Promise.all([api("GET", "/walls/" + id), api("GET", "/playlists"), api("GET", "/screens"), api("GET", "/media")]);
+  const [w, screens, media] = await Promise.all([api("GET", "/walls/" + id), api("GET", "/screens"), api("GET", "/media")]);
   const images = media.filter(m => m.kind === "image");
   const nameIn = h("input", { value: w.name, maxlength: 100 });
-  const plSel = h("select", {}, playlistOptions(playlists, w.playlistId, "— none —"));
+  // The wall's pictures and videos, in order (kept as the wall's own list behind the scenes).
+  let wallItems = [];
+  if (w.playlistId) { try { wallItems = (await api("GET", "/playlists/" + w.playlistId)).items.filter(i => i.kind === "image" || i.kind === "video").map(i => ({ mediaId: i.mediaId, name: i.name, kind: i.kind, src: i.src, duration: i.duration })); } catch (_) {} }
+  const wallList = h("div", { class: "wall-items" });
+  const addable = media.filter(m => m.kind === "image" || m.kind === "video");
+  const addSel = h("select", { "aria-label": "Picture or video to add" }, h("option", { value: "" }, addable.length ? "Add a picture or video…" : "No pictures or videos yet (upload in the Media library)"),
+    addable.map(m => h("option", { value: m.id }, (m.kind === "video" ? "🎬 " : "🖼 ") + m.name)));
+  addSel.addEventListener("change", () => {
+    const m = addable.find(x => x.id === Number(addSel.value)); addSel.value = "";
+    if (m) { wallItems.push({ mediaId: m.id, name: m.name, kind: m.kind, src: m.src, duration: 10 }); drawWallItems(); }
+  });
+  function drawWallItems() {
+    wallList.replaceChildren(...wallItems.map((it, k) => h("div", { class: "wall-item" }, thumb(it, "mini"), h("span", { class: "small wall-item-name" }, it.name),
+      it.kind === "video" ? h("span", { class: "small muted" }, "plays to the end")
+        : h("label", { class: "small" }, h("input", { type: "number", min: 1, max: 3600, value: it.duration, style: "width:64px", "aria-label": "Seconds", oninput: e => { it.duration = Math.max(1, Number(e.target.value) || 10); } }), " s"),
+      h("button", { type: "button", class: "icon small", title: "Move up", disabled: k === 0, onclick: () => { [wallItems[k - 1], wallItems[k]] = [wallItems[k], wallItems[k - 1]]; drawWallItems(); } }, "↑"),
+      h("button", { type: "button", class: "icon small danger", title: "Remove", onclick: () => { wallItems.splice(k, 1); drawWallItems(); } }, "✕"))));
+    if (!wallItems.length) wallList.append(h("p", { class: "small muted" }, "Nothing yet. Add the pictures and videos to show across the wall."));
+  }
+  drawWallItems();
   const num = (v, max) => h("select", {}, Array.from({ length: max }, (_, i) => i + 1).map(n => h("option", { value: n, selected: n === v }, n)));
   const colsSel = num(w.cols, 6), rowsSel = num(w.rows, 6);
   const bezelIn = h("input", { type: "number", min: 0, max: 10, step: 0.1, value: w.bezel });
@@ -2652,7 +2623,11 @@ async function renderWall(main, id) {
   const saveBtn = h("button", { class: "primary", onclick: async () => {
     saveBtn.disabled = true;
     try {
-      await api("PATCH", "/walls/" + id, { name: nameIn.value, playlistId: plSel.value || null, cols: colsSel.value, rows: rowsSel.value, bezel: bezelIn.value || 0, fit: fitSel.value, effects: fx });
+      let plId = w.playlistId;
+      if (!plId && wallItems.length) plId = (await api("POST", "/playlists", { name: "Video wall: " + nameIn.value })).id;
+      if (plId) await api("PUT", "/playlists/" + plId, { name: "Video wall: " + nameIn.value, items: wallItems.map(i => ({ mediaId: i.mediaId, duration: i.duration })) });
+      w.playlistId = plId;
+      await api("PATCH", "/walls/" + id, { name: nameIn.value, playlistId: plId || null, cols: colsSel.value, rows: rowsSel.value, bezel: bezelIn.value || 0, fit: fitSel.value, effects: fx });
       await api("PUT", "/walls/" + id + "/screens", { tiles: [...spots].map(([k, screenId]) => { const [col, row] = k.split(":").map(Number); return { screenId, col, row }; }) });
       toast("Video wall saved. Its screens update within 30 seconds."); route();
     } catch (e) { fail(e); } finally { saveBtn.disabled = false; }
@@ -2660,21 +2635,22 @@ async function renderWall(main, id) {
   main.replaceChildren(
     h("a", { href: base() + "/walls", class: "back" }, "← All video walls"),
     pageHead(w.name, "Video wall · " + clientName(), h("button", { class: "danger", onclick: async () => {
-      if (!await confirmDlg("Delete video wall “" + w.name + "”?", "Its screens go back to their own playlist and layers. Playlists and media are kept.")) return;
+      if (!await confirmDlg("Delete video wall “" + w.name + "”?", "Its screens go back to their own design. Media is kept.")) return;
       try { await api("DELETE", "/walls/" + id); toast("Video wall deleted."); go("/walls"); } catch (e) { fail(e); }
     } }, "Delete"), saveBtn),
     h("div", { class: "grid two" },
-      h("div", { class: "card" }, h("h2", {}, "Content"), field("Name", nameIn), field("Playlist", plSel),
+      h("div", { class: "card" }, h("h2", {}, "Content"), field("Name", nameIn),
+        h("div", { class: "field" }, h("label", {}, "Pictures and videos (in order, then it repeats)"), wallList, addSel),
         h("div", { class: "row" }, field("Screens across", colsSel), field("Screens down", rowsSel)),
         field("Picture", fitSel),
         field("Gap between screens (% of a screen's width)", bezelIn),
-        h("p", { class: "small muted", style: "margin-bottom:0" }, "Pictures and videos are shown across the wall. Web pages and widgets in the playlist are skipped. Only the top-left screen plays sound. Make videos and pictures in the wall's shape for the best result, e.g. 3840 × 1080 for two screens side by side. Gap: measure the frame between two screens' pictures and divide by one screen's picture width (e.g. 1 cm ÷ 120 cm ≈ 0.8). 0 if the frames don't matter.")),
+        h("p", { class: "small muted", style: "margin-bottom:0" }, "Pictures and videos are shown across the wall. Only the top-left screen plays sound. Make videos and pictures in the wall's shape for the best result, e.g. 3840 × 1080 for two screens side by side. Gap: measure the frame between two screens' pictures and divide by one screen's picture width (e.g. 1 cm ÷ 120 cm ≈ 0.8). 0 if the frames don't matter.")),
       h("div", { class: "card" }, h("h2", {}, "Where each screen hangs"),
         h("p", { class: "small muted" }, "As seen from the front. Pick the screen in each spot."),
         screens.length ? gridBox : h("p", { class: "muted" }, "No screens yet."),
-        h("p", { class: "small muted", style: "margin-bottom:0" }, "Screens play in step using the portal's clock. While in a wall, a screen's own playlist, channel, schedule and layers are not used. Click Save to apply."))),
+        h("p", { class: "small muted", style: "margin-bottom:0" }, "Screens play in step using the portal's clock. While in a wall, a screen's own design and channel are not used. Click Save to apply."))),
     h("div", { class: "card" }, h("h2", {}, "Wall effects"),
-      h("p", { class: "small muted" }, "An animation on top of the wall's playlist that moves across all its screens, like Santa's sleigh flying from one TV to the next. Preview of the whole wall:"),
+      h("p", { class: "small muted" }, "An animation on top of the wall's pictures and videos that moves across all its screens, like Santa's sleigh flying from one TV to the next. Preview of the whole wall:"),
       preview, fxBox,
       h("p", { class: "small muted", style: "margin-bottom:0" }, "Click Save to send it to the screens.")));
   drawFx(); drawPreview();
@@ -2854,18 +2830,6 @@ async function renderWizard(main) {
         try { const sc = await api("POST", "/screens/plan", { name: "Main screen" }); loadCustomers().catch(() => {}); go("/screens/" + sc.id + "/layers"); }
         catch (e) { fail(e); }
       }, label: "Design layers", optional: true },
-    { title: "Make a playlist", done: filled.length > 0, text: filled.length ? `${filled.length} playlist(s) with content.` : "A playlist is the order your content plays in, looping all day.",
-      action: async () => {
-        if (!media.length) return fail(new Error("Add some content first (step 1)."));
-        const r = await dialog("Make a playlist", h("div", {}, h("p", { class: "muted small" }, "All " + media.length + " items in your media library will be added. You can change the order and timing afterwards."),
-          field("Name", h("input", { name: "name", required: true, value: "Main playlist", maxlength: 100 }))),
-          { submit: "Create playlist", onSubmit: async f => {
-            const p = await api("POST", "/playlists", { name: f.get("name") });
-            await api("PUT", "/playlists/" + p.id, { items: media.map(m => ({ mediaId: m.id, duration: m.kind === "web" ? 30 : 10 })) });
-            return p;
-          } });
-        if (r) { toast("Playlist created."); route(); }
-      }, label: "Create from all my media", alt: [base() + "/playlists", "Open playlists"] },
     { title: "Connect a TV", done: screens.some(s => !s.planned), text: screens.some(s => !s.planned) ? `${screens.filter(s => !s.planned).length} screen(s) connected.`
         : screens.length ? "Your screen is set up. Install the player app on the TV, open it, then click Connect TV on the screen's page and type the code it shows."
         : "Install the player app on the TV, open it, and type the code it shows. No TV yet? Choose “Set up now, connect the TV later” to design the screen first.",

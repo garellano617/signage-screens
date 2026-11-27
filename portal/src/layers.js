@@ -129,6 +129,8 @@ function sanitizeLayers(input, checkImage) {
     .sort((a, c) => (c.locked ? 1 : 0) - (a.locked ? 1 : 0));
   return {
     video: { enabled: v.enabled !== false, region: pick(v.region, REGIONS, d.video.region) },
+    // Background colour of the design (screens show only their design now). "" = none (black on the TV).
+    background: /^#[0-9a-f]{6}$/i.test(String(i.background || "")) ? String(i.background) : "",
     specials: {
       enabled: !!sp.enabled,
       heading: clip(sp.heading !== undefined ? sp.heading : d.specials.heading, 60),
