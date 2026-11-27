@@ -240,7 +240,9 @@ function screenSummary(s) {
     scheduleCount: s.schedule_count || 0,
     lat: s.lat, lng: s.lng, address: s.address || "",
     channelId: s.channel_id || null, channelName: s.channel_name || null,
-    wallId: s.wall_id || null, wallName: s.wall_name || null, wallCol: s.wall_col, wallRow: s.wall_row
+    wallId: s.wall_id || null, wallName: s.wall_name || null, wallCol: s.wall_col, wallRow: s.wall_row,
+    // Which design layers are on (for the Design page).
+    layersOn: (l => ["video", "specials", "text", "effects"].filter(k => l[k].enabled))(parseLayers(s.layers_json))
   };
 }
 const screenQuery = `SELECT s.*, p.name AS playlist_name, cu.name AS customer_name, ch.name AS channel_name, wl.name AS wall_name,

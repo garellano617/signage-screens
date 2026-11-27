@@ -142,6 +142,7 @@ async function loadCustomers() {
 
 // ---------- navigation ----------
 const ICONS = {
+  design: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.1-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/></svg>',
   dashboard: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
   screens: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg>',
   playlists: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h13M3 18h9"/><path d="M17 15l5 3-5 3z" fill="currentColor"/></svg>',
@@ -172,15 +173,16 @@ const clientRoutes = [
   [/^\/billing$/, "billing", renderBilling],
   [/^\/screens$/, "screens", renderScreens],
   [/^\/screens\/(\d+)$/, "screens", renderScreen],
-  [/^\/screens\/(\d+)\/layers$/, "screens", renderLayers],
+  [/^\/screens\/(\d+)\/layers$/, "design", renderLayers],
+  [/^\/design$/, "design", renderDesign],
   [/^\/channels$/, "channels", renderChannels],
   [/^\/channels\/(\d+)$/, "channels", renderChannel],
-  [/^\/channels\/(\d+)\/layers$/, "channels", (main, id) => renderLayers(main, id, "channel")],
+  [/^\/channels\/(\d+)\/layers$/, "design", (main, id) => renderLayers(main, id, "channel")],
   [/^\/walls$/, "walls", renderWalls],
   [/^\/walls\/(\d+)$/, "walls", renderWall],
   [/^\/playlists$/, "playlists", renderPlaylists],
   [/^\/playlists\/(\d+)$/, "playlists", renderPlaylist],
-  [/^\/slides\/(\d+)$/, "playlists", (main, id) => renderLayers(main, id, "slide")],
+  [/^\/slides\/(\d+)$/, "design", (main, id) => renderLayers(main, id, "slide")],
   [/^\/media$/, "media", renderMedia],
   [/^\/widgets$/, "widgets", renderWidgets],
   [/^\/logins$/, "logins", renderLogins]
@@ -231,6 +233,7 @@ function shell(section, inClient) {
       link(base() + "/wizard", "wizard", "Wizard"),
       link(base() + "/channels", "channels", "Channels"),
       link(base() + "/walls", "walls", "Video walls"),
+      link(base() + "/design", "design", "Design"),
       link(base() + "/playlists", "playlists", "Playlists"),
       link(base() + "/screens", "screens", "Screens"),
       link(base() + "/monitoring", "monitoring", "Screen Monitoring"),
@@ -833,13 +836,6 @@ async function renderScreen(main, id) {
         s.wallId ? h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Video wall"),
             h("a", { class: "btn small", href: base() + "/walls/" + s.wallId }, "Open wall")),
           h("p", { class: "small muted", style: "margin:0" }, "This screen is part of the video wall “" + s.wallName + "” (column " + (s.wallCol + 1) + ", row " + (s.wallRow + 1) + "). It plays the wall's playlist, so its own playlist, channel, schedule and layers are not used while it's in the wall.")) : null,
-        s.channelId ? h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
-            h("a", { class: "btn small", href: base() + "/channels/" + s.channelId }, "Open channel")),
-          h("p", { class: "small muted", style: "margin:0" }, "This screen uses the layers of the channel “" + s.channelName + "”.")) :
-        h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Layers"),
-            h("a", { class: "btn primary small", href: base() + "/screens/" + id + "/layers" }, "Design layers")),
-          h("div", { class: "chips" }, [["video", "Video"], ["specials", "Specials"], ["text", "Text"], ["effects", "Effects"]].map(([k, l]) =>
-            h("span", { class: "pill" + (s.layers[k].enabled ? " ok" : "") }, (s.layers[k].enabled ? "● " : "○ ") + l)))),
         ...deviceCards)));
 
   poll(async () => {
@@ -2026,6 +2022,33 @@ async function renderMedia(main) {
 // ---------- inside a client: channels ----------
 const layerChips = on => h("div", { class: "chips" }, [["video", "Video"], ["specials", "Specials"], ["text", "Text"], ["effects", "Effects"]].map(([k, l]) =>
   h("span", { class: "pill" + (on.includes(k) ? " ok" : "") }, (on.includes(k) ? "● " : "○ ") + l)));
+
+/** Design (menu): every screen, channel and design slide of the client, with its layers and a Design button. */
+async function renderDesign(main) {
+  const [screens, channels, media] = await Promise.all([api("GET", "/screens"), api("GET", "/channels"), api("GET", "/media")]);
+  const slides = media.filter(m => m.kind === "widget" && m.widget && m.widget.type === "design");
+  const row = (title, sub, chips, href, label, primary) => h("tr", { class: "click", onclick: e => { if (!e.target.closest("a")) location.hash = href; } },
+    h("td", {}, h("strong", {}, title), sub ? h("div", { class: "small muted" }, sub) : null),
+    h("td", {}, chips),
+    h("td", { style: "text-align:right" }, h("a", { class: "btn small" + (primary ? " primary" : ""), href }, label)));
+  const table = rows => h("div", { class: "table-wrap" }, h("table", { class: "design-list" }, h("tbody", {}, rows)));
+  main.replaceChildren(
+    pageHead("Design", clientName() + " · what shows on top of the playlists: specials, text, pictures, effects"),
+    h("div", { class: "card" }, h("h2", {}, "Screens"),
+      screens.length ? table(screens.map(s => s.wallId
+        ? row(s.name, "In the video wall “" + s.wallName + "”: it plays the wall, so its layers aren't used.", h("span", { class: "muted small" }, "—"), base() + "/walls/" + s.wallId, "Open wall")
+        : s.channelId
+          ? row(s.name, "Uses the channel “" + s.channelName + "” (its design is shared).", layerChips((channels.find(c => c.id === s.channelId) || {}).layersOn || []), base() + "/channels/" + s.channelId + "/layers", "Design channel")
+          : row(s.name, [s.location, s.planned ? "No TV yet" : null].filter(Boolean).join(" · "), layerChips(s.layersOn || []), base() + "/screens/" + s.id + "/layers", "Design", true)))
+        : h("p", { class: "muted" }, "No screens yet. ", h("a", { href: "#", onclick: e => { e.preventDefault(); pairDialog(); } }, "Add a screen"), " (it can be set up before the TV is connected).")),
+    channels.length ? h("div", { class: "card" }, h("h2", {}, "Channels"),
+      table(channels.map(c => row(c.name, c.screens.length + " screen(s)", layerChips(c.layersOn), base() + "/channels/" + c.id + "/layers", "Design", true)))) : null,
+    h("div", { class: "card" }, h("h2", {}, "Design slides"),
+      slides.length ? table(slides.map(m => row(m.name, m.usedIn.length ? "In " + m.usedIn.map(p => p.name).join(", ") : "Not in a playlist", h("span", { class: "small muted" }, "Full-screen slide"),
+        base() + "/slides/" + m.id, "Design", true)))
+        : h("p", { class: "muted small" }, "Templates added to a playlist become slides you can design here. Open a playlist and use its Templates tab.")));
+  state.slideBack = location.hash;
+}
 
 async function renderChannels(main) {
   const [channels, playlists] = await Promise.all([api("GET", "/channels"), api("GET", "/playlists")]);

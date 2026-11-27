@@ -5,7 +5,7 @@ This portal runs digital signage: TVs in businesses (restaurants, shops, offices
 ## Who sees what
 
 - **Staff (the signage company's team)** see every client. The main menu has: Dashboard (all clients, offline screens), White Label & Clients, Screen Monitoring, Reports, Billing, Download App, Profile & Admins.
-- **Inside a client** (staff open a client from Clients or the Dashboard): Dashboard, Content (Media library, Widgets), Wizard, Channels, Video walls, Playlists, Screens, Screen Monitoring, Reports, Billing, Logins. **← All clients** goes back to the main level.
+- **Inside a client** (staff open a client from Clients or the Dashboard): Dashboard, Content (Media library, Widgets), Wizard, Channels, Video walls, Design, Playlists, Screens, Screen Monitoring, Reports, Billing, Logins. **← All clients** goes back to the main level.
 - **A client's own login** goes straight into that client's account, with the same menu, and can never see other clients. A client admin can add more logins for their business (Logins page). Clients can't upload the player app.
 - Every screen, playlist and media file belongs to one client.
 
@@ -52,7 +52,7 @@ Clock (digital or analog, 12/24 hours, date), weather (no account needed), news 
 ### A screen's page
 - **Settings:** name, location, notes, main playlist (or a Channel), orientation (landscape, portrait rotated left/right, landscape upside down), volume, "Show name on TV". Click **Save settings**.
 - **Schedule:** play different playlists at different days and times (for example a breakfast menu 6–11 am on weekdays). With no schedule the screen always plays its main playlist. Click **Save schedule**.
-- **Design layers:** opens the designer (see below).
+- **Designing a screen:** in the menu, **Design** lists every screen, channel and design slide with its layers (Video, Specials, Text, Effects); tap **Design** next to one to open the designer (see below). Screens on a channel open the channel's design; screens in a video wall don't use layers.
 - **Picture quality** (in the device details): what the TV plays at: **4K**, **2K** (1440p) or **Full HD**. The app picks the best the TV and box can handle (the TV panel, the box's video chip and memory) and switches the TV's output to it. Rotated (portrait) screens and video walls play at the box's normal app size (often Full HD). For 4K, upload 3840×2160 pictures and 4K MP4 videos; on a Full HD box they're shown at Full HD automatically.
 - **Live view / screenshot:** ask the TV for a screenshot; it appears within about 30 seconds.
 - **Remote control** (reaches the TV at its next check-in, within 30 seconds; if offline it runs when the TV reconnects): Reload content, Clear cache & re-download, Restart app, Identify (the screen name flashes on the TV).
@@ -73,7 +73,7 @@ One big picture or video across several TVs hung next to each other (up to 6 × 
 - **Wall effects:** an animation that moves across all the wall's screens: Santa & reindeer, plane with banner (your text or logo), fireworks, shooting stars, balloons, snow, confetti, hearts, leaves.
 - While in a wall, a screen's own playlist, channel, schedule and layers are not used.
 
-## The designer (Design layers)
+## The designer (menu → Design)
 
 A screen's design has four layers, bottom to top:
 1. **Video:** the playlist. It can fill the screen or a smaller area (left 70%, right 70%, top 85% for room for a ticker) to leave room for the other layers.
