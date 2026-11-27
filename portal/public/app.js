@@ -979,19 +979,27 @@ async function renderLayers(main, id, kind) {
       e.preventDefault(); e.stopPropagation(); unfocus();
       if (e.ctrlKey || e.metaKey || e.shiftKey || multiMode) { select({ type: "block", i }, false, true); return; }
       const wasSel = isSel("block", i) && !multi.size;
-      if (!isSel("block", i)) select({ type: "block", i });
-      const box = pvOverlay.getBoundingClientRect(), r = node.getBoundingClientRect();
+      // Part of the current selection (a group or several picked): keep them all selected and move them together.
+      // Otherwise select it (a locked group comes along as a whole).
+      if (!multi.has(b) && !isSel("block", i)) select({ type: "block", i });
+      const box = pvOverlay.getBoundingClientRect();
       const sx = e.clientX, sy = e.clientY;
-      const x0 = (r.left - box.left) / box.width * 100, y0 = (r.top - box.top) / box.height * 100;
+      const movers = (multi.has(b) ? selectedBlocks() : [b]).map(x => {
+        const n = blockNodes[L.text.blocks.indexOf(x)], r = n && n.getBoundingClientRect();
+        return n && { b: x, n, x0: (r.left - box.left) / box.width * 100, y0: (r.top - box.top) / box.height * 100 };
+      }).filter(Boolean);
       let moved = false;
       const mv = ev => {
         if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 4) return;
         moved = true;
-        b.x = Math.round((x0 + (ev.clientX - sx) / box.width * 100) * 10) / 10;
-        b.y = Math.round((y0 + (ev.clientY - sy) / box.height * 100) * 10) / 10;
-        node.className = node.className.replace(/\bso-pos-\S+/, "").trim();
-        node.classList.add("so-free");
-        Object.assign(node.style, { left: b.x + "%", top: b.y + "%", right: "auto", bottom: "auto", transform: "none" });
+        const ddx = (ev.clientX - sx) / box.width * 100, ddy = (ev.clientY - sy) / box.height * 100;
+        movers.forEach(m => {
+          m.b.x = Math.round((m.x0 + ddx) * 10) / 10;
+          m.b.y = Math.round((m.y0 + ddy) * 10) / 10;
+          m.n.className = m.n.className.replace(/\bso-pos-\S+/, "").trim();
+          m.n.classList.add("so-free");
+          Object.assign(m.n.style, { left: m.b.x + "%", top: m.b.y + "%", right: "auto", bottom: "auto", transform: "none" });
+        });
       };
       const up = () => {
         window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
@@ -1114,27 +1122,44 @@ async function renderLayers(main, id, kind) {
   const HANDLES = [["nw", -1, -1], ["ne", 1, -1], ["sw", -1, 1], ["se", 1, 1], ["w", -1, 0], ["e", 1, 0]];
   HANDLES.forEach(([k, dx, dy]) => frame.append(h("span", { class: "ed-h ed-h-" + k, title: dy ? "Drag to resize" : "Drag to change the width",
     onpointerdown: e => resizeDrag(e, dx, dy) })));
+  // On a group's frame: lock them together / take the group apart, right on the screen.
+  const groupChip = h("button", { type: "button", class: "ed-chip", onpointerdown: e => e.stopPropagation(),
+    onclick: e => { e.stopPropagation(); lockGroup(!groupChip.locked); placeFrame(); } });
+  frame.append(groupChip);
   let frameRaf = 0;
+  /** One rectangle around all the given nodes that are showing now. */
+  const unionRect = nodes => nodes.map(rectOf).filter(r => r && r.width).reduce((u, r) => !u ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+    : { left: Math.min(u.left, r.left), top: Math.min(u.top, r.top), right: Math.max(u.right, r.right), bottom: Math.max(u.bottom, r.bottom) }, null);
   function placeFrame() {
     cancelAnimationFrame(frameRaf);
     // The frame sits next to the preview (not inside it, which clips), so handles at the screen's edge stay grabbable.
     const host = preview.parentNode;
     if (host && frame.parentNode !== host) { if (getComputedStyle(host).position === "static") host.style.position = "relative"; host.append(frame); }
-    const node = !multi.size && isSel("block") ? blockNodes[sel.i] : null;
-    const r0 = rectOf(node), pv = preview.getBoundingClientRect();
+    const group = multi.size >= 2;
+    const nodes = group ? selectedBlocks().map(x => blockNodes[L.text.blocks.indexOf(x)]) : isSel("block") ? [blockNodes[sel.i]] : [];
+    const node = nodes.length ? nodes[0] : null;
+    const r0 = unionRect(nodes), pv = preview.getBoundingClientRect();
+    frame.classList.toggle("group", group);
+    if (group) {
+      const list = selectedBlocks();
+      groupChip.locked = !!list[0].grp && list.every(x => x.grp === list[0].grp);
+      groupChip.textContent = groupChip.locked ? "🔓 Ungroup" : "🔒 Group";
+      groupChip.title = groupChip.locked ? "Take the group apart: each item moves and sizes on its own again" : "Lock these together: they move and resize as one, on the screen and the timeline";
+    }
     // Only the part that's on the screen.
     const r = r0 && { left: Math.max(r0.left, pv.left), top: Math.max(r0.top, pv.top), right: Math.min(r0.right, pv.right), bottom: Math.min(r0.bottom, pv.bottom) };
     if (!host || !r || r.right - r.left < 2 || r.bottom - r.top < 2) { frame.hidden = true; } else {
       const box = host.getBoundingClientRect();
       frame.hidden = false;
       Object.assign(frame.style, { left: (r.left - box.left) + "px", top: (r.top - box.top) + "px", width: (r.right - r.left) + "px", height: (r.bottom - r.top) + "px" });
-      frame.classList.toggle("text", L.text.blocks[sel.i].kind === "text");
+      frame.classList.toggle("text", !group && L.text.blocks[sel.i].kind === "text");
     }
     // Keep following it while it's selected (it can animate, the timeline can hide it, the page can resize).
     if (node) frameRaf = requestAnimationFrame(placeFrame);
   }
   /** Corner: bigger / smaller (text size or picture width), the opposite corner stays put. Side (text): wrap width. */
   function resizeDrag(e, dx, dy) {
+    if (multi.size >= 2) return resizeGroup(e, dx, dy);
     e.preventDefault(); e.stopPropagation(); unfocus();
     const i = sel.i, b = L.text.blocks[i], node = blockNodes[i];
     if (!node) return;
@@ -1177,6 +1202,45 @@ async function renderLayers(main, id, kind) {
     };
     window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
   }
+  /** A group (or several selected): everything grows / shrinks together and keeps its place in the group; the opposite corner stays put. */
+  function resizeGroup(e, dx, dy) {
+    e.preventDefault(); e.stopPropagation(); unfocus();
+    const box = pvOverlay.getBoundingClientRect(), unit = box.width / 100;
+    const items = selectedBlocks().map(b => {
+      const n = blockNodes[L.text.blocks.indexOf(b)], r = rectOf(n);
+      return r && r.width ? { b, n, r, fs0: b.fs || SIZE_EM[b.size] || 2.8, w0: b.w || (b.kind === "image" ? r.width / unit : 0) } : null;
+    }).filter(Boolean);
+    if (!items.length) return;
+    const U = unionRect(items.map(it => it.n));
+    const uw = U.right - U.left, uh = U.bottom - U.top;
+    const ax = dx < 0 ? U.right : U.left, ay = dy < 0 ? U.bottom : U.top;
+    const sx = e.clientX, sy = e.clientY;
+    items.forEach(it => { it.n.className = it.n.className.replace(/\bso-pos-\S+/, "").trim(); it.n.classList.add("so-free"); });
+    let moved = false;
+    const mv = ev => {
+      const d = (ev.clientX - sx) * dx, dv = (ev.clientY - sy) * dy;
+      if (!moved && Math.abs(d) < 2 && Math.abs(dv) < 2) return;
+      moved = true;
+      const fx = (uw + d) / uw, fy = (uh + dv) / uh;
+      const f = clampN(Math.abs(fy - 1) > Math.abs(fx - 1) ? fy : fx, 0.05, 20);
+      items.forEach(({ b, n, r, fs0, w0 }) => {
+        if (b.kind === "image") { b.w = Math.round(clampN(w0 * f, 2, 100) * 10) / 10; n.style.width = b.w + "em"; }
+        else {
+          b.fs = Math.round(clampN(fs0 * f, 0.5, 30) * 10) / 10; n.style.fontSize = b.fs + "em";
+          if (w0) { b.w = Math.round(clampN(w0 * f, 3, 100) * 10) / 10; n.style.width = (b.w * unit) + "px"; }
+        }
+        // Same spot inside the group, scaled from the fixed corner.
+        b.x = Math.round(((ax + (r.left - ax) * f) - box.left) / box.width * 1000) / 10;
+        b.y = Math.round(((ay + (r.top - ay) * f) - box.top) / box.height * 1000) / 10;
+        Object.assign(n.style, { left: b.x + "%", top: b.y + "%", right: "auto", bottom: "auto", transform: "none" });
+      });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
+      if (moved) { change(); drawToolbar(); }
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  }
   function removeSelected() {
     const del = new Set(selectedBlocks());
     for (let k = L.text.blocks.length - 1; k >= 0; k--) if (del.has(L.text.blocks[k])) L.text.blocks.splice(k, 1);
@@ -1187,7 +1251,7 @@ async function renderLayers(main, id, kind) {
     const id = on ? L.text.blocks.reduce((m, x) => Math.max(m, x.grp || 0), 0) + 1 : 0;
     list.forEach(x => { x.grp = id; });
     change(); drawToolbar();
-    toast(on ? "Locked: these " + list.length + " move and stretch together on the timeline." : "Unlocked. Each one moves on its own again.");
+    toast(on ? "Grouped: these " + list.length + " move and resize together on the screen and the timeline." : "Ungrouped. Each one moves and sizes on its own again.");
   }
   function lineUp(edge) {
     const len = T(), list = selectedBlocks();
@@ -1208,14 +1272,14 @@ async function renderLayers(main, id, kind) {
       const list = selectedBlocks(), locked = !!list[0].grp && list.every(x => x.grp === list[0].grp);
       kids.push(h("strong", { class: "small" }, list.length + " selected"),
         locked ? tbBtn("🔓 Unlock group", false, () => lockGroup(false), "Let them move on their own again")
-          : h("button", { type: "button", class: "small primary", title: "Keep them together: dragging one moves or stretches all of them", onclick: () => lockGroup(true) }, "🔒 Lock as group"),
+          : h("button", { type: "button", class: "small primary", title: "Keep them together: on the screen and the timeline they move and resize as one", onclick: () => lockGroup(true) }, "🔒 Lock as group"),
         tbBtn("⇤ Same start", false, () => lineUp("start"), "Start them all at the same time"),
         tbBtn("⇥ Same end", false, () => lineUp("end"), "End them all at the same time"),
         tbBtn("Clear selection", false, () => select(null)),
         h("button", { type: "button", class: "small danger", onclick: async () => {
           if (await confirmDlg("Delete " + list.length + " items?", "You can still leave without saving to get them back.", "Delete")) removeSelected();
         } }, "Delete all"),
-        h("span", { class: "small muted" }, "Drag any of their bars to move them together; drag an end to stretch them all."));
+        h("span", { class: "small muted" }, "On the screen: drag any of them to move them together, drag a corner dot to resize them all. On the timeline: drag a bar to move them, an end to stretch them."));
     } else if (isSel("block")) {
       const i = sel.i, b = L.text.blocks[i];
       const upd = fn => e => { fn(e); change(); };

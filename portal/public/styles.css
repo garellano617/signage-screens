@@ -439,3 +439,6 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 @media (pointer: coarse) { .ed-h { width: 24px; height: 24px; margin: -12px 0 0 -12px; } .ed-h-w, .ed-h-e { width: 16px; height: 32px; margin: -16px 0 0 -8px; } }
 .ed-preview .so-text { touch-action: none; }
 .tb-group { display: inline-flex; align-items: center; gap: .25rem; padding: 0 .35rem; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+.ed-chip { display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 6px; padding: .2rem .55rem; font-size: .8rem; white-space: nowrap; background: #a855f7; color: #fff; border: 0; border-radius: 6px; pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.ed-frame.group .ed-chip { display: block; }
+.ed-frame.group { outline-style: dashed; }
