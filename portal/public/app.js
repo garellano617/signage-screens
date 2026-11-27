@@ -1019,10 +1019,21 @@ async function renderLayers(main, id, kind) {
       window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
     });
   }
+  // Weather / news for widgets placed on the design (fetched once per widget, then the preview redraws).
+  const wData = {}, wAsked = {};
+  function widgetDataFor(b) {
+    const t = b.widget && b.widget.type;
+    if (t !== "weather" && t !== "rss") return null;
+    if (!wAsked[b.mediaId]) {
+      wAsked[b.mediaId] = true;
+      api("GET", "/media/" + b.mediaId + "/widget-data").then(r => { wData[b.mediaId] = r.data; refresh(); }).catch(() => {});
+    }
+    return wData[b.mediaId] || null;
+  }
   function renderOverlay() {
     if (overlay) overlay.destroy();
     blockNodes = [];
-    overlay = SignageOverlay.render(pvOverlay, L, { time: () => playhead, onBlock: hookBlock });
+    overlay = SignageOverlay.render(pvOverlay, L, { time: () => playhead, onBlock: hookBlock, widgetData: widgetDataFor });
     placeFrame();
   }
   const refresh = () => { clearTimeout(rt); rt = setTimeout(renderOverlay, 80); };
@@ -1047,7 +1058,7 @@ async function renderLayers(main, id, kind) {
     if (typeof placeFrame === "function") placeFrame();
     if (sel) {
       const b = sel.type === "block" ? L.text.blocks[sel.i] : null;
-      tab = b ? (b.kind === "image" ? "media" : b.kind === "shape" ? "shapes" : "text") : sel.type === "ticker" ? "text" : sel.type;
+      tab = b ? (b.kind === "image" ? "media" : b.kind === "shape" ? "shapes" : b.kind === "widget" ? "widgets" : "text") : sel.type === "ticker" ? "text" : sel.type;
     }
     drawToolbar(); drawSide();
     if (!keepTimeline) drawTimeline();
@@ -1055,6 +1066,13 @@ async function renderLayers(main, id, kind) {
   // Timeline rows: a new text or picture gets a row of its own (drag it onto another row to share it).
   const nextTrack = () => L.text.blocks.reduce((m, b) => Math.max(m, (b.track || 0) + 1), 0);
   const shapeLabel = b => ((SignageOverlay.SHAPES[b.shape] || [])[0]) || "Shape";
+  const widgetLabel = b => b.widgetName || widgetName(b.widget && b.widget.type) || "Widget";
+  /** The client's widgets that can go on a design (not design slides). */
+  const designWidgets = () => media.filter(m => m.kind === "widget" && m.widget && m.widget.type !== "design");
+  function addWidget(m) {
+    const T = { clock: [26, 15], weather: [34, 19], rss: [40, 16], qr: [16, 16], countdown: [32, 15], message: [36, 15] }[m.widget.type] || [30, 17];
+    addBlock({ kind: "widget", mediaId: m.id, widget: m.widget, widgetName: m.name, text: "", w: T[0], h: T[1], x: 50 - T[0] / 2, y: 30, bgOpacity: 0, fx: "none" });
+  }
   function addBlock(b) {
     L.text.enabled = true;
     L.text.blocks.push(Object.assign({ kind: "text", text: "", position: "center", x: 30, y: 40, w: 0, size: "m", fs: 2.8, font: "sans", align: "",
@@ -1078,6 +1096,15 @@ async function renderLayers(main, id, kind) {
       enter: prev.enter && prev.enter !== "none" ? prev.enter : "fade", exit: prev.exit || "none", td: prev.td || 1, fx: prev.fx || "none", fxColor: prev.fxColor });
   }
   /** A background: the whole screen, behind everything else. */
+  /** Change a widget's settings (it's the same widget in playlists and other designs). */
+  async function editWidget(b, m) {
+    const r = await widgetDialog(m.widget.type, m, { stay: true });
+    if (!r) return;
+    Object.assign(m, r);
+    L.text.blocks.forEach(x => { if (x.kind === "widget" && x.mediaId === m.id) { x.widget = r.widget; x.widgetName = r.name; } });
+    delete wAsked[m.id]; delete wData[m.id];
+    change(); drawToolbar(); drawSide(); toast("Widget saved.");
+  }
   function addBackground(m) {
     addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 100, x: 0, y: 0, text: "", fx: "none" });
     const bg = L.text.blocks.pop();
@@ -1113,7 +1140,7 @@ async function renderLayers(main, id, kind) {
     const st = stack(), at = st.indexOf(b);
     const rect = x => x === "S" ? specialsRect() : rectOf(blockNodes[L.text.blocks.indexOf(x)]);
     const me = rect(b);
-    const name = x => x === "S" ? "the Specials panel" : x.kind === "shape" ? "the " + shapeLabel(x).toLowerCase() : x.kind === "image" ? "the picture" + (x.image && x.image.name ? " “" + x.image.name + "”" : "") : "“" + (x.text || "").split("\n")[0].slice(0, 24) + "”";
+    const name = x => x === "S" ? "the Specials panel" : x.kind === "widget" ? "the " + widgetLabel(x).toLowerCase() + " widget" : x.kind === "shape" ? "the " + shapeLabel(x).toLowerCase() : x.kind === "image" ? "the picture" + (x.image && x.image.name ? " “" + x.image.name + "”" : "") : "“" + (x.text || "").split("\n")[0].slice(0, 24) + "”";
     st.splice(at, 1);
     let to, past = null;
     if (dir === "front") to = st.length;
@@ -1195,6 +1222,7 @@ async function renderLayers(main, id, kind) {
       Object.assign(frame.style, { left: (r.left - box.left) + "px", top: (r.top - box.top) + "px", width: (r.right - r.left) + "px", height: (r.bottom - r.top) + "px" });
       frame.classList.toggle("text", !group && L.text.blocks[sel.i].kind === "text");
       frame.classList.toggle("shape", !group && L.text.blocks[sel.i].kind === "shape");
+      frame.classList.toggle("box", !group && L.text.blocks[sel.i].kind === "widget");
     }
     // Keep following it while it's selected (it can animate, the timeline can hide it, the page can resize).
     if (node) frameRaf = requestAnimationFrame(placeFrame);
@@ -1221,7 +1249,8 @@ async function renderLayers(main, id, kind) {
     const x0 = (r.left - box.left) / box.width * 100, y0 = (r.top - box.top) / box.height * 100;
     const right = x0 + r.width / box.width * 100, bottom = y0 + r.height / box.height * 100;
     const fs0 = b.fs || SIZE_EM[b.size] || 2.8, sx = e.clientX, sy = e.clientY;
-    const w0 = b.kind === "shape" ? 0 : b.w || 0;
+    const boxy = b.kind === "shape" || b.kind === "widget";
+    const w0 = boxy ? 0 : b.w || 0;
     // Sizes when the drag started (every move scales from these, not from the last move).
     const sw0 = b.w || r.width / unit, sh0 = b.h || r.height / unit, iw0 = b.w || r.width / unit;
     node.className = node.className.replace(/\bso-pos-\S+/, "").trim();
@@ -1231,9 +1260,9 @@ async function renderLayers(main, id, kind) {
       const d = (ev.clientX - sx) * dx, dv = dy ? (ev.clientY - sy) * dy : 0;
       if (!moved && Math.abs(d) < 2 && Math.abs(dv) < 2) return;
       moved = true;
-      const f = dx && dy ? cornerFactor(ev, r, dx, dy, sx, sy, b.kind === "shape" ? 10 : 14) : 1;
-      if (b.kind === "shape") {
-        // Shapes: corners keep the shape, sides stretch the width, top / bottom the height (all in % of the screen width).
+      const f = dx && dy ? cornerFactor(ev, r, dx, dy, sx, sy, boxy ? 10 : 14) : 1;
+      if (boxy) {
+        // Shapes and widgets: corners keep the shape, sides stretch the width, top / bottom the height (all in % of the screen width).
         // Never thinner than about 8 px on the screen, so it can't disappear.
         const minW = 8 / unit;
         if (dx && dy) { b.w = sw0 * f; b.h = sh0 * f; }
@@ -1287,7 +1316,7 @@ async function renderLayers(main, id, kind) {
       const f = cornerFactor(ev, U, dx, dy, sx, sy, 14);
       items.forEach(({ b, n, r, fs0, w0, h0 }) => {
         if (b.kind === "image") { b.w = Math.round(clampN(w0 * f, 2, 100) * 10) / 10; n.style.width = b.w + "em"; }
-        else if (b.kind === "shape") {
+        else if (b.kind === "shape" || b.kind === "widget") {
           b.w = Math.round(clampN(w0 * f, 0.5, 400) * 10) / 10; b.h = Math.round(clampN(h0 * f, 0.2, 400) * 10) / 10;
           n.style.width = b.w + "em"; n.style.height = b.h + "em";
         }
@@ -1451,6 +1480,11 @@ async function renderLayers(main, id, kind) {
             oninput: upd(e => { b.w = clampN(Number(e.target.value) || 0, 0, 100); }) })),
           tbBtn("↔↕ Spacing & thickness", spacingOpen, () => { spacingOpen = !spacingOpen; drawToolbar(); }, "Letter spacing (sideways), line spacing (up and down) and thickness (thin to heavy)"));
         if (spacingOpen) kids.push(spacingPanel(b));
+      } else if (b.kind === "widget") {
+        const m = media.find(x => x.id === b.mediaId);
+        kids.push(h("strong", { class: "small" }, "🧩 " + widgetLabel(b)),
+          m ? h("button", { type: "button", class: "small", onclick: () => editWidget(b, m) }, "⚙ Widget settings") : null,
+          h("span", { class: "small muted" }, "Drag the dots to size it."));
       } else if (b.kind === "shape") {
         kids.push(h("strong", { class: "small" }, "◆ " + shapeLabel(b)),
           colorIn(b.fill, v => { b.fill = v; if (!b.fillOpacity) { b.fillOpacity = 100; drawToolbar(); } change(); drawSide(); }, "Inside"),
@@ -1512,7 +1546,7 @@ async function renderLayers(main, id, kind) {
   }
 
   // ---------- side panel ----------
-  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["shapes", "Shapes"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", isSlide ? "Background" : "Video"]];
+  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["shapes", "Shapes"], ["widgets", "Widgets"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", isSlide ? "Background" : "Video"]];
   let chainNext = true;
   // Effect for pictures when none is selected: applied to every picture in the design and to the ones added next.
   const firstPic = L.text.blocks.find(x => x.kind === "image" && x.fx && x.fx !== "none");
@@ -1678,6 +1712,26 @@ async function renderLayers(main, id, kind) {
         : images.length ? h("p", { class: "small" }, "Nothing here yet. ", h("a", { href: base() + "/media", onclick: () => { state.libTab = edCat; } }, "Add some in the Media library"), ".")
         : h("p", { class: "small" }, "No pictures yet. ", h("a", { href: base() + "/media" }, "Upload some in the Media library"), "."));
       kids.push(h("p", { class: "small muted" }, "Videos and the main slideshow play in the Video layer (the playlist)."));
+    } else if (tab === "widgets") {
+      const b = isSel("block") && L.text.blocks[sel.i].kind === "widget" ? L.text.blocks[sel.i] : null;
+      if (b) {
+        const m = media.find(x => x.id === b.mediaId);
+        kids.push(h("div", { class: "sub-item" },
+          h("div", { class: "layer-head" }, h("strong", { class: "small" }, "Selected widget: " + widgetLabel(b)),
+            h("button", { type: "button", class: "small", onclick: () => { sel = null; select(null); drawSide(); } }, "Unselect")),
+          m ? h("button", { type: "button", class: "small", onclick: () => editWidget(b, m) }, "⚙ Widget settings (colours, city, feed…)") : null,
+          h("p", { class: "small muted", style: "margin:.4rem 0 0" }, "Changing its settings changes this widget everywhere it's used. Drag the dots on the screen to size it."),
+          timingFields(b)));
+      }
+      const mine = designWidgets();
+      kids.push(h("p", { class: "small muted" }, mine.length ? "Tap a widget to put it on the screen. Then move it, size it, order it, time it, like a picture." : "No widgets yet: make one below."));
+      if (mine.length) kids.push(h("div", { class: "ed-widgets" }, mine.map(m => h("button", { type: "button", title: m.name, onclick: () => addWidget(m) },
+        thumb(m, "mini"), h("span", { class: "small" }, m.name)))));
+      kids.push(h("div", { class: "small muted ed-cat", style: "margin-top:.6rem" }, "Make a new widget"),
+        h("div", { class: "ed-newwidgets" }, Object.entries(WIDGET_TYPES).map(([type, T]) => h("button", { type: "button", class: "small", onclick: async () => {
+          const r = await widgetDialog(type, null, { stay: true });
+          if (r) { media.unshift(r); addWidget(r); toast("Widget made and placed on the screen."); }
+        } }, T.icon + " " + T.name))));
     } else if (tab === "shapes") {
       const b = isSel("block") && L.text.blocks[sel.i].kind === "shape" ? L.text.blocks[sel.i] : null;
       if (b) {
@@ -1952,7 +2006,7 @@ async function renderLayers(main, id, kind) {
     // text and pictures: one row each, top of the stack first
     rows.push(row("Text & pictures", null, L.text.enabled, v => { L.text.enabled = v; }, [], true));
     // One timeline row per track; several texts or pictures can share a row and take turns.
-    const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : b.kind === "shape" ? "◆ " + shapeLabel(b) : (b.text.split("\n")[0] || "Text");
+    const blockLabel = b => b.kind === "image" ? "🖼 " + ((b.image && b.image.name) || "Picture") : b.kind === "shape" ? "◆ " + shapeLabel(b) : b.kind === "widget" ? "🧩 " + widgetLabel(b) : (b.text.split("\n")[0] || "Text");
     const tracks = [...new Set(L.text.blocks.map(b => b.track || 0))].sort((a, c) => c - a);
     for (const tr of tracks) {
       const idx = L.text.blocks.map((b, i) => i).filter(i => (L.text.blocks[i].track || 0) === tr);
@@ -2587,7 +2641,7 @@ const WIDGET_TYPES = {
   message: { name: "Message", icon: "💬", desc: "A full-screen announcement with a title and text.", config: { title: "", body: "", align: "center", bg: "#1e3a8a", fg: "#ffffff", accent: "#fbbf24" } }
 };
 
-async function widgetDialog(type, existing) {
+async function widgetDialog(type, existing, dlg = {}) {
   if (type === "design" && existing) { state.slideBack = location.hash; go("/slides/" + existing.id); return null; }
   const T = WIDGET_TYPES[type];
   const c = Object.assign({}, T.config, existing ? existing.widget.config : {});
@@ -2657,7 +2711,7 @@ async function widgetDialog(type, existing) {
   requestAnimationFrame(() => { draw(); if (type === "qr" && c.text && !c.svg) refreshFromServer(); else if (needsData && !data) refreshFromServer(); });
   const r = await pending;
   if (live) live.destroy();
-  if (r) { toast(existing ? "Widget saved." : "Widget added. Add it to a playlist to show it on screens."); route(); }
+  if (r && !dlg.stay) { toast(existing ? "Widget saved." : "Widget added. Add it to a playlist to show it on screens."); route(); }
   return r;
 }
 

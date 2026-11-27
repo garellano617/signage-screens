@@ -12,6 +12,8 @@ const wallEffects = w => {
 };
 
 const imageMedia = id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image'", id);
+/** Widgets placed on a design (checked to be the client's when the design was saved). */
+const widgetMedia = id => get("SELECT id, name, widget_json FROM media WHERE id = ? AND kind = 'widget'", id);
 
 const ONLINE_WINDOW_MS = 90e3;
 
@@ -20,7 +22,7 @@ const isOnline = screen => !!screen.last_seen && now() - screen.last_seen < ONLI
 /** Design slides: pictures attached (src, sha256, size) so the player downloads them and can show them offline. */
 function forPlayer(w) {
   if (!w || w.type !== "design" || !w.config) return w;
-  return { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), imageMedia) } };
+  return { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), imageMedia, widgetMedia) } };
 }
 
 function playlistForPlayer(playlistId) {
@@ -78,7 +80,7 @@ function buildConfig(screen) {
     screen: { id: screen.id, name: screen.name, orientation: screen.orientation, volume: screen.volume },
     defaultPlaylist: playlistForPlayer(channel ? channel.playlist_id : screen.playlist_id),
     schedules,
-    layers: withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia)
+    layers: withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia, widgetMedia)
   };
   cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
   return cfg;

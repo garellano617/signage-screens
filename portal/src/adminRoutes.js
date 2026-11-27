@@ -314,7 +314,7 @@ function channelOut(c, full) {
     screens: all("SELECT id, name, last_seen FROM screens WHERE channel_id = ? AND paired_at IS NOT NULL ORDER BY name", c.id)
       .map(s => ({ id: s.id, name: s.name, online: isOnline(s) }))
   };
-  if (full) out.layers = withImages(layers, clientImage(c.customer_id));
+  if (full) out.layers = withImages(layers, clientImage(c.customer_id), clientWidget(c.customer_id));
   return out;
 }
 
@@ -346,7 +346,7 @@ router.patch("/channels/:id", (req, res) => {
 router.put("/channels/:id/layers", (req, res) => {
   const c = loadChannel(req, intId(req.params.id));
   const img = clientImage(c.customer_id);
-  run("UPDATE channels SET layers_json = ?, updated_at = ? WHERE id = ?", JSON.stringify(sanitizeLayers(req.body, id => !!img(id))), now(), c.id);
+  run("UPDATE channels SET layers_json = ?, updated_at = ? WHERE id = ?", JSON.stringify(sanitizeLayers(req.body, clientMedia(c.customer_id))), now(), c.id);
   res.json(channelOut(loadChannel(req, c.id), true).layers);
 });
 
@@ -454,14 +454,18 @@ router.delete("/walls/:id", (req, res) => {
 
 // ---------- screen layers (video, specials, text, effects) ----------
 const clientImage = customerId => id => get("SELECT id, file, sha256, size, name FROM media WHERE id = ? AND kind = 'image' AND customer_id = ?", id, customerId);
-const layersOut = s => withImages(parseLayers(s.layers_json), clientImage(s.customer_id));
+/** A client's widget (not a design slide), for widgets placed on a design. */
+const clientWidget = customerId => id => get("SELECT id, name, widget_json FROM media WHERE id = ? AND kind = 'widget' AND customer_id = ? AND widget_json NOT LIKE '%\"type\":\"design\"%'", id, customerId);
+/** Checks a picture or widget id used in a design belongs to the client. */
+const clientMedia = customerId => { const img = clientImage(customerId), wid = clientWidget(customerId); return (id, kind) => !!(kind === "widget" ? wid(id) : img(id)); };
+const layersOut = s => withImages(parseLayers(s.layers_json), clientImage(s.customer_id), clientWidget(s.customer_id));
 
 router.get("/screens/:id/layers", (req, res) => res.json(layersOut(loadScreen(req, intId(req.params.id)))));
 
 router.put("/screens/:id/layers", (req, res) => {
   const s = loadScreen(req, intId(req.params.id));
   const img = clientImage(s.customer_id);
-  const clean = sanitizeLayers(req.body, id => !!img(id));
+  const clean = sanitizeLayers(req.body, clientMedia(s.customer_id));
   run("UPDATE screens SET layers_json = ? WHERE id = ?", JSON.stringify(clean), s.id);
   res.json(layersOut(loadScreen(req, s.id)));
 });
@@ -746,7 +750,7 @@ const mediaQuery = `SELECT m.id, m.name, m.kind, m.file, m.url, m.mime, m.size, 
 const parseWidget = m => { try { return JSON.parse(m.widget_json || "null"); } catch (_) { return null; } };
 /** Design slides (a template as a playlist slide): attach the pictures so the portal can show them. */
 const designOut = (w, cid) => w && w.type === "design" && w.config
-  ? { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), clientImage(cid)) } } : w;
+  ? { ...w, config: { ...w.config, layers: withImages(parseLayers(JSON.stringify(w.config.layers || null)), clientImage(cid), clientWidget(cid)) } } : w;
 /** Library categories. Videos, web pages and widgets go by their kind; pictures can be moved between these. */
 const PICTURE_CATEGORIES = ["picture", "background", "png", "shape"];
 const mediaCategory = m => m.kind === "image" ? (PICTURE_CATEGORIES.includes(m.category) ? m.category : m.mime === "image/png" ? "png" : "picture") : m.kind === "widget" && m.widget_json && /"type":"design"/.test(m.widget_json) ? "slide" : m.kind;
@@ -812,7 +816,7 @@ router.post("/media/widget", async (req, res) => {
 function cleanDesign(c, cid) {
   c = c && typeof c === "object" ? c : {};
   const img = clientImage(cid);
-  const layers = sanitizeLayers(c.layers || {}, id => !!img(id));
+  const layers = sanitizeLayers(c.layers || {}, clientMedia(cid));
   layers.video = { enabled: false, region: "full" };
   return { bg: /^#[0-9a-f]{6}$/i.test(String(c.bg || "")) ? c.bg : "#0f172a", layers };
 }
@@ -1064,7 +1068,7 @@ function savedTemplateOut(t, req) {
     id: "saved-" + t.id, savedId: t.id, name: t.name, description: t.description,
     category: t.customer_id ? "My templates" : "Shared templates",
     shared: !t.customer_id, canDelete: req.isStaff || (!!t.customer_id && t.customer_id === req.cid),
-    layers: t.customer_id ? withImages(layers, clientImage(t.customer_id)) : layers
+    layers: t.customer_id ? withImages(layers, clientImage(t.customer_id), clientWidget(t.customer_id)) : layers
   };
 }
 router.get("/layer-templates", (req, res) => {
@@ -1079,7 +1083,7 @@ router.post("/layer-templates", (req, res) => {
   if (!name) throw bad("Give the template a name.");
   const shared = req.isStaff && !!b.shared;
   const cid = shared ? null : targetCustomer(req);
-  let layers = sanitizeLayers(b.layers, shared ? () => false : id => !!clientImage(cid)(id));
+  let layers = sanitizeLayers(b.layers, shared ? () => false : clientMedia(cid));
   if (shared) {
     layers.specials.items.forEach(x => { x.mediaId = null; });
     layers.text.blocks = layers.text.blocks.filter(x => x.kind !== "image");
@@ -1117,12 +1121,12 @@ router.post("/ai/design", async (req, res) => {
   run(`INSERT INTO ai_usage (customer_id, day, count) VALUES (?, ?, 1)
     ON CONFLICT (customer_id, day) DO UPDATE SET count = count + 1`, cid, today());
   const img = clientImage(cid);
-  const check = id => !!img(id);
+  const check = clientMedia(cid);
   const current = sanitizeLayers(req.body.current, check);
   const images = all("SELECT id, name FROM media WHERE customer_id = ? AND kind = 'image' ORDER BY id DESC LIMIT 60", cid);
   const out = await ai.design({ prompt, mode, current, businessName: loadCustomer(cid).name, images });
   const clean = sanitizeLayers(mode === "content" ? ai.mergeWords(current, out.layers) : out.layers, check);
-  res.json({ layers: withImages(clean, img), summary: String(out.summary || "").slice(0, 500), left: Math.max(0, ai.dailyLimit() - aiUsed(cid)) });
+  res.json({ layers: withImages(clean, img, clientWidget(cid)), summary: String(out.summary || "").slice(0, 500), left: Math.max(0, ai.dailyLimit() - aiUsed(cid)) });
 });
 
 // ---------- AI help (the ? button on every page) ----------

@@ -141,8 +141,15 @@ class MainActivity : ComponentActivity() {
         networkJob = lifecycleScope.launch { networkLoop() }
         scheduleJob?.cancel()
         scheduleJob = lifecycleScope.launch {
+            var lastWidgetFetch = 0L
             while (isActive) {
                 refreshSchedule()
+                // The overlay's clock follows the box's time zone; weather / news on the design refresh every 15 minutes.
+                overlay.syncClock()
+                if (SystemClock.elapsedRealtime() - lastWidgetFetch > 15 * 60_000L || overlayWidgetsChanged) {
+                    lastWidgetFetch = SystemClock.elapsedRealtime(); overlayWidgetsChanged = false
+                    config?.let { c -> for (item in overlay.dataWidgets(c)) overlay.setWidgetData(item.mediaId, widgetData(item)) }
+                }
                 delay(15_000)
             }
         }
@@ -295,7 +302,14 @@ class MainActivity : ComponentActivity() {
         cache.prune(c.allItems)
     }
 
+    /** Set when a new design arrives, so its widgets' live data is fetched right away. */
+    private var overlayWidgetsChanged = true
+
     private fun applyConfig(c: Config) {
+        if (config?.layersJson != c.layersJson) {
+            overlayWidgetsChanged = true
+            lifecycleScope.launch { for (item in overlay.dataWidgets(c)) overlay.setWidgetData(item.mediaId, widgetData(item)) }
+        }
         config = c
         val s = c.screen
         engine.volume = (s?.volume ?: 100) / 100f

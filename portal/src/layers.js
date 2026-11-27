@@ -57,22 +57,25 @@ function sanitizeLayers(input, checkImage) {
   const cycle = num(tx.cycle, 0, 3600, 0);
   const blocks = (Array.isArray(tx.blocks) ? tx.blocks : []).slice(0, MAX_BLOCKS).map((raw, index) => {
     const b = raw && typeof raw === "object" ? raw : {};
-    const kind = b.kind === "image" ? "image" : b.kind === "shape" ? "shape" : "text";
-    const mediaId = kind === "image" && b.mediaId ? Number(b.mediaId) : null;
+    const kind = b.kind === "image" ? "image" : b.kind === "shape" ? "shape" : b.kind === "widget" ? "widget" : "text";
+    // Pictures and widgets point to a media item (checked: it must be the client's own).
+    const mediaId = (kind === "image" || kind === "widget") && b.mediaId ? Number(b.mediaId) : null;
     const free = b.x !== null && b.x !== undefined && b.x !== "" && b.y !== null && b.y !== undefined && b.y !== "";
     const from = cycle ? numf(b.from, 0, cycle, 0) : 0;
     const to = cycle ? numf(b.to, 0, cycle, 0) : 0;
     return {
       kind,
       text: kind === "text" ? clip(b.text, 600) : "",
-      mediaId: mediaId && Number.isInteger(mediaId) && checkImage(mediaId) ? mediaId : null,
+      mediaId: mediaId && Number.isInteger(mediaId) && checkImage(mediaId, kind) ? mediaId : null,
       position: pick(b.position, POSITIONS, "top"),
       // Free placement: top-left corner in % of the screen (null = use position).
       // (can be partly or mostly off the screen: the screen cuts it off)
       x: free ? numf(b.x, -300, 200, 0) : null,
       y: free ? numf(b.y, -300, 200, 0) : null,
       // Width in % of the screen (0 = as wide as the text).
-      w: numf(b.w, 0, kind === "shape" ? 400 : 100, kind === "image" ? 30 : kind === "shape" ? 18 : 0),
+      w: numf(b.w, 0, kind === "shape" ? 400 : 100, kind === "image" ? 30 : kind === "shape" ? 18 : kind === "widget" ? 30 : 0),
+      // Widgets: their box's height (in % of the screen width, like w).
+      ...(kind === "widget" ? { h: numf(b.h, 2, 100, 17) } : {}),
       // Shapes: which one, height (in % of the screen width, like w), inside colour + see-through, border colour + thickness.
       ...(kind === "shape" ? {
         shape: pick(b.shape, SHAPE_NAMES, "square"),
@@ -179,7 +182,13 @@ function attachImage(x, getMedia) {
   const m = x.mediaId ? getMedia(x.mediaId) : null;
   return { ...x, mediaId: m ? x.mediaId : null, image: m ? { mediaId: m.id, src: "/media/" + m.file, sha256: m.sha256, size: m.size, name: m.name } : null };
 }
-function withImages(layers, getMedia) {
+/** A widget block with its widget ({ type, config }) attached, or null when the widget is gone. */
+function attachWidget(b, getWidget) {
+  const m = b.mediaId ? getWidget(b.mediaId) : null;
+  let w = null; try { w = m && JSON.parse(m.widget_json || "null"); } catch (_) {}
+  return w && w.type !== "design" ? { ...b, widget: w, widgetName: m.name } : null;
+}
+function withImages(layers, getMedia, getWidget) {
   const out = JSON.parse(JSON.stringify(layers));
   const attach = x => attachImage(x, getMedia);
   // The logo on the plane's banner.
@@ -187,6 +196,8 @@ function withImages(layers, getMedia) {
   out.specials.items = out.specials.items.map(attach);
   // An image block whose picture was deleted is dropped.
   out.text.blocks = out.text.blocks.map(b => (b.kind === "image" ? attach(b) : b)).filter(b => b.kind !== "image" || b.image);
+  // Widgets (clock, weather…) placed on the design: their settings, for the preview and the TV. Gone → dropped.
+  if (getWidget) out.text.blocks = out.text.blocks.map(b => (b.kind === "widget" ? attachWidget(b, getWidget) : b)).filter(Boolean);
   return out;
 }
 

@@ -1199,3 +1199,32 @@ test("media library categories: automatic from the file type, upload into a cate
   assert.deepEqual(list.map(m => m.category).sort(), ["background", "picture", "png", "png", "web"]);
   scopeId = null;
 });
+
+test("widgets on a design: the client's own widgets only, attached for the preview and the TV", async () => {
+  cookie = ""; scopeId = null;
+  await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+  const other = (await call("POST", "/api/customers", { name: "Widget Other" })).body;
+  scopeId = other.id;
+  const foreign = (await call("POST", "/api/media/widget", { type: "message", name: "Not yours", config: { text: "x" } })).body;
+  const A = (await call("POST", "/api/customers", { name: "Widget Shop" })).body;
+  scopeId = A.id;
+  const clock = (await call("POST", "/api/media/widget", { type: "clock", name: "Front clock", config: {} })).body;
+  const slide = (await call("POST", "/api/media/widget", { type: "design", name: "Slide", config: { layers: {} } })).body;
+  const reg = (await call("POST", "/api/player/register", { deviceId: "android-wblock-0001" })).body;
+  const s = (await call("POST", "/api/screens/pair", { code: reg.pairingCode })).body;
+  const put = await call("PUT", "/api/screens/" + s.id + "/layers", { text: { enabled: true, blocks: [
+    { kind: "widget", mediaId: clock.id, x: 60, y: 5, w: 30, h: 16 },
+    { kind: "widget", mediaId: foreign.id, x: 0, y: 0 },
+    { kind: "widget", mediaId: slide.id, x: 0, y: 0 }] } });
+  assert.equal(put.status, 200);
+  const b = put.body.text.blocks;
+  assert.equal(b.length, 1, "another client's widget and a design slide can't be placed");
+  assert.deepEqual([b[0].kind, b[0].mediaId, b[0].w, b[0].h, b[0].widget.type, b[0].widgetName], ["widget", clock.id, 30, 16, "clock", "Front clock"]);
+  // The TV gets the widget's settings with the design.
+  const cfg = (await call("GET", "/api/player/config", undefined, { authorization: "Bearer " + reg.token })).body;
+  assert.equal(cfg.layers.text.blocks[0].widget.type, "clock");
+  // Deleting the widget drops it from the design.
+  await call("DELETE", "/api/media/" + clock.id);
+  assert.equal((await call("GET", "/api/screens/" + s.id + "/layers")).body.text.blocks.length, 0);
+  scopeId = null;
+});

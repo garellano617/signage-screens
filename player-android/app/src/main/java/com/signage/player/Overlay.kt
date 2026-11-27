@@ -20,13 +20,40 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
     private var ready = false
     private var pending: String? = null
     private var shown: String? = null
+    private var lastConfig: Config? = null
+    /** Live data (weather, news) for widgets placed on the design, by widget id. */
+    private val widgetData = HashMap<Long, String>()
+
+    /** Widgets on the design that need live data (weather, news), as items for MainActivity.widgetData. */
+    fun dataWidgets(config: Config): List<Item> {
+        val layers = config.layersJson?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return emptyList()
+        val out = mutableListOf<Item>()
+        layers.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { b ->
+            val w = b.optJSONObject("widget") ?: return@forEachObject
+            if (b.str("kind") == "widget" && (w.str("type") == "weather" || w.str("type") == "rss"))
+                out += Item(0, b.optLong("mediaId"), b.str("widgetName"), "widget", "widget:" + b.optLong("mediaId"), null, 0, 0, w.toString())
+        }
+        return out.distinctBy { it.mediaId }
+    }
+
+    /** New live data for a widget: redraws the design if it changed. */
+    fun setWidgetData(mediaId: Long, data: String?) {
+        if (data == null || widgetData[mediaId] == data) return
+        widgetData[mediaId] = data
+        lastConfig?.let { show(it) }
+    }
 
     fun show(config: Config) {
+        lastConfig = config
         val layers = config.layersJson?.let { runCatching { JSONObject(it) }.getOrNull() }
         val needed = layers != null && listOf("specials", "text", "effects").any { layers.optJSONObject(it)?.optBoolean("enabled") == true }
         if (layers == null || !needed) { hide(); return }
 
         localizeImages(layers, cache)
+        // Widgets' live data goes into the layers (overlay.js reads b.widgetData).
+        layers.optJSONObject("text")?.optJSONArray("blocks")?.forEachObject { b ->
+            if (b.str("kind") == "widget") widgetData[b.optLong("mediaId")]?.let { d -> runCatching { b.put("widgetData", org.json.JSONTokener(d).nextValue()) } }
+        }
         val json = layers.toString()
         if (json == shown && web != null) return
         shown = json
@@ -71,7 +98,7 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
 
     /** Tells the page the difference between the portal clock and this TV clock (for video wall effects). */
     fun syncClock() {
-        web?.evaluateJavascript("window.clockOffset = ${ServerClock.now() - System.currentTimeMillis()}", null)
+        web?.evaluateJavascript("window.clockOffset = ${ServerClock.now() - System.currentTimeMillis()}; " + DeviceClock.js(), null)
     }
 
     private fun push(json: String) {

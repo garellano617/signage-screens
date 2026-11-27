@@ -488,3 +488,10 @@ dialog:has(.widget-dialog) { width: min(920px, calc(100vw - 32px)); }
 .ed-rot[data-deg]::after { content: attr(data-deg); position: absolute; left: 130%; top: 0; padding: 0 .35rem; border-radius: 4px; background: #a855f7; color: #fff; font-size: 12px; white-space: nowrap; }
 .ed-frame.shape .ed-rot { display: block; }
 @media (pointer: coarse) { .ed-rot { width: 32px; height: 32px; margin-left: -16px; top: -44px; line-height: 28px; } }
+
+/* Designer: widgets tab, and box handles for widgets. */
+.ed-widgets { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: .4rem; }
+.ed-widgets button { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: .4rem .25rem; height: auto; }
+.ed-widgets .mini { width: 80px; height: 45px; border-radius: 4px; overflow: hidden; position: relative; }
+.ed-newwidgets { display: flex; flex-wrap: wrap; gap: .35rem; }
+.ed-frame.box .ed-h-w, .ed-frame.box .ed-h-e, .ed-frame.box .ed-h-n, .ed-frame.box .ed-h-s { display: block; }

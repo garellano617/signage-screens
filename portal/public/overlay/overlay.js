@@ -260,11 +260,19 @@
     var tx = layers.text;
     if (tx && tx.enabled) {
       var timed = [];
+      var widgetBoxes = [];
       var cycle = tx.cycle || 0;
       (tx.blocks || []).forEach(function (b, i) {
         var free = typeof b.x === "number" && typeof b.y === "number";
         var t = el("div", "so-text " + (free ? "so-free" : "so-pos-" + b.position));
-        if (b.kind === "shape") {
+        if (b.kind === "widget") {
+          // A widget (clock, weather, news…) in a box; drawn once the box is on the page (it sizes itself to the box).
+          if (!b.widget || !global.SignageWidgets) return;
+          t.className += " so-widgetbox";
+          t.style.width = (b.w || 30) + "em";
+          t.style.height = (b.h || 17) + "em";
+          widgetBoxes.push([t, b]);
+        } else if (b.kind === "shape") {
           t.className += " so-shape";
           t.innerHTML = shapeSvg(b);
           var shd = SHAPES[b.shape] || SHAPES.square;
@@ -306,6 +314,16 @@
           dIn: b.enter && b.enter !== "none" ? b.td || 1 : 0, dOut: cycle && b.exit && b.exit !== "none" ? b.td || 1 : 0, last: "" });
         root.appendChild(t);
         if (opts.onBlock) opts.onBlock(t, b, i);
+      });
+      // Widgets: live data from opts.widgetData (portal preview) or b.widgetData (the TV puts it in the layers).
+      widgetBoxes.forEach(function (x) {
+        var box = el("div", "so-wbox");
+        x[0].appendChild(box);
+        var data = opts.widgetData ? opts.widgetData(x[1]) : (x[1].widgetData || null);
+        try {
+          var w = global.SignageWidgets.render(box, x[1].widget, data, {});
+          cleanups.push(function () { w.destroy(); });
+        } catch (e) { /* a broken widget shouldn't stop the rest of the design */ }
       });
       // Blocks show from..to seconds into each cycle (with no timing: all the time). The editor passes its playhead as opts.time.
       // Blocks on the same timeline row that overlap: the overlap is the transition (a crossfade unless another one is picked).

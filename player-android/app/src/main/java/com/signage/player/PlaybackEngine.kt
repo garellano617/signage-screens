@@ -557,12 +557,7 @@ class PlaybackEngine(
         return true
     }
 
-    /** The box's current time-zone offset (ms) and name, for the clock widget. */
-    private fun deviceClockJs(): String {
-        val tz = java.util.TimeZone.getDefault()
-        val id = tz.id.replace("\\", "").replace("\"", "")
-        return "window.deviceClock = { offset: ${tz.getOffset(System.currentTimeMillis())}, zone: \"$id\" }"
-    }
+    private fun deviceClockJs(): String = DeviceClock.js()
 
     private fun show(v: View) {
         for (child in listOf(image, playerView, idle, web, widgetWeb, surfacePlayerView, hiImage)) {
