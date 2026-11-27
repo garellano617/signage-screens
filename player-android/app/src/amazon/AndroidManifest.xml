@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Amazon edition: Amazon installs and updates the app, and the Signage Stick manages the device itself. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" tools:node="remove" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
+
+    <application>
+        <activity-alias android:name=".HomeAlias" tools:node="remove" />
+        <receiver android:name=".UpdateReceiver" tools:node="remove" />
+        <receiver android:name=".AdminReceiver" tools:node="remove" />
+    </application>
+</manifest>

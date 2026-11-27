@@ -30,6 +30,7 @@ android {
             ?: ((System.currentTimeMillis() / 60_000) - 29_000_000).toInt()
         versionName = "1.2.$versionCode"
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
+        buildConfigField("boolean", "AMAZON", "false")
     }
 
     signingConfigs {
@@ -49,6 +50,14 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName(if (keystoreProps.isNotEmpty()) "release" else "debug")
+        }
+        // Amazon Appstore / Amazon Signage Stick edition (./gradlew assembleAmazon). Amazon installs and updates
+        // it, so it has no self-updater, no device owner / kiosk / home-screen mode and no "draw over other
+        // apps" permission (src/amazon/AndroidManifest.xml removes them), and Back leaves the app.
+        create("amazon") {
+            initWith(getByName("release"))
+            matchingFallbacks += "release"
+            buildConfigField("boolean", "AMAZON", "true")
         }
     }
 

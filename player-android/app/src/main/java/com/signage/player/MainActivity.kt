@@ -221,7 +221,7 @@ class MainActivity : ComponentActivity() {
                     if (config == null || config?.version != hb.str("configVersion")) fetchConfig()
                     handleCommands(hb.optJSONArray("commands"))
                 }
-                hb.optJSONObject("app")?.let { app -> lifecycleScope.launch { Updater.check(this@MainActivity, api, app) } }
+                if (!BuildConfig.AMAZON) hb.optJSONObject("app")?.let { app -> lifecycleScope.launch { Updater.check(this@MainActivity, api, app) } }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: UnauthorizedException) {
@@ -505,7 +505,9 @@ class MainActivity : ComponentActivity() {
         if (event.action == KeyEvent.ACTION_UP) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> { showMenu(); return true }
+                // Amazon edition: Back leaves the app (Amazon's rule); the menu is on the remote's menu key.
                 KeyEvent.KEYCODE_BACK -> {
+                    if (BuildConfig.AMAZON) { finish(); return true }
                     val now = SystemClock.elapsedRealtime()
                     backPresses.addLast(now)
                     while (backPresses.isNotEmpty() && now - backPresses.first() > 2_000) backPresses.removeFirst()
@@ -520,15 +522,13 @@ class MainActivity : ComponentActivity() {
 
     private val homeAlias get() = ComponentName(this, "$packageName.HomeAlias")
 
-    private fun kioskEnabled() = if (DeviceOwner.isOwner(this)) prefs.ownerKiosk else
+    private fun kioskEnabled() = if (BuildConfig.AMAZON) false else if (DeviceOwner.isOwner(this)) prefs.ownerKiosk else
         packageManager.getComponentEnabledSetting(homeAlias) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
 
     private fun showMenu() {
-        val options = mutableListOf(
-            getString(R.string.menu_server) to { showSetup() },
-            getString(if (kioskEnabled()) R.string.menu_kiosk_off else R.string.menu_kiosk_on) to { toggleKiosk() },
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+        val options = mutableListOf<Pair<String, () -> Unit>>(getString(R.string.menu_server) to { showSetup() })
+        if (!BuildConfig.AMAZON) options += getString(if (kioskEnabled()) R.string.menu_kiosk_off else R.string.menu_kiosk_on) to { toggleKiosk() }
+        if (!BuildConfig.AMAZON && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             options += getString(R.string.menu_autostart) to {
                 runCatching {
                     startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -571,7 +571,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // Device owner: home screen, locked kiosk, screen always on (see DeviceOwner).
-        if (::prefs.isInitialized) DeviceOwner.apply(this, prefs.ownerKiosk)
+        if (::prefs.isInitialized && !BuildConfig.AMAZON) DeviceOwner.apply(this, prefs.ownerKiosk)
         wake.trySend(Unit)
     }
 

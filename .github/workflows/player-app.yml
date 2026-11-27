@@ -62,7 +62,7 @@ jobs:
         working-directory: player-android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testReleaseUnitTest assembleRelease -PsignageServerUrl=https://signage.precom.net
+          ./gradlew --no-daemon testReleaseUnitTest assembleRelease assembleAmazon -PsignageServerUrl=https://signage.precom.net
 
       - uses: actions/upload-artifact@v4
         if: steps.key.outputs.ready == 'true'
@@ -70,6 +70,14 @@ jobs:
           name: signage-player
           path: player-android/app/build/outputs/apk/release/*.apk
           retention-days: 30
+
+      # The Amazon edition, to upload to the Amazon Developer Console (not published to the portal).
+      - uses: actions/upload-artifact@v4
+        if: steps.key.outputs.ready == 'true'
+        with:
+          name: signage-player-amazon
+          path: player-android/app/build/outputs/apk/amazon/*.apk
+          retention-days: 90
 
       - name: Publish to the portal
         if: steps.key.outputs.ready == 'true'
