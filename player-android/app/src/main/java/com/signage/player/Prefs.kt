@@ -35,6 +35,11 @@ class Prefs(context: Context) {
         get() = sp.getString("failedUpdate", null)
         set(v) = sp.edit().putString("failedUpdate", v).apply()
 
+    /** Device owner mode: kiosk (home screen + locked to the player). On unless staff turn it off in the menu. */
+    var ownerKiosk: Boolean
+        get() = sp.getBoolean("ownerKiosk", true)
+        set(v) = sp.edit().putBoolean("ownerKiosk", v).apply()
+
     var lastCrash: String?
         get() = sp.getString("lastCrash", null)
         set(v) = sp.edit().putString("lastCrash", v).commit().let { }

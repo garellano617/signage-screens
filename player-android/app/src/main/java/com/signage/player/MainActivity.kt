@@ -378,6 +378,7 @@ class MainActivity : ComponentActivity() {
             .put("uptimeSec", SystemClock.elapsedRealtime() / 1000)
             .put("resolution", "${dm.widthPixels}x${dm.heightPixels}")
             .put("quality", caps?.describe().orEmpty())
+            .put("deviceOwner", DeviceOwner.describe(this, prefs.ownerKiosk))
             .put("timeZone", java.util.TimeZone.getDefault().let { tz -> tz.id + " (UTC" + (if (tz.getOffset(System.currentTimeMillis()) >= 0) "+" else "-") +
                 java.lang.String.format(java.util.Locale.US, "%02d:%02d", Math.abs(tz.getOffset(System.currentTimeMillis())) / 3_600_000, Math.abs(tz.getOffset(System.currentTimeMillis())) / 60_000 % 60) + ")" })
             .put("deviceTime", java.text.SimpleDateFormat("EEE HH:mm", java.util.Locale.US).format(java.util.Date()))
@@ -405,6 +406,10 @@ class MainActivity : ComponentActivity() {
                 "screenshot" -> { delay(300); captureScreenshot() }
                 "identify" -> identify()
                 "restart_app" -> restartApp()
+                // Device owner only: restart the whole TV; otherwise restart the app.
+                "reboot" -> { delay(1500); if (!DeviceOwner.reboot(this)) restartApp() }
+                // Remove device owner (to uninstall the app or use the TV normally).
+                "release_owner" -> DeviceOwner.release(this)
             }
         }
     }
@@ -515,7 +520,7 @@ class MainActivity : ComponentActivity() {
 
     private val homeAlias get() = ComponentName(this, "$packageName.HomeAlias")
 
-    private fun kioskEnabled() =
+    private fun kioskEnabled() = if (DeviceOwner.isOwner(this)) prefs.ownerKiosk else
         packageManager.getComponentEnabledSetting(homeAlias) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
 
     private fun showMenu() {
@@ -541,6 +546,8 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleKiosk() {
         val enable = !kioskEnabled()
+        // Device owner: no questions; the player becomes (or stops being) the locked home screen right away.
+        if (DeviceOwner.isOwner(this)) { prefs.ownerKiosk = enable; DeviceOwner.apply(this, enable); return }
         packageManager.setComponentEnabledSetting(
             homeAlias,
             if (enable) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
@@ -563,6 +570,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Device owner: home screen, locked kiosk, screen always on (see DeviceOwner).
+        if (::prefs.isInitialized) DeviceOwner.apply(this, prefs.ownerKiosk)
         wake.trySend(Unit)
     }
 

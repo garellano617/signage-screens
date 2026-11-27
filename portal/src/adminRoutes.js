@@ -590,7 +590,7 @@ router.delete("/screens/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-const COMMANDS = ["reload", "restart_app", "screenshot", "clear_cache", "identify"];
+const COMMANDS = ["reload", "restart_app", "screenshot", "clear_cache", "identify", "reboot", "release_owner"];
 router.post("/screens/:id/commands", (req, res) => {
   if (loadScreen(req, intId(req.params.id)).planned) throw bad("No TV is connected to this screen yet.");
   const s = loadScreen(req, intId(req.params.id));

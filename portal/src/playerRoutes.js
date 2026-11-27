@@ -79,6 +79,7 @@ router.post("/heartbeat", requirePlayer, (req, res) => {
     uptimeSec: Number(b.uptimeSec) || 0,
     resolution: clip(b.resolution, 40),
     quality: clip(b.quality, 100),
+    deviceOwner: clip(b.deviceOwner, 40),
     timeZone: clip(b.timeZone, 80),
     deviceTime: clip(b.deviceTime, 40),
     androidVersion: clip(b.androidVersion, 40),

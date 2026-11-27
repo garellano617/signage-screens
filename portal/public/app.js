@@ -707,7 +707,7 @@ function deviceRows(s) {
   const st = s.status || {};
   return [
     ["Status", statusPill(s)], ["Last seen", ago(s.lastSeen)], 
-    ["Device", s.model || "—"], ["Android", st.androidVersion || "—"], ["App version", s.appVersion || "—"], ["Picture quality", st.quality || "—"], ["Time zone (clock)", st.timeZone ? st.timeZone + (st.deviceTime ? " · it was " + st.deviceTime + " on the TV at its last check-in" : "") : "—"], ["Resolution", st.resolution || "—"],
+    ["Device", s.model || "—"], ["Android", st.androidVersion || "—"], ["App version", s.appVersion || "—"], ["Picture quality", st.quality || "—"], ["Device owner", !st.deviceOwner ? "—" : st.deviceOwner === "no" ? "No (optional: see Help → Device owner)" : st.deviceOwner.replace(/^yes/, "Yes")], ["Time zone (clock)", st.timeZone ? st.timeZone + (st.deviceTime ? " · it was " + st.deviceTime + " on the TV at its last check-in" : "") : "—"], ["Resolution", st.resolution || "—"],
     ["IP address", s.ip || "—"], ["Offline cache", st.cacheBytes ? bytes(st.cacheBytes) : "—"], ["Free storage", st.freeBytes ? bytes(st.freeBytes) : "—"],
     ["Uptime", st.uptimeSec ? dur(Math.round(st.uptimeSec)) : "—"], ["App updates", st.update || "—"], ["Last error", st.error || "—"]
   ].flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]);
@@ -767,7 +767,12 @@ async function renderScreen(main, id) {
         cmd("identify", "Show name on TV", "The screen name will flash on the TV."),
         cmd("reload", "Reload content", "The screen will reload its content."),
         cmd("clear_cache", "Clear cache & re-download", "The screen will clear its cache and download everything again."),
-        cmd("restart_app", "Restart app", "The player app will restart.")),
+        cmd("restart_app", "Restart app", "The player app will restart."),
+        /^yes/.test((s.status || {}).deviceOwner || "") ? cmd("reboot", "Restart TV", "The TV will restart. It's back in about a minute.") : null,
+        /^yes/.test((s.status || {}).deviceOwner || "") ? h("button", { class: "danger", onclick: async () => {
+          if (!confirm("Remove device owner from this TV? It stays paired and keeps playing, but it will no longer be locked to the player or update silently. Do this before uninstalling the app or giving the TV away.")) return;
+          try { await api("POST", "/screens/" + id + "/commands", { type: "release_owner" }); toast("Device owner will be removed at the TV's next check-in."); } catch (e) { fail(e); }
+        } }, "Remove device owner") : null),
       h("p", { class: "muted small", style: "margin-top:.75rem" }, "Commands reach the screen at its next check-in (within 30 seconds).")),
     h("div", { class: "card" }, h("div", { class: "layer-head" }, h("h2", { style: "margin:0" }, "Device"),
       h("button", { class: "small", onclick: () => connectTvDialog(s) }, "Replace TV")), dl)

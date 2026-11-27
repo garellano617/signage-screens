@@ -120,9 +120,26 @@ Shows each client's plan, monthly amount and paid / overdue status from the bill
 
 - **Android TV, Google TV, Android boxes and tablets (Android 5.0 or newer):** one app works on all of them. Download the APK from the Download App page (or type the portal address followed by /download/PremierSignage.apk in the TV's browser or the Downloader app) and install it. Allow "install unknown apps" when asked.
 - **Amazon Fire TV Stick:** install the free **Downloader** app from the Amazon app store; Settings → My Fire TV → Developer options → Install unknown apps → turn on Downloader (no Developer options? Settings → My Fire TV → About → click the device name 7 times); in Downloader type the portal address followed by /download/PremierSignage.apk and install.
-- **Updates** reach the TVs on their own; on most boxes someone presses **Install** with the remote once per update.
+- **Updates** reach the TVs on their own; on most boxes someone presses **Install** with the remote once per update (none with device owner, below).
 - Staff see **App problems reported by TVs** on this page when a player app crashes.
 - Not supported: Samsung (Tizen) and LG (webOS) smart TVs' own systems, Roku, Apple TV. Use an Android TV box or Fire TV Stick plugged into those TVs.
+
+### Device owner (optional: locked kiosk, silent updates)
+
+Make the player the TV's **device owner** once, and the TV becomes a dedicated sign:
+- the player is the TV's home screen and opens by itself when the TV powers on;
+- it's **locked**: Home and Back on the remote can't leave it (staff: press Back 3 times for the player menu → Turn off kiosk mode);
+- app updates install with no prompt; the screen stays on and there's no lock screen;
+- the screen's page gets **Restart TV** and **Remove device owner** buttons, and Device shows **Device owner: Yes**.
+
+**Setting it up (once per TV, needs a computer):**
+1. On the TV, sign out of / remove every Google (and other) account: Settings → Accounts. Android refuses device owner while any account is signed in. If that's not possible, factory-reset the TV and skip signing in.
+2. Turn on Developer options (Settings → Device Preferences → About → click **Build** 7 times), then turn on **USB debugging** / **Network debugging** in Developer options. Note the TV's IP address (it's on the screen's page too).
+3. Install the Premier Signage app and pair it as usual.
+4. On a computer with Android platform-tools (adb) installed, on the same network: `adb connect TV-IP-ADDRESS` (accept the prompt on the TV), then `adb shell dpm set-device-owner com.signage.player/.AdminReceiver`. It should answer "Success".
+5. Open the player again: within seconds it locks in. You can then sign back in to accounts if you need to, and turn Developer options off.
+
+Some TVs (and Amazon Fire TV) don't allow device owner; the command then says so and the player keeps working as before. To undo: **Remove device owner** on the screen's page (do this before uninstalling the app or giving the TV away; a device-owner app can't be uninstalled otherwise, short of a factory reset).
 
 ## Profile & Admins / Logins
 
