@@ -53,3 +53,9 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
+      # Optional: client login codes by text (Sent). Each text costs money; email codes are free.
+      #   SENT_CODE_TEMPLATE = ID of an approved Sent template for login codes, with a variable named "code".
+      - key: SENT_API_KEY
+        sync: false
+      - key: SENT_CODE_TEMPLATE
+        sync: false

@@ -27,8 +27,9 @@ const str = (v, max, label) => {
 };
 
 // ---------- auth ----------
+const twostep = require("./twostep");
 const failures = new Map(); // ip -> { count, until }
-router.post("/auth/login", (req, res) => {
+router.post("/auth/login", async (req, res) => {
   const key = req.ip || "?";
   const f = failures.get(key);
   if (f && f.count >= 10 && f.until > now()) throw new HttpError(429, "Too many attempts. Try again in a few minutes.");
@@ -42,8 +43,42 @@ router.post("/auth/login", (req, res) => {
   }
   failures.delete(key);
   if (user.customer_id && !user.customer_active) throw new HttpError(403, "This account is paused. Please contact your provider.");
+  // Client accounts: a code by email or text too, unless this device is remembered.
+  if (user.customer_id && twostep.methodFor(user, mailer) && !twostep.trusted(req, user)) {
+    const r = await twostep.start(req, res, user, mailer, require("./branding").branding().name);
+    return res.json({ needCode: true, via: r.via, sentTo: r.sentTo });
+  }
   res.cookie("sid", auth.createSession(user.id), auth.sessionCookieOptions(req));
   res.json({ user: auth.publicUser(user) });
+});
+
+// Second step: the code. remember = don't ask again on this device for 30 days.
+router.post("/auth/verify", (req, res) => {
+  const key = req.ip || "?";
+  const f = failures.get(key);
+  if (f && f.count >= 10 && f.until > now()) throw new HttpError(429, "Too many attempts. Try again in a few minutes.");
+  let userId;
+  try { userId = twostep.check(req, req.body.code); }
+  catch (e) {
+    failures.set(key, { count: f && f.until > now() ? f.count + 1 : 1, until: now() + 15 * 60e3 });
+    if (e.restart) res.clearCookie(twostep.PENDING, { path: "/" });
+    return res.status(e.status || 400).json({ error: e.message, code: e.restart ? "restart" : undefined });
+  }
+  const user = get(`SELECT u.*, c.name AS customer_name, c.active AS customer_active FROM users u LEFT JOIN customers c ON c.id = u.customer_id WHERE u.id = ?`, userId);
+  if (!user || (user.customer_id && !user.customer_active)) throw new HttpError(403, "This account is paused. Please contact your provider.");
+  res.clearCookie(twostep.PENDING, { path: "/" });
+  if (req.body.remember) twostep.trust(req, res, user);
+  res.cookie("sid", auth.createSession(user.id), auth.sessionCookieOptions(req));
+  res.json({ user: auth.publicUser(user) });
+});
+
+router.post("/auth/resend", async (req, res) => {
+  const userId = twostep.canResend(req);
+  if (userId === null) return res.status(401).json({ error: "Your code expired. Log in again to get a new one.", code: "restart" });
+  if (userId === -1) throw new HttpError(429, "We just sent a code. Wait 30 seconds before asking for another.");
+  const user = get("SELECT * FROM users WHERE id = ?", userId);
+  const r = await twostep.start(req, res, user, mailer, require("./branding").branding().name);
+  res.json({ via: r.via, sentTo: r.sentTo });
 });
 
 // Self sign-up: a new client makes their own account (a client + its first admin login) and is logged in.
@@ -137,6 +172,7 @@ router.post("/auth/reset", (req, res) => {
     run("UPDATE password_resets SET used_at = ? WHERE id = ?", now(), r.id);
     run("UPDATE users SET password_hash = ? WHERE id = ?", auth.hashPassword(password), r.user_id);
     run("DELETE FROM sessions WHERE user_id = ?", r.user_id); // logged out everywhere
+    twostep.forgetDevices(r.user_id);
   });
   mailer.send({ to: r.email, subject: "Your password was changed",
     text: `The password for ${r.email} was just changed using a reset link.\n\nIf this wasn't you, contact us right away.`
@@ -184,12 +220,28 @@ function targetCustomer(req) {
 
 router.get("/auth/me", (req, res) => res.json({ user: auth.publicUser(req.user) }));
 
+/** Two-step login settings for a client's own login: cell number and how codes are sent. */
+router.get("/auth/two-step", (req, res) => {
+  const u = get("SELECT cell, code_via FROM users WHERE id = ?", req.user.id);
+  res.json({ required: !!req.user.customer_id, email: mailer.configured, sms: twostep.smsReady(), cell: u.cell, via: u.code_via === "sms" ? "sms" : "email" });
+});
+router.put("/auth/two-step", (req, res) => {
+  const cell = String(req.body.cell || "").trim();
+  if (cell && !twostep.e164(cell)) throw bad("Enter a 10-digit US cell number.");
+  const via = req.body.via === "sms" ? "sms" : "email";
+  if (via === "sms" && !cell) throw bad("Add your cell number to get codes by text.");
+  if (via === "sms" && !twostep.smsReady()) throw bad("Codes by text aren't available yet. Use email for now.");
+  run("UPDATE users SET cell = ?, code_via = ? WHERE id = ?", cell.slice(0, 20), via, req.user.id);
+  res.json({ ok: true });
+});
+
 router.post("/auth/password", (req, res) => {
   const row = get("SELECT password_hash FROM users WHERE id = ?", req.user.id);
   if (!auth.verifyPassword(String(req.body.current || ""), row.password_hash)) throw bad("Current password is wrong.");
   const next = String(req.body.next || "");
   if (next.length < 8) throw bad("New password must be at least 8 characters.");
   run("UPDATE users SET password_hash = ? WHERE id = ?", auth.hashPassword(next), req.user.id);
+  twostep.forgetDevices(req.user.id);
   // Log out other devices.
   run("DELETE FROM sessions WHERE user_id = ? AND id != ?", req.user.id, auth.sha256(req.cookies.sid));
   res.json({ ok: true });
@@ -222,14 +274,52 @@ function customerFields(b, old) {
   return f;
 }
 
-router.get("/customers", auth.requireStaff, (req, res) =>
-  res.json(all("SELECT * FROM customers ORDER BY name COLLATE NOCASE").map(customerOut)));
+router.get("/customers", auth.requireStaff, async (req, res) => {
+  // Each client's billing status (from the billing app, cached a minute), linking new matches on the way.
+  const st = billing.configured() ? await billing.billingStatus() : null;
+  if (st) billing.syncClients(st);
+  const byId = new Map(st && st.ok ? st.clients.map(b => [b.id, b]) : []);
+  res.json(all("SELECT * FROM customers ORDER BY name COLLATE NOCASE").map(c => {
+    const o = customerOut(c), b = c.billing_client_id ? byId.get(c.billing_client_id) : null;
+    o.billing = !st ? null : { linked: !!c.billing_client_id, status: b ? b.status : null, payMethod: b ? b.payMethod : "", last4: b ? b.last4 : "" };
+    return o;
+  }));
+});
 
-router.post("/customers", auth.requireStaff, auth.requireAdmin, (req, res) => {
+router.post("/customers", auth.requireStaff, auth.requireAdmin, async (req, res) => {
   const f = customerFields(req.body, { contact_name: "", email: "", phone: "", notes: "", screen_limit: null, active: 1 });
   const r = run("INSERT INTO customers (name, contact_name, email, phone, notes, screen_limit, active, created_at) VALUES (?,?,?,?,?,?,?,?)",
     f.name, f.contact_name, f.email, f.phone, f.notes, f.screen_limit, f.active, now());
-  res.status(201).json(customerOut(get("SELECT * FROM customers WHERE id = ?", r.lastInsertRowid)));
+  const c = get("SELECT * FROM customers WHERE id = ?", r.lastInsertRowid);
+  // Also add them to the billing app (awaiting setup), unless your team unticked it.
+  let billingNote = null;
+  if (billing.configured() && req.body.billing !== false && req.body.billing !== "off") {
+    try { const j = await billing.addClient(c); run("UPDATE customers SET billing_client_id = ? WHERE id = ?", j.id, c.id); }
+    catch (e) { billingNote = "Added here, but not in billing: " + e.message; }
+  }
+  res.status(201).json(Object.assign(customerOut(loadCustomer(c.id)), { billingNote }));
+});
+
+/** Add an existing client to the billing app (and link them). */
+router.post("/customers/:id/billing-create", auth.requireStaff, auth.requireAdmin, async (req, res) => {
+  const c = loadCustomer(intId(req.params.id));
+  if (c.billing_client_id) throw bad("Already linked to billing.");
+  const j = await billing.addClient(c);
+  run("UPDATE customers SET billing_client_id = ? WHERE id = ?", j.id, c.id);
+  billing.unignore(j.id);
+  res.json(customerOut(loadCustomer(c.id)));
+});
+
+/** A linked client's personal billing setup page (to send them), while it isn't set up yet. */
+router.post("/customers/:id/billing-setup-link", auth.requireStaff, auth.requireAdmin, async (req, res) => {
+  const c = loadCustomer(intId(req.params.id));
+  if (!c.billing_client_id) throw bad("Link this client to billing first.");
+  res.json(await billing.setupLink(c.billing_client_id));
+});
+
+/** Your team's admins: one tap into the billing app as the same email (billing's own login code still applies). */
+router.post("/billing/sso", auth.requireStaff, auth.requireAdmin, async (req, res) => {
+  res.json({ url: await billing.ssoLink(req.user.email) });
 });
 
 function loadCustomer(id) {
@@ -259,6 +349,8 @@ router.delete("/customers/:id", auth.requireStaff, auth.requireAdmin, (req, res)
     run("DELETE FROM customers WHERE id = ?", c.id);
   });
   for (const f of files) fs.rm(path.join(DATA_DIR, "media", f.file), { force: true }, () => {});
+  // Don't add them back from the billing app.
+  billing.ignore(c.billing_client_id);
   res.json({ ok: true });
 });
 
@@ -310,6 +402,7 @@ router.patch("/users/:id", auth.requireAdmin, (req, res) => {
       if (String(req.body.password).length < 8) throw bad("Password must be at least 8 characters.");
       run("UPDATE users SET password_hash = ? WHERE id = ?", auth.hashPassword(String(req.body.password)), u.id);
       run("DELETE FROM sessions WHERE user_id = ?", u.id);
+      twostep.forgetDevices(u.id);
     }
   });
   res.json(userOut(get(userQuery + " WHERE u.id = ?", u.id)));
@@ -1085,8 +1178,8 @@ router.delete("/playlists/:id", (req, res) => {
 // ---------- billing (read from the Premier Signage Billing app) ----------
 const billing = require("./billingLink");
 /** What a client's own login may see about their billing. */
-const clientView = b => b && ({ plan: b.plan, screens: b.screens, monthly: b.monthly, billingDay: b.billingDay, payMethod: b.payMethod, autopay: b.autopay,
-  thisMonth: b.thisMonth, overdue: b.overdue, lastPayment: b.lastPayment, status: b.status });
+// Only their form of payment (last 4 digits) and whether the account is active.
+const clientView = b => b && ({ status: b.status, payMethod: b.payMethod, last4: b.last4 || "", cardBrand: b.cardBrand || "", achBank: b.achBank || "", autopay: !!b.autopay });
 
 /** A client who signed up on their own: open their billing setup page (choose screens, set up monthly payment). */
 router.post("/billing/setup", auth.requireAdmin, async (req, res) => {
@@ -1101,6 +1194,7 @@ router.post("/billing/setup", auth.requireAdmin, async (req, res) => {
 
 router.get("/billing", async (req, res) => {
   const st = await billing.billingStatus();
+  billing.syncClients(st);
   billing.syncScreenLimits(st);
   const byId = new Map(st.clients.map(b => [b.id, b]));
   const customers = req.cid ? [get("SELECT * FROM customers WHERE id = ?", req.cid)] : all("SELECT * FROM customers ORDER BY name COLLATE NOCASE");
@@ -1129,6 +1223,8 @@ router.put("/customers/:id/billing-link", auth.requireStaff, auth.requireAdmin, 
   const c = loadCustomer(intId(req.params.id));
   const id = req.body.billingClientId ? String(req.body.billingClientId).replace(/[^\w-]/g, "").slice(0, 60) : null;
   run("UPDATE customers SET billing_client_id = ? WHERE id = ?", id || null, c.id);
+  // Unlinked by hand: don't link it again automatically. Linked by hand: fine to match again later.
+  if (!id) billing.ignore(c.billing_client_id); else billing.unignore(id);
   res.json(customerOut(loadCustomer(c.id)));
 });
 

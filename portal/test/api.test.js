@@ -646,12 +646,15 @@ test("billing: reads the billing app, links clients, client logins see only thei
     assert.match(bad.error, /refused the key/);
 
     process.env.BILLING_KEY = KEY; billingLink.resetCache();
-    const C = (await call("POST", "/api/customers", { name: "Billing Taco" })).body;
+    const C = (await call("POST", "/api/customers", { name: "Billing Taco", billing: false })).body;
+    // Same business name: linked by itself.
     let all = (await call("GET", "/api/billing")).body;
     let row = all.rows.find(r => r.customerId === C.id);
-    assert.equal(row.linked, false);
-    assert.deepEqual(row.suggest, { id: "wendy", name: "Billing Taco" }, "same name is suggested");
-
+    assert.equal(row.linked, true, "linked automatically by name");
+    // Unlinked by hand: it stays unlinked (not matched again).
+    await call("PUT", "/api/customers/" + C.id + "/billing-link", { billingClientId: null });
+    billingLink.resetCache();
+    assert.equal((await call("GET", "/api/billing")).body.rows.find(r => r.customerId === C.id).linked, false);
     assert.equal((await call("PUT", "/api/customers/" + C.id + "/billing-link", { billingClientId: "wendy" })).body.billingClientId, "wendy");
     all = (await call("GET", "/api/billing")).body;
     row = all.rows.find(r => r.customerId === C.id);
@@ -666,7 +669,11 @@ test("billing: reads the billing app, links clients, client logins see only thei
     await call("POST", "/api/auth/login", { email: "owner@billingtaco.test", password: "taco-pass-12" });
     const mine = (await call("GET", "/api/billing")).body;
     assert.equal(mine.rows.length, 1);
-    assert.equal(mine.rows[0].billing.monthly, 110);
+    // Only whether the account is active and how they pay.
+    assert.equal(mine.rows[0].billing.status, "active");
+    assert.equal(mine.rows[0].billing.payMethod, "ach");
+    assert.equal(mine.rows[0].billing.monthly, undefined);
+    assert.equal(mine.rows[0].billing.thisMonth, undefined);
     assert.equal(mine.billingUrl, null);
     assert.equal(mine.unlinked, undefined);
     assert.equal(mine.rows[0].billing.subscription, undefined);
@@ -1373,7 +1380,7 @@ test("self sign-up client opens their billing setup page; screen limit follows w
     b = await call("GET", "/api/billing");
     assert.equal(b.body.rows[0].canSetup, false);
     assert.equal(b.body.rows[0].screenLimit, 4);
-    assert.equal(b.body.rows[0].billing.screens, 4);
+    assert.equal(b.body.rows[0].billing.status, "active");
     // Customers your team made can't use self setup.
     cookie = saved.cookie;
     const made = await call("POST", "/api/customers", { name: "Staff Made" });
@@ -1454,4 +1461,150 @@ test("holiday backgrounds: American dates, yearly repeat, and the TV's design sw
     await design([{ name: "Sneaky", start: d(-1), end: d(1), mediaId: foreign }]);
     assert.equal((await call("GET", "/api/screens/" + id + "/layers")).body.holidays[0].mediaId, null);
   } finally { scopeId = saved.scopeId; }
+});
+
+test("billing link: clients match and are created both ways, one-tap billing for admins, deleted stays deleted", async () => {
+  const http = require("node:http");
+  const billingLink = require("../src/billingLink");
+  const { get } = require("../src/db");
+  const KEY = "c".repeat(40);
+  const later = new Date(Date.now() + 60e3).toISOString(), earlier = "2020-01-01T00:00:00Z";
+  let clients = [
+    { id: "b-mail", name: "Totally Different Name", email: "Owner@MailMatch.test", status: "active", screens: 3, payMethod: "card", last4: "4242", cardBrand: "Visa", createdAt: earlier },
+    { id: "b-old", name: "Old Unmatched", status: "active", screens: 1, createdAt: earlier },
+    { id: "b-new", name: "Brand New Diner", contactName: "Dee", email: "dee@diner.test", phone: "555-0101", status: "pending", screens: 2, createdAt: later },
+    { id: "b-gone", name: "Gone Cafe", status: "cancelled", screens: 1, createdAt: later }
+  ];
+  const calls = [];
+  const fake = http.createServer((req, res) => {
+    let body = ""; req.on("data", d => body += d);
+    req.on("end", () => {
+      calls.push([req.url, body]);
+      res.setHeader("content-type", "application/json");
+      if (req.headers.authorization !== "Bearer " + KEY) { res.statusCode = 401; return res.end("{}"); }
+      if (req.url === "/api/integration/billing-status") return res.end(JSON.stringify({ clients }));
+      if (req.url === "/api/integration/self-signup") { const b = JSON.parse(body); return res.end(JSON.stringify({ id: "sg-" + b.signageId, portalUrl: "https://billing.test/s/X" })); }
+      if (req.url === "/api/integration/sso") { const b = JSON.parse(body); if (b.email !== "admin@test.local") { res.statusCode = 404; return res.end(JSON.stringify({ error: "There's no billing login for " + b.email })); } return res.end(JSON.stringify({ url: "https://billing.test/auth/sso?t=ONE" })); }
+      if (req.url === "/api/integration/setup-link") return res.end(JSON.stringify({ url: "https://billing.test/s/SETUP", setupDone: false }));
+      res.statusCode = 404; res.end("{}");
+    });
+  });
+  await new Promise(r => fake.listen(0, r));
+  const saved = { cookie, scopeId };
+  try {
+    cookie = ""; scopeId = null;
+    await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+    const pre = (await call("POST", "/api/customers", { name: "Mail Match Inc", email: "owner@mailmatch.test" })).body;
+    process.env.BILLING_URL = "http://127.0.0.1:" + fake.address().port; process.env.BILLING_KEY = KEY; billingLink.resetCache();
+    // New client here -> billing record (keeps the screens your team set).
+    const made = await call("POST", "/api/customers", { name: "Staff Added Grill", screenLimit: 3 });
+    assert.equal(made.status, 201);
+    assert.equal(made.body.billingClientId, "sg-" + made.body.id);
+    const sent = JSON.parse(calls.find(c => c[0] === "/api/integration/self-signup")[1]);
+    assert.equal(sent.selfServe, false); assert.equal(sent.screens, 3);
+    // Untick "also add to billing": not added.
+    const noBill = await call("POST", "/api/customers", { name: "Cash Only Corner", billing: false });
+    assert.equal(noBill.body.billingClientId, null);
+    // Listing clients links by email, and adds billing clients created after the link was turned on.
+    const list = (await call("GET", "/api/customers")).body;
+    const byName = n => list.find(c => c.name === n);
+    assert.equal(byName("Mail Match Inc").billingClientId, "b-mail", "matched by email");
+    assert.equal(byName("Mail Match Inc").billing.last4, "4242");
+    // (b-new was "created" a minute from now, so after the first sync: it is added here)
+    assert.ok(byName("Brand New Diner"), "billing client added here");
+    assert.equal(byName("Brand New Diner").screenLimit, 2);
+    assert.equal(byName("Brand New Diner").email, "dee@diner.test");
+    assert.ok(!byName("Old Unmatched"), "older billing clients are only matched, not added");
+    assert.ok(!byName("Gone Cafe"), "cancelled ones are left alone");
+    assert.equal(byName("Cash Only Corner").billing.linked, false);
+    // + Add to billing for an existing client.
+    assert.equal((await call("POST", "/api/customers/" + noBill.body.id + "/billing-create", {})).body.billingClientId, "sg-" + noBill.body.id);
+    // Setup link to send to a client.
+    assert.equal((await call("POST", "/api/customers/" + byName("Brand New Diner").id + "/billing-setup-link", {})).body.url, "https://billing.test/s/SETUP");
+    // Deleted here: not added back from billing.
+    await call("DELETE", "/api/customers/" + byName("Brand New Diner").id);
+    billingLink.resetCache();
+    assert.ok(!(await call("GET", "/api/customers")).body.some(c => c.name === "Brand New Diner"));
+    // One tap into billing for your team's admins (same email).
+    const sso = await call("POST", "/api/billing/sso", {});
+    assert.equal(sso.status, 200, JSON.stringify(sso.body));
+    assert.equal(sso.body.url, "https://billing.test/auth/sso?t=ONE");
+    // Not for client logins.
+    scopeId = pre.id;
+    await call("POST", "/api/users", { email: "boss@mailmatch.test", password: "match-pass-12", role: "admin" });
+    cookie = ""; scopeId = null;
+    await call("POST", "/api/auth/login", { email: "boss@mailmatch.test", password: "match-pass-12" });
+    assert.equal((await call("POST", "/api/billing/sso", {})).status, 403);
+    assert.equal(get("SELECT billing_client_id id FROM customers WHERE id = ?", pre.id).id, "b-mail");
+  } finally {
+    cookie = saved.cookie; scopeId = saved.scopeId;
+    delete process.env.BILLING_URL; delete process.env.BILLING_KEY; billingLink.resetCache();
+    fake.close(); fake.closeAllConnections && fake.closeAllConnections();
+  }
+});
+
+test("two-step login for client accounts: code by email, wrong codes, remember this device, staff unaffected", async () => {
+  const { setMailer } = require("../src/adminRoutes");
+  const sentMail = [];
+  setMailer({ configured: true, async send(m) { sentMail.push(m); } });
+  // A tiny browser that keeps every cookie.
+  const jar = {};
+  const go = async (method, url, body) => {
+    const r = await fetch(base + url, { method, headers: { "content-type": "application/json", cookie: Object.entries(jar).map(([k, v]) => k + "=" + v).join("; ") }, body: body ? JSON.stringify(body) : undefined });
+    for (const c of r.headers.getSetCookie()) { const [kv] = c.split(";"); const i = kv.indexOf("="); const k = kv.slice(0, i), v = kv.slice(i + 1); if (v) jar[k] = v; else delete jar[k]; }
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const saved = { cookie, scopeId };
+  try {
+    cookie = ""; scopeId = null;
+    await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" });
+    // Staff: no code.
+    assert.ok((await call("POST", "/api/auth/login", { email: "admin@test.local", password: "admin-pass-123" })).body.user);
+    const C = (await call("POST", "/api/customers", { name: "Two Step Bakery" })).body;
+    scopeId = C.id;
+    await call("POST", "/api/users", { email: "baker@twostep.test", password: "bake-pass-123", role: "admin" });
+    scopeId = null;
+    // Right password: a code is emailed instead of logging in.
+    let r = await go("POST", "/api/auth/login", { email: "baker@twostep.test", password: "bake-pass-123" });
+    assert.equal(r.body.needCode, true);
+    assert.equal(r.body.via, "email");
+    assert.ok(!jar.sid, "not logged in yet");
+    assert.equal((await go("GET", "/api/auth/me")).status, 401);
+    const code = (sentMail[sentMail.length - 1].text.match(/\b(\d{6})\b/) || [])[1];
+    assert.ok(code);
+    const wrong = code === "000000" ? "111111" : "000000";
+    r = await go("POST", "/api/auth/verify", { code: wrong });
+    assert.equal(r.status, 400); assert.match(r.body.error, /4 tries left/);
+    r = await go("POST", "/api/auth/verify", { code, remember: true });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal((await go("GET", "/api/auth/me")).body.user.email, "baker@twostep.test");
+    // The code works once.
+    assert.equal((await go("POST", "/api/auth/verify", { code })).status, 401);
+    // Remembered device: next login needs no code.
+    await go("POST", "/api/auth/logout", {});
+    r = await go("POST", "/api/auth/login", { email: "baker@twostep.test", password: "bake-pass-123" });
+    assert.ok(r.body.user, "remembered device skips the code");
+    // Changing the password forgets remembered devices.
+    assert.equal((await go("POST", "/api/auth/password", { current: "bake-pass-123", next: "bake-pass-456" })).status, 200);
+    await go("POST", "/api/auth/logout", {});
+    r = await go("POST", "/api/auth/login", { email: "baker@twostep.test", password: "bake-pass-456" });
+    assert.equal(r.body.needCode, true);
+    // Too many wrong codes: start over.
+    for (let i = 0; i < 4; i++) await go("POST", "/api/auth/verify", { code: wrong });
+    r = await go("POST", "/api/auth/verify", { code: wrong });
+    assert.equal(r.body.code, "restart");
+    // Settings: text needs a valid cell, and texting turned on.
+    jar.sid = undefined; delete jar.sid;
+    const login = await go("POST", "/api/auth/login", { email: "baker@twostep.test", password: "bake-pass-456" });
+    const c2 = (sentMail[sentMail.length - 1].text.match(/\b(\d{6})\b/) || [])[1];
+    await go("POST", "/api/auth/verify", { code: c2 });
+    assert.ok(login.body.needCode);
+    assert.equal((await go("GET", "/api/auth/two-step")).body.sms, false);
+    assert.equal((await go("PUT", "/api/auth/two-step", { cell: "12", via: "email" })).status, 400);
+    assert.equal((await go("PUT", "/api/auth/two-step", { cell: "(555) 555-0100", via: "sms" })).status, 400, "texting isn't set up");
+    assert.equal((await go("PUT", "/api/auth/two-step", { cell: "(555) 555-0100", via: "email" })).status, 200);
+  } finally {
+    setMailer({ configured: false, async send() { throw new Error("no"); } });
+    cookie = saved.cookie; scopeId = saved.scopeId;
+  }
 });

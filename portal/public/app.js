@@ -36,7 +36,7 @@ async function api(method, url, body, headers) {
   const res = await fetch("/api" + url, opt);
   let data = null;
   try { data = await res.json(); } catch (_) {}
-  if (res.status === 401 && !/^\/auth\/(login|signup|forgot|reset)/.test(url)) { state.user = null; renderLogin(); throw new Error("Please log in."); }
+  if (res.status === 401 && !/^\/auth\/(login|signup|forgot|reset|verify|resend)/.test(url)) { state.user = null; renderLogin(); throw new Error("Please log in."); }
   if (!res.ok) throw new Error((data && data.error) || "Request failed (" + res.status + ")");
   return data;
 }
@@ -522,6 +522,7 @@ function renderLogin() {
     const f = new FormData(form);
     try {
       const r = await api("POST", "/auth/login", { email: f.get("email"), password: f.get("password") });
+      if (r.needCode) return renderCode(r);
       state.user = r.user; await loadCustomers(); route(); refreshIcons();
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
   });
@@ -558,6 +559,40 @@ function renderSignup() {
   });
   app().replaceChildren(h("div", { class: "login-wrap" }, form, I18N.switcher()));
   form.querySelector("input").focus();
+}
+
+// ---------- two-step login: the code ----------
+function renderCode(info) {
+  const err = h("div", { class: "form-error" });
+  const sent = h("p", { class: "small muted", style: "text-align:center;margin:0 0 1rem" });
+  const say = r => { sent.textContent = (r.via === "sms" ? "We texted a 6-digit code to " : "We emailed a 6-digit code to ") + r.sentTo + ". It works for 10 minutes." + (r.via === "sms" ? "" : " Check your spam folder if you don't see it."); };
+  say(info);
+  const codeIn = h("input", { name: "code", inputmode: "numeric", autocomplete: "one-time-code", maxlength: 7, required: true, style: "font-size:1.6rem;letter-spacing:.35em;text-align:center" });
+  const btn = h("button", { type: "submit", class: "primary", style: "width:100%;justify-content:center" }, "Log in");
+  const form = h("form", {},
+    h("h2", { style: "margin:0 0 .25rem;font-size:1.1rem;text-align:center" }, "Enter your login code"), sent,
+    field("Login code", codeIn),
+    h("label", { class: "check-row" }, h("input", { type: "checkbox", name: "remember", checked: true }), "Don't ask for a code on this device for 30 days"),
+    err, btn,
+    h("p", { class: "small", style: "text-align:center" }, h("a", { href: "#", onclick: async e => {
+      e.preventDefault(); err.textContent = "";
+      try { const r = await api("POST", "/auth/resend", {}); say(r); toast("New code sent."); codeIn.value = ""; codeIn.focus(); }
+      catch (ex) { if (/expired|Log in again/.test(ex.message)) { renderLogin(); toast(ex.message, true); } else err.textContent = ex.message; }
+    } }, "Send a new code")));
+  authPage(form, backToLogin());
+  const submit = async () => {
+    err.textContent = ""; btn.disabled = true;
+    try {
+      const r = await api("POST", "/auth/verify", { code: codeIn.value, remember: form.querySelector("[name=remember]").checked });
+      state.user = r.user; await loadCustomers(); route(); refreshIcons();
+    } catch (ex) {
+      btn.disabled = false;
+      if (/Log in again/.test(ex.message)) { renderLogin(); toast(ex.message, true); } else { err.textContent = ex.message; codeIn.select(); }
+    }
+  };
+  form.addEventListener("submit", e => { e.preventDefault(); submit(); });
+  codeIn.addEventListener("input", () => { if (codeIn.value.replace(/\D/g, "").length === 6 && !btn.disabled) submit(); });
+  codeIn.focus();
 }
 
 // ---------- forgot password ----------
@@ -662,16 +697,18 @@ async function clientDialog(c) {
     field("Screen limit (empty = no limit)", h("input", { name: "screenLimit", type: "number", min: 0, max: 10000, value: c && c.screenLimit !== null ? c.screenLimit : "" })),
     c ? h("label", { style: "display:flex;gap:.5rem;align-items:center;font-weight:400;margin-bottom:.9rem" },
       h("input", { type: "checkbox", name: "active", checked: c.active }), "Active (unticked = paused: their logins stop working, TVs keep playing)") : null,
-    field("Notes", h("textarea", { name: "notes", rows: 2, maxlength: 2000 }, c ? c.notes : ""))),
+    field("Notes", h("textarea", { name: "notes", rows: 2, maxlength: 2000 }, c ? c.notes : "")),
+    c ? null : h("label", { class: "check-row" }, h("input", { type: "checkbox", name: "billing", checked: true }), "Also add them to billing (awaiting setup), when the billing app is connected")),
   { submit: c ? "Save" : "Add client", onSubmit: f => {
     const b = Object.fromEntries(f);
     if (c) b.active = f.get("active") === "on";
+    else b.billing = f.get("billing") === "on";
     return c ? api("PATCH", "/customers/" + c.id, b, { "X-Customer-Id": "" }) : api("POST", "/customers", b, { "X-Customer-Id": "" });
   } });
   if (!r) return;
   await loadCustomers();
   if (c) { toast("Saved."); route(); }
-  else { toast("Client added. Now add their screens, media and designs."); location.hash = "#/c/" + r.id; }
+  else { toast(r.billingNote || "Client added. Now add their screens, media and designs.", !!r.billingNote); location.hash = "#/c/" + r.id; }
 }
 
 async function deleteClient(c) {
@@ -688,14 +725,21 @@ async function renderClients(main) {
   const list = state.customers;
   main.replaceChildren(
     pageHead("White Label & Clients", "Your branding, and the businesses you put screens in.",
+      isAdmin() && list.some(c => c.billing) ? h("button", { onclick: openBilling }, "Open billing ↗") : null,
       isAdmin() ? h("button", { class: "primary", onclick: () => clientDialog() }, "+ New client") : null),
     isAdmin() ? whiteLabelCard() : null,
     h("h2", { style: "margin:1.25rem 0 .75rem" }, "Clients"),
     list.length ? h("div", { class: "card table-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, h("th", {}, "Client"), h("th", {}, "Screens"), h("th", {}, "Logins"), h("th", {}, "Storage"), h("th", {}))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Client"), list.some(c => c.billing) ? h("th", {}, "Billing") : null, h("th", {}, "Screens"), h("th", {}, "Logins"), h("th", {}, "Storage"), h("th", {}))),
       h("tbody", {}, list.map(c => h("tr", { class: "click", onclick: e => { if (!e.target.closest("button")) location.hash = "#/c/" + c.id; } },
         h("td", {}, h("strong", {}, c.name), " ", c.active ? null : h("span", { class: "pill warn" }, "Paused"),
           h("div", { class: "small muted" }, [c.contactName, c.phone, c.email].filter(Boolean).join(" · "))),
+        c.billing ? h("td", { class: "small" }, c.billing.linked
+          ? [(([cls, l]) => h("span", { class: "pill " + cls }, l))(BILLING_STATUS[c.billing.status] || ["", c.billing.status ? c.billing.status : "Linked"]),
+            c.billing.payMethod ? h("div", { class: "muted" }, payText(c.billing)) : null]
+          : isAdmin() ? h("button", { class: "small", onclick: async () => {
+              try { await api("POST", "/customers/" + c.id + "/billing-create", {}, { "X-Customer-Id": "" }); toast("Added to billing (awaiting setup)."); route(); } catch (e) { fail(e); }
+            } }, "+ Add to billing") : h("span", { class: "muted" }, "Not linked")) : list.some(x => x.billing) ? h("td", {}) : null,
         h("td", { class: "small" }, c.screens + (c.screenLimit !== null ? " of " + c.screenLimit : ""),
           c.screens ? h("div", { class: "muted" }, c.online + " online") : null),
         h("td", { class: "small" }, c.users),
@@ -3263,7 +3307,7 @@ async function renderBilling(main) {
   const inClient = !isStaff() || state.cid;
   const d = await api("GET", "/billing");
   const head = pageHead("Billing", inClient ? clientName() : "All clients",
-    isStaff() && d.billingUrl ? h("a", { class: "btn", href: d.billingUrl, target: "_blank", rel: "noopener" }, "Open billing app ↗") : null);
+    isStaff() && isAdmin() && d.billingUrl ? h("button", { onclick: openBilling, title: "Opens the billing app logged in as you (same email)" }, "Open billing app ↗") : null);
 
   if (!d.configured) {
     main.replaceChildren(head, h("div", { class: "card" },
@@ -3299,6 +3343,26 @@ async function renderBilling(main) {
       } }, b ? "Continue to billing ↗" : "Choose screens & set up payment ↗"),
       row.screenLimit != null ? h("p", { class: "small muted", style: "margin-top:.75rem" }, (row.screenLimit === 0 ? "You can connect your TVs once your monthly payment is set up." : "Right now you can connect " + row.screenLimit + " TV" + (row.screenLimit === 1 ? "" : "s") + ".") + " After you finish, the number of TVs you can connect matches the screens you chose (it can take a few minutes).") : null) : null;
     if (setupCard && !b) { main.replaceChildren(head, warn || "", setupCard); return; }
+    // A client's own login: only whether the account is active and how they pay.
+    if (!isStaff()) {
+      const [cls, label] = b ? BILLING_STATUS[b.status] || ["", b.status] : ["", ""];
+      main.replaceChildren(head, warn || "", setupCard || "",
+        !b ? h("div", { class: "card empty" }, "Billing details aren't available yet.")
+          : h("div", { class: "card" }, h("h2", {}, "Your account"), h("dl", { class: "kv" },
+            h("dt", {}, "Account"), h("dd", {}, h("span", { class: "pill " + cls }, label)),
+            h("dt", {}, "Payment method"), h("dd", {}, payText(b) || "Not set up yet"),
+            h("dt", {}, "Automatic payments"), h("dd", {}, b.autopay ? "On" : "Off")),
+            h("p", { class: "small muted", style: "margin-top:1rem" }, "To change your payment method or plan, please contact us.")));
+      return;
+    }
+    const setupLinkBtn = isAdmin() && row.linked && b && b.status === "pending" ? h("button", { class: "small", onclick: async () => {
+      try {
+        const r = await api("POST", "/customers/" + row.customerId + "/billing-setup-link", {}, { "X-Customer-Id": "" });
+        if (navigator.clipboard) await navigator.clipboard.writeText(r.url).catch(() => {});
+        await dialog("Setup link for " + row.name, h("div", {}, h("p", { class: "small" }, "Send this to the client. On it they confirm their details and set up monthly payment."),
+          h("input", { value: r.url, readonly: true, onfocus: e => e.target.select(), style: "width:100%" })), { submit: "Done" });
+      } catch (e) { fail(e); }
+    } }, "Copy setup link") : null;
     main.replaceChildren(head, warn || "", setupCard || "",
       !b ? h("div", { class: "card empty" }, isStaff()
           ? [h("p", {}, row.linked ? "This client's record wasn't found in the billing app." : "This client isn't linked to the billing app yet."), linkControl(row, d.choices)]
@@ -3315,7 +3379,8 @@ async function renderBilling(main) {
             h("dt", {}, "Billing day"), h("dd", {}, b.billingDay ? "The " + b.billingDay + ordinal(b.billingDay) + " of each month" : "—"),
             b.thisMonth ? [h("dt", {}, "This month"), h("dd", {}, money(b.thisMonth.amount) + (b.thisMonth.paid ? " · paid " + money(b.thisMonth.paid) : "") + (b.thisMonth.balance ? " · balance " + money(b.thisMonth.balance) : ""))] : null,
             b.overdue && b.overdue.invoices ? [h("dt", {}, "Overdue"), h("dd", { style: "color:var(--danger)" }, money(b.overdue.balance) + " (" + b.overdue.invoices + " invoice" + (b.overdue.invoices > 1 ? "s" : "") + ", oldest due " + dateText(b.overdue.oldestDue) + ")")] : null),
-            isStaff() ? h("div", { style: "margin-top:1rem" }, linkControl(row, d.choices)) : null)));
+            isStaff() ? h("div", { class: "row", style: "margin-top:1rem;gap:.5rem;align-items:center;flex-wrap:wrap" }, linkControl(row, d.choices), setupLinkBtn,
+              b.payMethod ? h("span", { class: "small muted" }, payText(b)) : null) : null)));
     return;
   }
 
@@ -3371,9 +3436,40 @@ async function renderProfile(main) {
         h("dl", { class: "kv", style: "margin-bottom:1rem" }, h("dt", {}, "Email"), h("dd", {}, state.user.email), h("dt", {}, "Name"), h("dd", {}, state.user.name || "—"),
           h("dt", {}, "Role"), h("dd", {}, state.user.role), h("dt", {}, "Account"), h("dd", {}, isStaff() ? "Your team (all clients)" : clientName())),
         h("h3", {}, "Change password"), field("Current password", pw.current), field("New password (8+ characters)", pw.next), pwBtn),
+      isStaff() ? null : twoStepCard(),
       users ? usersCard(users, isStaff() ? "Admins (your team)" : "Admins & logins",
         isStaff() ? "Your staff see every client. A client's own logins are under that client → Logins." : "People who can log in to " + clientName() + ".") : null));
 }
+
+/** A client's own login: how login codes are sent (email, or text to their cell). */
+function twoStepCard() {
+  const card = h("div", { class: "card" }, h("h2", {}, "Two-step login"), h("p", { class: "muted small" }, "Loading…"));
+  api("GET", "/auth/two-step").then(t => {
+    const cell = h("input", { type: "tel", autocomplete: "tel", maxlength: 20, value: t.cell || "", placeholder: "(555) 555-0100" });
+    const via = h("select", {}, h("option", { value: "email", selected: t.via !== "sms" }, "Email (" + state.user.email + ")"),
+      t.sms ? h("option", { value: "sms", selected: t.via === "sms" }, "Text message to my cell") : null);
+    card.replaceChildren(h("h2", {}, "Two-step login"),
+      h("p", { class: "small muted" }, "When you log in on a new phone or computer, we also ask for a 6-digit code. Tick “Don't ask for a code on this device” to skip it there for 30 days."),
+      field("Send my login codes by", via),
+      field("Cell number" + (t.sms ? "" : " (for texts, when available)"), cell),
+      t.sms ? null : h("p", { class: "small muted" }, "Codes by text aren't turned on yet, so they come by email."),
+      h("button", { class: "primary", onclick: async () => {
+        try { await api("PUT", "/auth/two-step", { cell: cell.value, via: via.value }); toast("Saved."); } catch (e) { fail(e); }
+      } }, "Save"));
+  }).catch(e => card.replaceChildren(h("h2", {}, "Two-step login"), h("p", { class: "muted" }, e.message)));
+  return card;
+}
+
+/** Your team's admins: open the billing app logged in as the same email (opens the tab first so phones allow it). */
+async function openBilling() {
+  const w = window.open("", "_blank");
+  try { const r = await api("POST", "/billing/sso", {}, { "X-Customer-Id": "" }); if (w) w.location = r.url; else location.href = r.url; }
+  catch (e) { if (w) w.close(); fail(e); }
+}
+const BILLING_STATUS = { active: ["ok", "Active"], pending: ["warn", "Awaiting setup"], paused: ["warn", "Paused"], cancelled: ["danger", "Cancelled"] };
+// Only once a payment method is really on file (billing marks new clients "bank" by default).
+const payText = b => !b.last4 && !b.autopay ? "" : b.payMethod === "card" ? (b.cardBrand || "Card") + (b.last4 ? " ending " + b.last4 : "")
+  : b.payMethod === "ach" ? "Bank account" + (b.achBank ? " (" + b.achBank + ")" : "") + (b.last4 ? " ending " + b.last4 : "") : "";
 
 // ---------- download app ----------
 async function renderDownload(main) {

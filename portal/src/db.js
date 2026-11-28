@@ -200,6 +200,26 @@ fs.mkdirSync(path.join(DATA_DIR, "branding"), { recursive: true });
 if (!hasColumn("customers", "billing_client_id")) db.exec("ALTER TABLE customers ADD COLUMN billing_client_id TEXT");
 // Signed up on their own (sign-up page): they choose screens and set up payment themselves on the billing app.
 if (!hasColumn("customers", "self_signup")) db.exec("ALTER TABLE customers ADD COLUMN self_signup INTEGER NOT NULL DEFAULT 0");
+// Two-step login (client accounts): cell number and how codes are sent; codes; remembered devices.
+for (const [col, type] of [["cell", "TEXT NOT NULL DEFAULT ''"], ["code_via", "TEXT NOT NULL DEFAULT 'email'"]])
+  if (!hasColumn("users", col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
+db.exec(`CREATE TABLE IF NOT EXISTS login_codes (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  pending_hash TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  via TEXT NOT NULL DEFAULT 'email',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS login_codes_pending ON login_codes(pending_hash);
+CREATE TABLE IF NOT EXISTS trusted_devices (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
+);`);
 // Forgot password: one-time links (only a hash of the link is kept).
 db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
   id INTEGER PRIMARY KEY,
