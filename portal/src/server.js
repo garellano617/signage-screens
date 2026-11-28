@@ -113,6 +113,9 @@ if (require.main === module) {
   };
   prune();
   setInterval(prune, 24 * 3600e3).unref();
+  // Clients who just set up payment on the billing app: raise their screen limit to what they pay for.
+  const billingLink = require("./billingLink");
+  if (billingLink.configured()) setInterval(() => billingLink.billingStatus().then(billingLink.syncScreenLimits).catch(() => {}), 5 * 60e3).unref();
   // 3100 by default so it doesn't collide with other local apps on 3000. Hosts like Render set PORT themselves.
   const port = Number(process.env.PORT) || 3100;
   // No host = listen on IPv4 and IPv6 together, so a port clash is an error instead of two apps silently sharing it.

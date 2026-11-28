@@ -198,6 +198,17 @@ db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT N
 fs.mkdirSync(path.join(DATA_DIR, "branding"), { recursive: true });
 // Link to the client's record in the Premier Signage Billing app.
 if (!hasColumn("customers", "billing_client_id")) db.exec("ALTER TABLE customers ADD COLUMN billing_client_id TEXT");
+// Signed up on their own (sign-up page): they choose screens and set up payment themselves on the billing app.
+if (!hasColumn("customers", "self_signup")) db.exec("ALTER TABLE customers ADD COLUMN self_signup INTEGER NOT NULL DEFAULT 0");
+// Forgot password: one-time links (only a hash of the link is kept).
+db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+)`);
 
 // Screen map: where each screen is.
 // planned = 1: set up in the portal before a TV is connected (no device yet).

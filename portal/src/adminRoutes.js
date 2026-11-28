@@ -70,7 +70,7 @@ router.post("/auth/signup", (req, res) => {
   const lim = process.env.SIGNUP_SCREEN_LIMIT === undefined ? "1" : String(process.env.SIGNUP_SCREEN_LIMIT).trim();
   const screenLimit = lim === "" ? null : Math.max(0, Math.min(10000, parseInt(lim, 10) || 0));
   const uid = tx(() => {
-    const c = run("INSERT INTO customers (name, contact_name, email, phone, notes, screen_limit, active, created_at) VALUES (?,?,?,?,?,?,1,?)",
+    const c = run("INSERT INTO customers (name, contact_name, email, phone, notes, screen_limit, active, created_at, self_signup) VALUES (?,?,?,?,?,?,1,?,1)",
       business, name, email, phone, "Signed up online " + new Date().toISOString().slice(0, 10) + ".", screenLimit, now());
     return run("INSERT INTO users (email, name, password_hash, role, customer_id, created_at) VALUES (?, ?, ?, 'admin', ?, ?)",
       email, name, auth.hashPassword(password), c.lastInsertRowid, now()).lastInsertRowid;
@@ -78,7 +78,69 @@ router.post("/auth/signup", (req, res) => {
   signups.set(key, { count: s && s.until > now() ? s.count + 1 : 1, until: now() + 60 * 60e3 });
   const user = get("SELECT u.*, c.name AS customer_name FROM users u JOIN customers c ON c.id = u.customer_id WHERE u.id = ?", uid);
   res.cookie("sid", auth.createSession(user.id), auth.sessionCookieOptions(req));
-  res.status(201).json({ user: auth.publicUser(user) });
+  // With the billing app connected, they go on to choose their screens and set up monthly payment.
+  res.status(201).json({ user: auth.publicUser(user), next: require("./billingLink").configured() ? "billing" : "" });
+});
+
+// ---------- forgot password (emailed one-time link) ----------
+let mailer = require("./mailer").createMailer({
+  host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS, from: process.env.MAIL_FROM
+});
+const RESET_MINUTES = 30;
+const resetTries = new Map(); // ip -> { count, until }
+// The link always points at this portal's real address (never at whatever address the request claims).
+const publicUrl = () => String(process.env.PUBLIC_URL || "https://signage.precom.net").replace(/\/$/, "");
+router.post("/auth/forgot", (req, res) => {
+  if (!mailer.configured) throw new HttpError(400, "Password reset by email isn't set up yet. Ask your provider (or your account's admin) to reset your password.");
+  const key = req.ip || "?", t = resetTries.get(key);
+  if (t && t.count >= 5 && t.until > now()) throw new HttpError(429, "Too many tries. Wait 15 minutes and try again.");
+  resetTries.set(key, { count: t && t.until > now() ? t.count + 1 : 1, until: now() + 15 * 60e3 });
+  const email = str(req.body.email, 200, "Email").toLowerCase();
+  // Same answer whether or not the email has a login, so nobody can use this to find out who has an account.
+  res.json({ ok: true });
+  const u = email && get(`SELECT u.id, u.email, u.customer_id, c.active AS customer_active FROM users u
+                          LEFT JOIN customers c ON c.id = u.customer_id WHERE u.email = ?`, email);
+  if (!u || (u.customer_id && !u.customer_active)) return;
+  const last = get("SELECT created_at FROM password_resets WHERE user_id = ? ORDER BY created_at DESC LIMIT 1", u.id);
+  if (last && now() - last.created_at < 60e3) return; // one email a minute
+  run("DELETE FROM password_resets WHERE expires_at < ? OR user_id = ?", now() - 864e5, u.id); // a new link replaces the old one
+  const token = crypto.randomBytes(32).toString("base64url");
+  run("INSERT INTO password_resets (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)", u.id, auth.sha256(token), now(), now() + RESET_MINUTES * 60e3);
+  const brandName = require("./branding").branding().name;
+  mailer.send({
+    to: u.email, subject: "Reset your " + brandName + " password",
+    text: `Someone (hopefully you) asked to reset the password for ${u.email}.\n\n` +
+      `Choose a new password here (the link works once, for ${RESET_MINUTES} minutes):\n${publicUrl()}/#/reset/${token}\n\n` +
+      `If you didn't ask for this, ignore this email. Your password stays the same.\n\n${brandName}`
+  }).catch(e => console.error("Forgot-password email failed:", e.message));
+});
+
+function resetRow(token) {
+  if (!/^[\w-]{20,100}$/.test(String(token || ""))) return null;
+  return get(`SELECT r.id, r.user_id, u.email FROM password_resets r JOIN users u ON u.id = r.user_id
+              WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ?`, auth.sha256(String(token)), now()) || null;
+}
+const badLink = () => new HttpError(400, "This reset link has expired or was already used. Go back to the login page and tap “Forgot password?” again.");
+router.get("/auth/reset", (req, res) => {
+  const r = resetRow(req.query.t);
+  if (!r) throw badLink();
+  res.json({ email: r.email });
+});
+router.post("/auth/reset", (req, res) => {
+  const password = String(req.body.password || "");
+  if (password.length < 8) throw bad("Password must be at least 8 characters.");
+  if (password.length > 200) throw bad("Password is too long.");
+  const r = resetRow(req.body.token);
+  if (!r) throw badLink();
+  tx(() => {
+    run("UPDATE password_resets SET used_at = ? WHERE id = ?", now(), r.id);
+    run("UPDATE users SET password_hash = ? WHERE id = ?", auth.hashPassword(password), r.user_id);
+    run("DELETE FROM sessions WHERE user_id = ?", r.user_id); // logged out everywhere
+  });
+  mailer.send({ to: r.email, subject: "Your password was changed",
+    text: `The password for ${r.email} was just changed using a reset link.\n\nIf this wasn't you, contact us right away.`
+  }).catch(e => console.error("Password-changed email failed:", e.message));
+  res.json({ ok: true });
 });
 
 router.post("/auth/logout", (req, res) => {
@@ -531,7 +593,7 @@ function checkScreenLimit(cid) {
   const c = loadCustomer(cid);
   if (c.screen_limit === null) return;
   const used = get("SELECT COUNT(*) n FROM screens WHERE customer_id = ? AND paired_at IS NOT NULL", cid).n;
-  if (used >= c.screen_limit) throw bad(`${c.name} already has ${used} of ${c.screen_limit} screens. Raise the limit on the Customers page first.`);
+  if (used >= c.screen_limit) throw bad(`${c.name} already has ${used} of ${c.screen_limit} screens. To add more, choose more screens under Billing (or your provider can raise the limit).`);
 }
 
 /** A screen set up ahead of time: name, playlist and layers, with no TV yet. A TV is connected later with its code. */
@@ -1024,15 +1086,30 @@ const billing = require("./billingLink");
 const clientView = b => b && ({ plan: b.plan, screens: b.screens, monthly: b.monthly, billingDay: b.billingDay, payMethod: b.payMethod, autopay: b.autopay,
   thisMonth: b.thisMonth, overdue: b.overdue, lastPayment: b.lastPayment, status: b.status });
 
+/** A client who signed up on their own: open their billing setup page (choose screens, set up monthly payment). */
+router.post("/billing/setup", auth.requireAdmin, async (req, res) => {
+  if (req.isStaff) throw bad("This is for a client's own login.");
+  const c = loadCustomer(req.cid);
+  if (!c.self_signup) throw bad("Please contact us to change your plan.");
+  const r = await billing.selfSignup({ signageId: c.id, name: c.name, contactName: c.contact_name, email: c.email, phone: c.phone,
+    lang: req.body.lang === "es" ? "es" : "en" });
+  if (r.id && c.billing_client_id !== r.id) run("UPDATE customers SET billing_client_id = ? WHERE id = ?", r.id, c.id);
+  res.json({ url: r.portalUrl, setupDone: !!r.setupDone });
+});
+
 router.get("/billing", async (req, res) => {
   const st = await billing.billingStatus();
+  billing.syncScreenLimits(st);
   const byId = new Map(st.clients.map(b => [b.id, b]));
   const customers = req.cid ? [get("SELECT * FROM customers WHERE id = ?", req.cid)] : all("SELECT * FROM customers ORDER BY name COLLATE NOCASE");
   const rows = customers.map(c => {
     const b = c.billing_client_id ? byId.get(c.billing_client_id) || null : null;
     // Suggest a billing client with the same name when not linked yet.
     const suggest = !c.billing_client_id && req.isStaff ? st.clients.find(x => x.name.trim().toLowerCase() === c.name.trim().toLowerCase()) : null;
-    return { customerId: c.id, name: c.name, linked: !!c.billing_client_id, missing: !!c.billing_client_id && !b && st.ok,
+    const lim = get("SELECT screen_limit FROM customers WHERE id = ?", c.id);
+    return { customerId: c.id, name: c.name, linked: !!c.billing_client_id, screenLimit: lim ? lim.screen_limit : null,
+      // Their own login may open the setup page until monthly payment is running.
+      canSetup: !req.isStaff && !!c.self_signup && req.user.role === "admin" && (!b || b.status === "pending"), missing: !!c.billing_client_id && !b && st.ok,
       billing: req.isStaff ? b : clientView(b), suggest: suggest ? { id: suggest.id, name: suggest.name } : null };
   });
   const linkedIds = new Set(all("SELECT billing_client_id id FROM customers WHERE billing_client_id IS NOT NULL").map(r => r.id));
@@ -1256,4 +1333,6 @@ router.use((err, req, res, next) => {
   res.status(status).json({ error: status >= 500 && !(err instanceof HttpError) && !(err instanceof ai.AiError) ? "Something went wrong on the server." : err.message });
 });
 
-module.exports = { router, latestApk };
+/** Tests swap in a fake email sender. */
+const setMailer = m => { mailer = m; };
+module.exports = { router, latestApk, setMailer };

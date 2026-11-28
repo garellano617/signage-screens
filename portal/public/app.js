@@ -36,7 +36,7 @@ async function api(method, url, body, headers) {
   const res = await fetch("/api" + url, opt);
   let data = null;
   try { data = await res.json(); } catch (_) {}
-  if (res.status === 401 && url !== "/auth/login" && url !== "/auth/signup") { state.user = null; renderLogin(); throw new Error("Please log in."); }
+  if (res.status === 401 && !/^\/auth\/(login|signup|forgot|reset)/.test(url)) { state.user = null; renderLogin(); throw new Error("Please log in."); }
   if (!res.ok) throw new Error((data && data.error) || "Request failed (" + res.status + ")");
   return data;
 }
@@ -319,7 +319,9 @@ function shell(section, inClient) {
 async function route() {
   clearInterval(state.timer); state.timer = null;
   window.onbeforeunload = null;
-  if (!state.user) return location.hash === "#/signup" ? renderSignup() : renderLogin();
+  const rm = location.hash.match(/^#\/reset\/([\w-]{20,100})$/);
+  if (rm) return renderReset(rm[1]);
+  if (!state.user) return location.hash === "#/signup" ? renderSignup() : location.hash === "#/forgot" ? renderForgot() : renderLogin();
   let path = location.hash.replace(/^#/, "") || "/";
   // The QR code on a TV's pairing screen opens #/pair/CODE: open Add screen with the code filled in.
   const pm = path.match(/^(\/c\/\d+)?\/pair\/([A-Za-z0-9]{6})$/);
@@ -511,6 +513,7 @@ function renderLogin() {
     brandMark(state.brand.name === "Signage" ? " Portal" : ""),
     field("Email", h("input", { name: "email", type: "email", autocomplete: "username", required: true })),
     field("Password", h("input", { name: "password", type: "password", autocomplete: "current-password", required: true })),
+    h("p", { class: "small", style: "margin:-.4rem 0 .8rem;text-align:right" }, h("a", { href: "#/forgot", onclick: e => { e.preventDefault(); location.hash = "#/forgot"; renderForgot(); } }, "Forgot password?")),
     err, btn,
     h("p", { class: "small muted signup-link", style: "text-align:center", hidden: true }, "New here? ", h("a", { href: "#/signup", onclick: e => { e.preventDefault(); location.hash = "#/signup"; renderSignup(); } }, "Create an account")));
   api("GET", "/auth/signup").then(r => { if (r && r.open) form.querySelector(".signup-link").hidden = false; }).catch(() => {});
@@ -549,12 +552,76 @@ function renderSignup() {
     const f = new FormData(form);
     try {
       const r = await api("POST", "/auth/signup", Object.fromEntries(["business", "name", "email", "phone", "password"].map(k => [k, f.get(k)])));
-      state.user = r.user; location.hash = "#/"; await loadCustomers(); route(); refreshIcons();
-      toast("Welcome! Your account is ready.");
+      state.user = r.user; location.hash = r.next === "billing" ? "#/billing" : "#/"; await loadCustomers(); route(); refreshIcons();
+      toast(r.next === "billing" ? "Welcome! Now choose your screens and set up your monthly payment." : "Welcome! Your account is ready.");
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
   });
   app().replaceChildren(h("div", { class: "login-wrap" }, form, I18N.switcher()));
   form.querySelector("input").focus();
+}
+
+// ---------- forgot password ----------
+function authPage(...children) {
+  clearInterval(state.timer);
+  helpRemove();
+  const card = h("div", { class: "card login" }, brandMark(state.brand.name === "Signage" ? " Portal" : ""), ...children);
+  app().replaceChildren(h("div", { class: "login-wrap" }, card, I18N.switcher()));
+  return card;
+}
+const backToLogin = () => h("p", { class: "small muted", style: "text-align:center" },
+  h("a", { href: "#/", onclick: e => { e.preventDefault(); location.hash = "#/"; renderLogin(); } }, "Back to log in"));
+
+function renderForgot() {
+  const err = h("div", { class: "form-error" });
+  const btn = h("button", { type: "submit", class: "primary", style: "width:100%;justify-content:center" }, "Email me a reset link");
+  const form = h("form", {},
+    h("h2", { style: "margin:0 0 .25rem;font-size:1.1rem;text-align:center" }, "Forgot your password?"),
+    h("p", { class: "small muted", style: "text-align:center;margin:0 0 1rem" }, "Enter the email you log in with. We'll send you a link to choose a new password."),
+    field("Email", h("input", { name: "email", type: "email", autocomplete: "username", required: true })),
+    err, btn);
+  const card = authPage(form, backToLogin());
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); err.textContent = ""; btn.disabled = true;
+    try {
+      await api("POST", "/auth/forgot", { email: new FormData(form).get("email") });
+      form.replaceWith(h("div", {},
+        h("h2", { style: "margin:0 0 .5rem;font-size:1.1rem;text-align:center" }, "Check your email"),
+        h("p", { style: "text-align:center" }, "If an account uses that email, we sent a link to choose a new password. It works for 30 minutes."),
+        h("p", { class: "small muted", style: "text-align:center" }, "Don't see it? Check your spam or junk folder.")));
+    } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+  });
+  card.querySelector("input").focus();
+}
+
+async function renderReset(token) {
+  const card = authPage(h("p", { class: "muted", style: "text-align:center" }, "Loading…"));
+  let info;
+  try { info = await api("GET", "/auth/reset?t=" + encodeURIComponent(token)); }
+  catch (ex) { card.replaceChildren(brandMark(""), h("p", { class: "form-error" }, ex.message), backToLogin()); return; }
+  const err = h("div", { class: "form-error" });
+  const btn = h("button", { type: "submit", class: "primary", style: "width:100%;justify-content:center" }, "Save new password");
+  const form = h("form", {},
+    h("h2", { style: "margin:0 0 .25rem;font-size:1.1rem;text-align:center" }, "Choose a new password"),
+    h("p", { class: "small muted", style: "text-align:center;margin:0 0 1rem" }, info.email),
+    h("input", { type: "email", name: "username", value: info.email, autocomplete: "username", hidden: true }),
+    field("New password (at least 8 characters)", h("input", { name: "password", type: "password", autocomplete: "new-password", required: true, minlength: 8 })),
+    field("Type it again", h("input", { name: "again", type: "password", autocomplete: "new-password", required: true, minlength: 8 })),
+    err, btn);
+  card.replaceChildren(brandMark(state.brand.name === "Signage" ? " Portal" : ""), form, backToLogin());
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); err.textContent = "";
+    const f = new FormData(form);
+    if (f.get("password") !== f.get("again")) { err.textContent = "The two passwords don't match."; return; }
+    btn.disabled = true;
+    try {
+      await api("POST", "/auth/reset", { token, password: f.get("password") });
+      state.user = null;
+      history.replaceState(null, "", location.pathname + "#/");
+      renderLogin();
+      toast("Password changed. Log in with your new password.");
+    } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+  });
+  form.querySelector("input[name=password]").focus();
 }
 
 const stat = (num, lbl, href) => h(href ? "a" : "div", { class: "card stat" + (href ? " link" : ""), href }, h("div", { class: "num" }, num), h("div", { class: "lbl" }, lbl));
@@ -3133,7 +3200,23 @@ async function renderBilling(main) {
   if (inClient) {
     const row = d.rows[0] || {};
     const b = row.billing;
-    main.replaceChildren(head, warn || "",
+    const setupCard = row.canSetup ? h("div", { class: "card", style: "margin-bottom:1rem;border-color:var(--accent, #2563eb)" },
+      h("h2", {}, b ? "Finish setting up your monthly payment" : "Choose your screens and set up monthly payment"),
+      h("p", {}, "On our secure billing page you choose how many screens you want and your plan, see the monthly price, and set up automatic payment by bank account or card."),
+      h("p", { class: "small muted" }, "Your card or bank number is entered on Authorize.net's secure page. We never see or store it."),
+      h("button", { class: "primary", onclick: async e => {
+        const btn = e.currentTarget; btn.disabled = true;
+        // Open the tab right away (phones block tabs opened later), then send it to the setup page.
+        const w = window.open("", "_blank");
+        try {
+          const r = await api("POST", "/billing/setup", { lang: I18N.lang() === "es" ? "es" : "en" });
+          if (w) { w.location = r.url; toast("Your billing page opened in a new tab. Come back here when you're done."); } else location.href = r.url;
+        } catch (ex) { if (w) w.close(); toast(ex.message, true); }
+        btn.disabled = false;
+      } }, b ? "Continue to billing ↗" : "Choose screens & set up payment ↗"),
+      row.screenLimit != null ? h("p", { class: "small muted", style: "margin-top:.75rem" }, "Right now you can connect " + row.screenLimit + " TV" + (row.screenLimit === 1 ? "" : "s") + ". Once your payment is set up, this goes up to the number of screens you chose (it can take a few minutes).") : null) : null;
+    if (setupCard && !b) { main.replaceChildren(head, warn || "", setupCard); return; }
+    main.replaceChildren(head, warn || "", setupCard || "",
       !b ? h("div", { class: "card empty" }, isStaff()
           ? [h("p", {}, row.linked ? "This client's record wasn't found in the billing app." : "This client isn't linked to the billing app yet."), linkControl(row, d.choices)]
           : "Billing details aren't available yet.")

@@ -1292,3 +1292,95 @@ test("sign up: a new client makes their own account and only sees their own side
     assert.equal(again.status, 200);
   } finally { cookie = saved.cookie; scopeId = saved.scopeId; }
 });
+
+test("forgot password: emailed one-time link sets a new password and logs out everywhere", async () => {
+  const { setMailer } = require("../src/adminRoutes");
+  const sent = [];
+  setMailer({ configured: true, async send(m) { sent.push(m); } });
+  const saved = { cookie, scopeId };
+  cookie = ""; scopeId = null;
+  try {
+    // A login to reset (made through sign-up).
+    await call("POST", "/api/auth/signup", { business: "Reset Co", name: "Bo", email: "bo@reset.test", password: "first-pass-1" });
+    const oldCookie = cookie; cookie = "";
+    assert.equal((await call("POST", "/api/auth/forgot", { email: "nobody@reset.test" })).status, 200, "same answer for unknown emails");
+    assert.equal((await call("POST", "/api/auth/forgot", { email: "BO@reset.test" })).status, 200);
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(sent.length, 1, "only the real account gets an email");
+    assert.equal(sent[0].to, "bo@reset.test");
+    const token = (sent[0].text.match(/#\/reset\/([\w-]+)/) || [])[1];
+    assert.ok(token, sent[0].text);
+    assert.match(sent[0].text, /^.*https:\/\/signage\.precom\.net\/#\/reset\//m);
+    assert.equal((await call("GET", "/api/auth/reset?t=" + token)).body.email, "bo@reset.test");
+    assert.equal((await call("POST", "/api/auth/reset", { token, password: "short" })).status, 400);
+    assert.equal((await call("POST", "/api/auth/reset", { token: "x".repeat(40), password: "new-pass-123" })).status, 400);
+    assert.equal((await call("POST", "/api/auth/reset", { token, password: "new-pass-123" })).status, 200);
+    assert.equal((await call("POST", "/api/auth/reset", { token, password: "again-pass-123" })).status, 400, "link works once");
+    assert.equal((await call("POST", "/api/auth/login", { email: "bo@reset.test", password: "first-pass-1" })).status, 401);
+    cookie = "";
+    assert.equal((await call("POST", "/api/auth/login", { email: "bo@reset.test", password: "new-pass-123" })).status, 200);
+    cookie = oldCookie;
+    assert.equal((await call("GET", "/api/auth/me")).status, 401, "old sessions are logged out");
+    // Without email set up it says to ask for help.
+    setMailer({ configured: false, async send() { throw new Error("no"); } });
+    cookie = "";
+    assert.equal((await call("POST", "/api/auth/forgot", { email: "bo@reset.test" })).status, 400);
+  } finally { cookie = saved.cookie; scopeId = saved.scopeId; }
+});
+
+test("self sign-up client opens their billing setup page; screen limit follows what they pay for", async () => {
+  const http = require("node:http");
+  const KEY = "b".repeat(40);
+  let status = "pending", screens = 1;
+  const calls = [];
+  const fake = http.createServer((req, res) => {
+    let body = ""; req.on("data", d => body += d);
+    req.on("end", () => {
+      calls.push([req.method, req.url, req.headers.authorization, body]);
+      res.setHeader("content-type", "application/json");
+      if (req.headers.authorization !== "Bearer " + KEY) { res.statusCode = 401; return res.end("{}"); }
+      if (req.url === "/api/integration/self-signup") return res.end(JSON.stringify({ id: "sg-" + JSON.parse(body).signageId, portalUrl: "https://billing.test/s/TOKEN", setupDone: false }));
+      if (req.url === "/api/integration/billing-status") {
+        const su = calls.find(x => x[1] === "/api/integration/self-signup");
+        if (!su) return res.end(JSON.stringify({ clients: [] }));
+        const c = JSON.parse(su[3]);
+        return res.end(JSON.stringify({ clients: [{ id: "sg-" + c.signageId, name: c.name, status, screens, plan: "Basic", monthly: 35 * screens }] }));
+      }
+      res.statusCode = 404; res.end("{}");
+    });
+  });
+  await new Promise(r => fake.listen(0, r));
+  process.env.BILLING_URL = "http://127.0.0.1:" + fake.address().port; process.env.BILLING_KEY = KEY;
+  const billing = require("../src/billingLink");
+  const saved = { cookie, scopeId };
+  cookie = ""; scopeId = null;
+  try {
+    const r = await call("POST", "/api/auth/signup", { business: "Pay Co", name: "Cy", email: "cy@pay.test", password: "pay-pass-123" });
+    assert.equal(r.body.next, "billing");
+    let b = await call("GET", "/api/billing");
+    assert.equal(b.body.rows[0].canSetup, true);
+    assert.equal(b.body.rows[0].screenLimit, 1);
+    const s = await call("POST", "/api/billing/setup", { lang: "es" });
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+    assert.equal(s.body.url, "https://billing.test/s/TOKEN");
+    const sent = JSON.parse(calls.find(x => x[1] === "/api/integration/self-signup")[3]);
+    assert.equal(sent.name, "Pay Co"); assert.equal(sent.email, "cy@pay.test"); assert.equal(sent.lang, "es");
+    // They chose 4 screens and payment is running: the limit goes up to 4.
+    status = "active"; screens = 4; billing.resetCache();
+    b = await call("GET", "/api/billing");
+    assert.equal(b.body.rows[0].canSetup, false);
+    assert.equal(b.body.rows[0].screenLimit, 4);
+    assert.equal(b.body.rows[0].billing.screens, 4);
+    // Customers your team made can't use self setup.
+    cookie = saved.cookie;
+    const made = await call("POST", "/api/customers", { name: "Staff Made" });
+    await call("POST", "/api/users", { email: "sm@made.test", password: "made-pass-123", role: "admin" }, { "x-customer-id": String(made.body.id) });
+    cookie = "";
+    await call("POST", "/api/auth/login", { email: "sm@made.test", password: "made-pass-123" });
+    assert.equal((await call("POST", "/api/billing/setup", {})).status, 400);
+  } finally {
+    cookie = saved.cookie; scopeId = saved.scopeId;
+    delete process.env.BILLING_URL; delete process.env.BILLING_KEY; billing.resetCache();
+    fake.close();
+  }
+});

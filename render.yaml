@@ -39,3 +39,17 @@ services:
         sync: false
       - key: BILLING_KEY
         sync: false
+      # This portal's address (used in password reset emails).
+      - key: PUBLIC_URL
+        value: https://signage.precom.net
+      # Optional: email for "Forgot password?" (same settings as the billing app).
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
