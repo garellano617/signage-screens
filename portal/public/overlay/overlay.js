@@ -607,7 +607,7 @@
   // ---- clock-driven effects: the same on every screen of a video wall ----
   // Every position is worked out from the time alone (no randomness that differs between screens), in the
   // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
-  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1, snow: 1, bubbles: 1, lights: 1, rain: 1 };
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1, snow: 1, bubbles: 1, lights: 1, rain: 1, wiper: 1 };
 
   // A water drop on glass, drawn once. A drop works like a tiny lens that shows the world upside down, so it is
   // dark along the top edge and bright along the bottom, with a sharp light reflection near the top and a faint
@@ -1073,6 +1073,84 @@
       }
       ctx.restore();
     }
+    // Rainy windshield, worked out from the clock alone (a video wall stays in step, with one wiper across the
+    // whole wall). Raindrops keep landing and build up on the glass; every ef.wipe seconds a car wiper sweeps up
+    // and back from below the screen, pushing a wave of water and leaving a brief wet smear, and the glass it
+    // passed is clear again. Then the rain builds up again. ef.rain: 1 drizzle … 5 downpour.
+    var WIPE_DROPS = [70, 160, 300, 480, 750];
+    function wiper(t) {
+      if (!dropSprite) makeDropSprite();
+      var u = W / 100, C = Math.max(4, ef.wipe || 10), Dw = 1.5;
+      var N = Math.min(2500, Math.round(WIPE_DROPS[Math.min(5, Math.max(1, ef.rain || 3)) - 1] * v.cols * v.rows));
+      var px = VW / 2, py = VH + u * 3, L = Math.hypot(VW / 2, py) * 1.03, r0 = L * 0.06;
+      var TMAX = Math.PI + 0.06, TMIN = -0.06;
+      function ang(s) { // blade angle s seconds into the sweep
+        if (s <= 0 || s >= Dw) return TMAX;
+        var p = s < Dw / 2 ? s / (Dw / 2) : (Dw - s) / (Dw / 2);
+        return TMAX - (TMAX - TMIN) * (1 - Math.cos(Math.PI * p)) / 2;
+      }
+      function upAt(phi) { var x = (TMAX - phi) / (TMAX - TMIN); return Math.acos(Math.min(1, Math.max(-1, 1 - 2 * x))) / Math.PI * Dw / 2; }
+      var cyc = Math.floor(t / C), tau = t - cyc * C;
+      ctx.save();
+      // Drops: from this cycle and the one before (those the last sweep hasn't reached yet).
+      for (var back = 1; back >= 0; back--) {
+        var n = cyc - back;
+        for (var k = 0; k < N; k++) {
+          var g = k * 11.3 + n * 37.9, a = rnd(g, 1) * C;
+          var x = rnd(g, 2) * VW, y = rnd(g, 3) * VH, z = rnd(g, 4), r = u * (0.12 + z * z * z * 1.25);
+          var phi = Math.atan2(py - y, x - px), su = upAt(phi), sd = Dw - su;
+          var clear = a < su ? su : a < sd ? sd : C + su;
+          var at = tau + back * C;
+          if (at < a || at >= clear) continue;
+          if (x < OX - r * 2 || x > OX + W + r * 2 || y < OY - r * 2 || y > OY + H + r * 2) continue;
+          var age = at - a, grow = age < 0.15 ? 0.4 + 0.6 * age / 0.15 : 1;
+          // Bigger drops slowly creep down once they have been there a while.
+          var creep = r > u * 0.8 ? Math.max(0, age - 2) * u * 0.25 * (r / u) : 0;
+          drop(x, y + creep, r * grow, 0.9, 1 + z * 0.12 + (creep ? 0.08 : 0));
+        }
+      }
+      if (tau < Dw + 0.6) {
+        var th = ang(tau), fill = Math.min(1, C / 8);
+        // Wet smear just behind the blade, drying fast.
+        for (var q = 1; q <= 6; q++) {
+          var s0 = tau - q * 0.07, s1 = tau - (q - 1) * 0.07;
+          if (s1 <= 0) continue;
+          var a0 = ang(Math.max(0, s0)), a1 = ang(s1);
+          if (Math.abs(a1 - a0) < 0.001) continue;
+          ctx.globalAlpha = 0.07 * (1 - q / 7) * fill; ctx.fillStyle = "#dfe9f2";
+          ctx.beginPath(); ctx.arc(px, py, L, -a0, -a1, a1 > a0); ctx.arc(px, py, r0, -a1, -a0, a1 <= a0); ctx.closePath(); ctx.fill();
+        }
+        if (tau < Dw) {
+          var dir = tau < Dw / 2 ? -1 : 1, cx = Math.cos(th), sy = -Math.sin(th);
+          var nx = -sy * dir, ny = cx * dir; // side the blade is moving towards
+          ctx.save(); ctx.translate(px, py);
+          // Wave of water pushed ahead of the blade.
+          var wg = ctx.createLinearGradient(0, 0, nx * u * 1.6, ny * u * 1.6);
+          wg.addColorStop(0, "rgba(230,240,250," + 0.45 * fill + ")"); wg.addColorStop(1, "rgba(230,240,250,0)");
+          ctx.globalAlpha = 1; ctx.fillStyle = wg;
+          ctx.beginPath(); ctx.moveTo(cx * r0, sy * r0); ctx.lineTo(cx * L, sy * L); ctx.lineTo(cx * L + nx * u * 1.6, sy * L + ny * u * 1.6); ctx.lineTo(cx * r0 + nx * u * 1.6, sy * r0 + ny * u * 1.6); ctx.closePath(); ctx.fill();
+          ctx.rotate(-th);
+          // Shadow on the glass.
+          ctx.globalAlpha = 0.28; ctx.fillStyle = "#000";
+          ctx.fillRect(r0, u * 0.5, L - r0, u * 0.9);
+          // Arm: from the pivot to the middle of the blade.
+          ctx.globalAlpha = 1; ctx.strokeStyle = "#1b1d21"; ctx.lineCap = "round";
+          ctx.lineWidth = u * 0.9; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L * 0.5, -u * 0.9); ctx.stroke();
+          ctx.lineWidth = u * 0.5; ctx.beginPath(); ctx.moveTo(L * 0.5, -u * 0.9); ctx.lineTo(L * 0.62, -u * 0.55); ctx.stroke();
+          // Blade: metal frame with claws over a black rubber strip.
+          ctx.fillStyle = "#0b0c0e"; ctx.fillRect(r0, -u * 0.3, L - r0, u * 0.6);
+          ctx.strokeStyle = "#2c2f35"; ctx.lineWidth = u * 0.35;
+          ctx.beginPath(); ctx.moveTo(r0 + u, -u * 0.45);
+          ctx.lineTo(L * 0.35, -u * 0.95); ctx.lineTo(L * 0.62, -u * 0.55); ctx.lineTo(L * 0.85, -u * 0.95); ctx.lineTo(L - u, -u * 0.45); ctx.stroke();
+          ctx.fillStyle = "#3a3e45";
+          [0.2, 0.35, 0.5, 0.75, 0.9].forEach(function (f) { ctx.fillRect(r0 + (L - r0) * f - u * 0.25, -u * 0.6, u * 0.5, u * 0.35); });
+          ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = u * 0.08;
+          ctx.beginPath(); ctx.moveTo(r0, -u * 0.28); ctx.lineTo(L, -u * 0.28); ctx.stroke();
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+    }
     // Far-away flakes first, near ones on top.
     var depthOrder = {};
     function byDepth(name, n) {
@@ -1436,6 +1514,7 @@
       else if (type === "leaves") leaves(t, base);
       else if (type === "lights") lights(t);
       else if (type === "rain") rain(t);
+      else if (type === "wiper") wiper(t);
       else if (type === "plane") plane(t);
       else particles(type, t, base, ef.color);
       raf = requestAnimationFrame(frame);

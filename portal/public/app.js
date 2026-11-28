@@ -880,7 +880,7 @@ const POSITION_LABELS = [["top-left", "Top left"], ["top", "Top"], ["top-right",
 const SPECIAL_POSITIONS = [["right", "Right panel"], ["left", "Left panel"], ["bottom-right", "Card, bottom right"], ["bottom-left", "Card, bottom left"],
   ["top-right", "Card, top right"], ["center", "Big card, center"]];
 const SIZE_LABELS = [["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Extra large"]];
-const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"], ["plane", "✈ Plane & banner"], ["lights", "🎄 Christmas lights"], ["rain", "💧 Rain on the window"]];
+const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"], ["plane", "✈ Plane & banner"], ["lights", "🎄 Christmas lights"], ["rain", "💧 Rain on the window"], ["wiper", "🚗 Rain & wiper"]];
 const ENTER_LABELS = [["none", "None (just appears)"], ["fade", "Fade in"], ["small", "Small → big (zoom in)"], ["big", "Big → small (zoom down)"],
   ["left", "Slide in from the left"], ["right", "Slide in from the right"], ["top", "Drop down from the top"], ["bottom", "Rise up from the bottom"], ["spin", "Spin in"], ["pop", "Pop in (bounce)"], ["flip", "Flip in"]];
 const EXIT_LABELS = [["none", "None (just disappears)"], ["fade", "Fade out"], ["small", "Big → small (shrink away)"], ["big", "Small → big (grow away)"],
@@ -892,6 +892,7 @@ const TD_OPTIONS = [[0.3, "0.3 s (fast)"], [0.5, "0.5 s"], [0.8, "0.8 s"], [1, "
 const FIREWORK_SHAPES = [["mixed", "Random mix"], ["peony", "Classic round"], ["chrysanthemum", "Sparkling trails"], ["willow", "Golden willow"], ["palm", "Palm tree"], ["ring", "Ring"], ["heart", "Heart"], ["star", "Star"]];
 const LIGHT_PATTERNS = [["twinkle", "Twinkle"], ["steady", "Always on"], ["chase", "Chase"], ["flash", "Flash (every other bulb)"]];
 const RAIN_LEVELS = [[1, "Drizzle"], [2, "Light"], [3, "Medium"], [4, "Heavy"], [5, "Downpour"]];
+const WIPE_OPTIONS = [[5, "Every 5 seconds"], [8, "Every 8 seconds"], [10, "Every 10 seconds"], [15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"]];
 const EVERY_OPTIONS = [[15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"], [45, "Every 45 seconds"], [60, "Every minute"], [120, "Every 2 minutes"], [300, "Every 5 minutes"]];
 const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
   ["leaves", "🍂 Falling leaves"], ["stars", "★ Twinkling stars"]];
@@ -1862,9 +1863,10 @@ async function renderLayers(main, id, kind) {
         ef.enabled && ef.type === "plane" ? planeFields(ef, images, change) : null,
         ef.enabled && ef.type === "lights" ? field("How the lights blink", h("select", { onchange: e => { ef.pattern = e.target.value; change(); } }, opts(LIGHT_PATTERNS, ef.pattern || "twinkle"))) : null,
         ef.enabled && ef.type === "fireworks" ? field("Firework shape", h("select", { onchange: e => { ef.shape = e.target.value; change(); } }, opts(FIREWORK_SHAPES, ef.shape || "mixed"))) : null,
-        ef.enabled && ef.type === "rain" ? field("How much rain", h("select", { onchange: e => { ef.rain = Number(e.target.value); change(); } }, opts(RAIN_LEVELS, ef.rain || 3))) : null,
-        ef.enabled && (ef.type === "plane" || ef.type === "rain") ? null : field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
-        ef.enabled && (ef.type === "plane" || ef.type === "rain" || ef.type === "lights") ? null : h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")),
+        ef.enabled && (ef.type === "rain" || ef.type === "wiper") ? field("How much rain", h("select", { onchange: e => { ef.rain = Number(e.target.value); change(); } }, opts(RAIN_LEVELS, ef.rain || 3))) : null,
+        ef.enabled && ef.type === "wiper" ? field("The wiper cleans the screen", h("select", { onchange: e => { ef.wipe = Number(e.target.value); change(); } }, opts(WIPE_OPTIONS, ef.wipe || 10))) : null,
+        ef.enabled && (ef.type === "plane" || ef.type === "rain" || ef.type === "wiper") ? null : field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
+        ef.enabled && (ef.type === "plane" || ef.type === "rain" || ef.type === "wiper" || ef.type === "lights") ? null : h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")),
         h("div", { class: "sub-item" }, h("strong", { class: "small" }, "🧱 Video wall effects"),
           h("p", { class: "small muted", style: "margin:.25rem 0 .5rem" }, "On a video wall, effects fly across all its screens: Santa's sleigh or the plane enters on one TV and leaves on the next. Set them on the wall's page."),
           h("a", { class: "btn small", href: base() + "/walls" }, "Open video walls")));
@@ -2717,7 +2719,8 @@ async function renderWall(main, id) {
         all.map(([v, l]) => h("button", { type: "button", class: fx.enabled && fx.type === v ? "on" : "", onclick: () => { fx.enabled = true; fx.type = v; drawFx(); drawPreview(); } }, l))),
       fx.enabled && fx.type === "plane" ? planeFields(fx, images, drawPreview) : null,
       fx.enabled && fx.type !== "plane" ? h("div", { class: "row" },
-        fx.type === "rain" ? field("How much rain", h("select", { onchange: e => { fx.rain = Number(e.target.value); drawPreview(); } }, opts(RAIN_LEVELS, fx.rain || 3)))
+        fx.type === "wiper" ? field("The wiper cleans the screen", h("select", { onchange: e => { fx.wipe = Number(e.target.value); drawPreview(); } }, opts(WIPE_OPTIONS, fx.wipe || 10))) : null,
+        fx.type === "rain" || fx.type === "wiper" ? field("How much rain", h("select", { onchange: e => { fx.rain = Number(e.target.value); drawPreview(); } }, opts(RAIN_LEVELS, fx.rain || 3)))
           : field("Amount", h("select", { onchange: e => { fx.intensity = e.target.value; drawPreview(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], fx.intensity))),
         fx.type === "santa" ? field("Santa flies by", h("select", { onchange: e => { fx.every = Number(e.target.value); drawPreview(); } }, opts(EVERY_OPTIONS, fx.every))) : null,
         fx.type === "lights" ? field("How the lights blink", h("select", { onchange: e => { fx.pattern = e.target.value; drawPreview(); } }, opts(LIGHT_PATTERNS, fx.pattern || "twinkle"))) : null,
@@ -2771,6 +2774,7 @@ const WALL_FX_TEMPLATES = [
   { name: "✈ Plane with banner", desc: "A small plane pulls your message or logo across every screen.", fx: { type: "plane", intensity: "medium", every: 30, banner: "Grand opening this Saturday!", bannerBg: "#ffffff", bannerColor: "#b91c1c", color: "#ffffff" } },
   { name: "🎄 Christmas lights", desc: "Coloured Christmas lights strung around the edge of the whole wall.", fx: { type: "lights", intensity: "medium", pattern: "twinkle", color: "#ffffff" } },
   { name: "💧 Rainy window", desc: "Raindrops on the glass running down across the whole wall.", fx: { type: "rain", intensity: "medium", rain: 3, color: "#ffffff" } },
+  { name: "🚗 Rainy windshield", desc: "Rain builds up on the glass, then a big car wiper sweeps it clean across the whole wall.", fx: { type: "wiper", intensity: "medium", rain: 3, wipe: 10, color: "#ffffff" } },
   { name: "🎆 New Year fireworks", desc: "Fireworks bursting all over the wall.", fx: { type: "fireworks", intensity: "medium", color: "#ffffff" } },
   { name: "🌠 Starry night", desc: "Shooting stars streak from screen to screen over twinkling stars.", fx: { type: "shooting", intensity: "medium", color: "#ffffff" } },
   { name: "🎈 Party balloons", desc: "Colorful balloons float up across the wall.", fx: { type: "balloons", intensity: "medium", color: "#ffffff" } },

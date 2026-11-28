@@ -68,7 +68,7 @@ One big picture or video across several TVs hung next to each other (up to 6 × 
 - **Video walls → New wall:** choose the grid (columns × rows), then on the wall's page add its **pictures and videos** (in order; pictures for their seconds, videos to their end) and pick which screen hangs in each spot.
 - **Fill** crops the picture to fill the wall; **Fit** shows the whole picture. **Gap between screens** makes the picture line up across the TV frames.
 - Pictures and videos only (web pages and widgets are skipped), no layers; sound only from the top-left screen. All TVs play in step.
-- **Wall effects:** an animation that moves across all the wall's screens: Santa & reindeer, plane with banner (your text or logo), fireworks, shooting stars, balloons, Christmas lights around the edge, rain on the window, snow, confetti, hearts, leaves.
+- **Wall effects:** an animation that moves across all the wall's screens: Santa & reindeer, plane with banner (your text or logo), fireworks, shooting stars, balloons, Christmas lights around the edge, rain on the window, rain with a car wiper, snow, confetti, hearts, leaves.
 - While in a wall, a screen's own design and channel are not used.
 
 ## The designer (menu → Design)
@@ -77,7 +77,7 @@ A screen's design has four layers, bottom to top:
 1. **Background:** a colour behind everything (Background tab), or a picture from Media → Backgrounds.
 2. **Specials:** offers with title, price, description and an optional photo, taking turns every few seconds, each limited to certain days and times if wanted. Shown as a side panel (left/right) or a card.
 3. **Text & pictures:** text and pictures placed anywhere, plus a scrolling ticker at the top or bottom.
-4. **Effects:** an animation on top: snow, confetti, sparkles, bubbles, hearts, leaves, stars, Santa & reindeer, fireworks, shooting stars, balloons, a plane pulling a banner with your text or logo, Christmas lights around the edge of the screen (twinkle, always on, chase or flash), or rain on the window (from drizzle to downpour).
+4. **Effects:** an animation on top: snow, confetti, sparkles, bubbles, hearts, leaves, stars, Santa & reindeer, fireworks, shooting stars, balloons, a plane pulling a banner with your text or logo, Christmas lights around the edge of the screen (twinkle, always on, chase or flash), rain on the window (from drizzle to downpour), or rain with a car wiper that sweeps the screen clean every few seconds.
 
 How the designer works (like a simple video editor):
 - **Toolbar** (top): settings for whatever is selected: font (5 fonts), size, bold, italic, alignment, text color, box color and opacity, width (in % of the screen), snap to a spot, Order (over / under), Duplicate, Delete.
