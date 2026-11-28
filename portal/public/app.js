@@ -1016,7 +1016,10 @@ function planeFields(ef, images, onchange) {
 }
 const colorIn = (val, onchange, label) => h("label", { class: "color-in" }, h("input", { type: "color", value: val, oninput: e => onchange(e.target.value) }), label);
 
-const FONT_LABELS = [["sans", "Sans"], ["serif", "Serif"], ["condensed", "Condensed"], ["mono", "Typewriter"], ["script", "Script"]];
+const FONT_LABELS = [["sans", "Sans"], ["serif", "Serif"], ["condensed", "Condensed"], ["mono", "Typewriter"], ["script", "Script"],
+  ["anton", "Anton (tall & heavy)"], ["bebas", "Bebas Neue (tall caps)"], ["oswald", "Oswald (bold condensed)"], ["archivo", "Archivo Black (extra heavy)"], ["slab", "Alfa Slab (heavy slab)"], ["abril", "Abril Fatface (bold elegant)"], ["bungee", "Bungee (sign letters)"], ["titan", "Titan One (round & chunky)"], ["luckiest", "Luckiest Guy (fun & bold)"], ["bangers", "Bangers (comic)"], ["righteous", "Righteous (retro)"], ["lobster", "Lobster (bold script)"], ["pacifico", "Pacifico (surf script)"], ["marker", "Permanent Marker (hand drawn)"]];
+/** Font menu: each name shown in its own font (where the browser allows it). */
+const fontOpts = cur => FONT_LABELS.map(([v, l]) => h("option", { value: v, selected: v === cur, style: "font-family:" + (SignageOverlay.FONTS[v] || "inherit").replace(/"/g, "'") + ";font-size:1.05em" }, l));
 const SIZE_EM = { s: 2, m: 2.8, l: 4.2, xl: 6.2 };
 const TEXT_PRESETS = [
   ["Heading", "Your heading", { fs: 6, bold: true, bgOpacity: 0 }],
@@ -1685,7 +1688,7 @@ async function renderLayers(main, id, kind) {
       const upd = fn => e => { fn(e); change(); };
       if (b.kind === "text") {
         kids.push(
-          h("select", { title: "Font", onchange: upd(e => { b.font = e.target.value; }) }, opts(FONT_LABELS, b.font || "sans")),
+          h("select", { title: "Font", onchange: upd(e => { b.font = e.target.value; }) }, fontOpts(b.font || "sans")),
           h("label", { class: "tb-num", title: "Text size" }, "Size", h("input", { type: "number", min: 1, max: 30, step: 0.2, value: b.fs || SIZE_EM[b.size] || 2.8,
             oninput: upd(e => { b.fs = clampN(Number(e.target.value) || 2.8, 1, 30); }) })),
           tbBtn("B", b.bold, () => { b.bold = !b.bold; b.wt = 0; change(); drawToolbar(); }, "Bold (for any thickness, use Spacing & thickness)"),

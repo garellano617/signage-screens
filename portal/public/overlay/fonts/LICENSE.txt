@@ -4,4 +4,9 @@ Fonts used by the signage overlay (portal preview and TV player), from Google Fo
 - noto-serif.woff2: Noto Serif. SIL Open Font License 1.1 (Copyright 2022 The Noto Project Authors).
 - dancing-script.woff2: Dancing Script. SIL Open Font License 1.1 (Copyright 2016 The Dancing Script Project Authors).
 
-License text: https://openfontlicense.org
+- anton, bebas-neue, oswald, archivo-black, alfa-slab-one, abril-fatface, bungee, titan-one, bangers, righteous, lobster, pacifico (.woff2):
+  Anton, Bebas Neue, Oswald, Archivo Black, Alfa Slab One, Abril Fatface, Bungee, Titan One, Bangers, Righteous, Lobster, Pacifico.
+  SIL Open Font License 1.1 (copyright their respective authors, see fonts.google.com).
+- luckiest-guy.woff2, permanent-marker.woff2: Luckiest Guy, Permanent Marker. Apache License 2.0 (copyright Astigmatic / Font Diner).
+
+License text: https://openfontlicense.org and https://www.apache.org/licenses/LICENSE-2.0

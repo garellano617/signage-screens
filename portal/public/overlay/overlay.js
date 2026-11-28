@@ -25,7 +25,22 @@
     serif: "\"SO Noto Serif\", Georgia, \"Times New Roman\", \"Noto Serif\", serif",
     condensed: "\"SO Roboto Condensed\", \"Roboto Condensed\", \"Arial Narrow\", \"sans-serif-condensed\", sans-serif",
     mono: "\"SO Roboto Mono\", Consolas, \"Roboto Mono\", \"Courier New\", monospace",
-    script: "\"SO Dancing Script\", \"Segoe Script\", \"Brush Script MT\", \"Dancing Script\", cursive"
+    script: "\"SO Dancing Script\", \"Segoe Script\", \"Brush Script MT\", \"Dancing Script\", cursive",
+    // Thick, eye-catching display fonts (bundled too).
+    anton: "\"SO Anton\", Impact, \"Arial Narrow\", sans-serif-condensed, sans-serif",
+    bebas: "\"SO Bebas Neue\", Impact, \"Arial Narrow\", sans-serif-condensed, sans-serif",
+    oswald: "\"SO Oswald\", \"Arial Narrow\", sans-serif-condensed, sans-serif",
+    archivo: "\"SO Archivo Black\", \"Arial Black\", Impact, sans-serif",
+    slab: "\"SO Alfa Slab One\", Rockwell, Georgia, serif",
+    abril: "\"SO Abril Fatface\", \"Bodoni MT\", Georgia, serif",
+    bungee: "\"SO Bungee\", Impact, sans-serif",
+    titan: "\"SO Titan One\", \"Arial Rounded MT Bold\", \"Arial Black\", sans-serif",
+    luckiest: "\"SO Luckiest Guy\", Impact, \"Comic Sans MS\", sans-serif",
+    bangers: "\"SO Bangers\", Impact, \"Comic Sans MS\", cursive",
+    righteous: "\"SO Righteous\", \"Century Gothic\", sans-serif",
+    lobster: "\"SO Lobster\", \"Brush Script MT\", cursive",
+    pacifico: "\"SO Pacifico\", \"Brush Script MT\", cursive",
+    marker: "\"SO Permanent Marker\", \"Comic Sans MS\", cursive"
   };
 
   // Vector shapes for the text & pictures layer: [label, SVG drawn in a 100 x 100 box that stretches to the shape's

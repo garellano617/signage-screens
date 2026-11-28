@@ -15,7 +15,7 @@ const color = (v, d) => (/^#[0-9a-fA-F]{6}$/.test(v || "") ? String(v).toLowerCa
 const pick = (v, list, d) => (list.includes(v) ? v : d);
 const num = (v, min, max, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d; };
 const numf = (v, min, max, d) => { const n = Math.round(Number(v) * 10) / 10; return v !== null && v !== "" && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d; };
-const FONTS = ["sans", "serif", "condensed", "mono", "script"];
+const FONTS = ["sans", "serif", "condensed", "mono", "script", "anton", "bebas", "oswald", "archivo", "slab", "abril", "bungee", "titan", "luckiest", "bangers", "righteous", "lobster", "pacifico", "marker"];
 const MAX_BLOCKS = 30;
 // How a text or picture comes in and goes out. small = small to big on the way in, big to small on the way out; big = the opposite.
 // Looks for a text or picture: glow, neon glow (flickers a little), shadow, shine (a light sweeps across), grow (gentle pulse).

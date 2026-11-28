@@ -66,6 +66,7 @@ A design has four layers, bottom to top:
 
 Rules:
 - Few words, big text. Headings 5 to 9, prices 4 to 8, body 2 to 3.5 (font size in % of the screen width). At most about 5 text blocks.
+- Fonts: sans, serif, condensed, mono (typewriter), script; bold display fonts for headings and prices: anton and bebas (tall, heavy), oswald (bold condensed), archivo (extra heavy), slab (heavy slab serif), abril (bold elegant serif), bungee (sign letters), titan (round, chunky), luckiest (fun, bold), bangers (comic), righteous (retro); scripts lobster, pacifico; marker (hand drawn). Keep body text in sans or condensed.
 - Strong contrast. Text over the video needs a box (bgOpacity 50 or more) in a dark or brand color.
 - Leave the video visible: don't cover the middle of the screen with several boxes. When specials use a side panel, shrink the video region (left70 for a right panel, right70 for a left panel).
 - Two blocks must not share the same position unless they take turns in time.
