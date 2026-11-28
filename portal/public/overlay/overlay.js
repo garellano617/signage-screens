@@ -546,6 +546,40 @@
     };
   }
 
+  // ---- how sharp the effects canvas is ----
+  // Effects are soft and always moving: drawing them at 4K costs a TV box four times the work of Full HD and looks
+  // the same, so the effects canvas is at most FX_WIDTHS[level] pixels wide (text and pictures stay full sharpness).
+  // If frames still come too slowly on this box, it steps down a level by itself and remembers it.
+  var FX_WIDTHS = [1920, 1600, 1280, 960];
+  var fxLevel = 0;
+  try { fxLevel = Math.min(FX_WIDTHS.length - 1, Math.max(0, parseInt(global.localStorage.getItem("so-fx-level"), 10) || 0)); } catch (e) { /* no storage */ }
+  function fxScale(cssWidth) { return Math.min(global.devicePixelRatio || 1, FX_WIDTHS[fxLevel] / Math.max(1, cssWidth)); }
+  /**
+   * Watches frame times. Slow = under ~40 frames a second AND either uneven (stuttering) or each frame takes real
+   * work to draw; a TV that simply runs at 30 Hz (steady 33 ms frames, little work) is not slow. When it stays slow
+   * for a few seconds, the level goes down one step (not below 1280 px wide) and resize() is called.
+   * work(ms): how long drawing this frame took.
+   */
+  function fxPacer(resize) {
+    var last = 0, sum = 0, cnt = 0, slow = 0, since = 0, best = 1e9, busy = 0;
+    return function (ts, work) {
+      if (last) { var d = ts - last; if (d < 250) { sum += d; cnt++; if (d < best) best = d; } } // a long gap = the page was hidden, not slow
+      last = ts;
+      busy += work || 0;
+      if (!since) since = ts;
+      if (ts - since < 2000 || cnt < 10) return;
+      var avg = sum / cnt, avgWork = busy / cnt;
+      var isSlow = avg > 25 && (avg > best * 1.3 || avgWork > 10);
+      sum = 0; cnt = 0; since = ts; best = 1e9; busy = 0;
+      slow = isSlow ? slow + 1 : 0;
+      if (slow >= 2 && fxLevel < 2) {
+        slow = 0; fxLevel++;
+        try { global.localStorage.setItem("so-fx-level", String(fxLevel)); } catch (e) { /* no storage */ }
+        resize();
+      }
+    };
+  }
+
   // ---- animated effects on a canvas ----
   var COUNTS = { light: 25, medium: 55, heavy: 110 };
   var CONFETTI = ["#f43f5e", "#f59e0b", "#10b981", "#3b82f6", "#a855f7", "#facc15"];
@@ -554,15 +588,15 @@
     var cv = el("canvas", "so-effects");
     root.appendChild(cv);
     var ctx = cv.getContext("2d");
-    var W = 0, H = 0, ps = [], raf = 0, last = 0;
+    var W = 0, H = 0, ps = [], raf = 0, last = 0, work = 0, pace = fxPacer(function () { size(); });
     var type = ef.type, n = COUNTS[ef.intensity] || COUNTS.medium;
     var rising = type === "bubbles" || type === "hearts";
     var twinkle = type === "sparkles" || type === "stars";
 
     function size() {
-      var r = window.devicePixelRatio || 1;
       W = root.clientWidth; H = root.clientHeight;
-      cv.width = W * r; cv.height = H * r; ctx.setTransform(r, 0, 0, r, 0, 0);
+      var r = fxScale(W);
+      cv.width = Math.round(W * r); cv.height = Math.round(H * r); ctx.setTransform(r, 0, 0, r, 0, 0);
     }
     function make(initial) {
       var u = W / 100;
@@ -584,6 +618,7 @@
       ctx.closePath(); ctx.fill();
     }
     function frame(ts) {
+      pace(ts, work); var w0 = performance.now();
       var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0; last = ts;
       ctx.clearRect(0, 0, W, H);
       for (var i = 0; i < ps.length; i++) {
@@ -609,6 +644,7 @@
         }
         ctx.restore();
       }
+      work = performance.now() - w0;
       raf = requestAnimationFrame(frame);
     }
     size();
@@ -851,13 +887,13 @@
     root.appendChild(cv);
     var ctx = cv.getContext("2d");
     var v = view || { cols: 1, rows: 1, col: 0, row: 0, gap: 0 };
-    var W = 0, H = 0, VW = 0, VH = 0, OX = 0, OY = 0, raf = 0;
+    var W = 0, H = 0, VW = 0, VH = 0, OX = 0, OY = 0, raf = 0, R = 1, work = 0, pace = fxPacer(function () { size(); });
     var type = ef.type, base = COUNTS[ef.intensity] || COUNTS.medium;
 
     function size() {
-      var r = window.devicePixelRatio || 1;
       W = root.clientWidth; H = root.clientHeight;
-      cv.width = W * r; cv.height = H * r; ctx.setTransform(r, 0, 0, r, 0, 0);
+      R = fxScale(W);
+      cv.width = Math.round(W * R); cv.height = Math.round(H * R); ctx.setTransform(R, 0, 0, R, 0, 0);
       var g = (v.gap || 0) * W;
       VW = v.cols * W + (v.cols - 1) * g; VH = v.rows * H + (v.rows - 1) * g;
       OX = v.col * (W + g); OY = v.row * (H + g);
@@ -952,14 +988,12 @@
         if (e <= 0.02) continue;
         var r = s * (0.35 + 0.65 * e);
         ctx.globalAlpha = Math.min(1, e * 1.15);
-        var dpr = window.devicePixelRatio || 1;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.translate(-OX + x, -OY + y);
+        ctx.setTransform(R, 0, 0, R, 0, 0); ctx.translate(-OX + x, -OY + y);
         ctx.rotate((rnd(g, 7) - 0.5) * 0.6 + (rnd(k, 8) - 0.5) * 0.8 * p);
         ctx.drawImage(sp, -r, -r, r * 2, r * 2);
       }
       // Glitter: tiny specks that blink.
-      var dpr2 = window.devicePixelRatio || 1;
-      ctx.setTransform(dpr2, 0, 0, dpr2, 0, 0); ctx.translate(-OX, -OY);
+      ctx.setTransform(R, 0, 0, R, 0, 0); ctx.translate(-OX, -OY);
       ctx.fillStyle = color || "#ffffff";
       for (k = 0; k < (small ? 0 : n * 1.5); k++) {
         var b = Math.sin(t * (2 + rnd(k, 11) * 3) + rnd(k, 12) * 6.28);
@@ -1037,8 +1071,9 @@
     var RAIN = [[50, 1], [130, 3], [250, 6], [420, 10], [650, 16]];
     function drop(x, y, r, a, sy) {
       var d = r * dropSprite.k; ctx.globalAlpha = a;
-      if (sy && sy !== 1) { ctx.save(); ctx.translate(x, y); ctx.scale(1 / Math.sqrt(sy), sy); ctx.drawImage(dropSprite.img, -d, -d, 2 * d, 2 * d); ctx.restore(); }
-      else ctx.drawImage(dropSprite.img, x - d, y - d, 2 * d, 2 * d);
+      // Stretched taller (and a little narrower) by sy, around its middle.
+      var dx = sy && sy !== 1 ? d / Math.sqrt(sy) : d, dy = sy && sy !== 1 ? d * sy : d;
+      ctx.drawImage(dropSprite.img, x - dx, y - dy, 2 * dx, 2 * dy);
     }
     function rain(t) {
       if (!dropSprite) makeDropSprite();
@@ -1063,17 +1098,28 @@
         var pos = function (s) {
           return [x0 + u * (0.7 * Math.sin(s * 1.1 + f1) + 0.25 * Math.sin(s * 3.7 + f2)), y0 + sp * (s - 0.9 * T / 6.283 * Math.sin(6.283 * s / T))];
         };
-        var tEnd = Math.min(tau, run), from = Math.max(0, tau - 4), step = 0.06;
-        // Wet streak, fading as it dries.
+        var tEnd = Math.min(tau, run), from = Math.max(0, tau - 4), step = 0.1;
+        // Wet streak, fading as it dries: drawn in 5 bands (older = fainter), each band one stroke.
         ctx.lineCap = "round"; ctx.lineJoin = "round";
-        for (var s = from; s < tEnd; s += step) {
-          var a = pos(s), b = pos(Math.min(tEnd, s + step)), dryA = 1 - (tau - s) / 4;
-          if (dryA <= 0) continue;
-          ctx.globalAlpha = dryA * 0.35;
-          ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.lineWidth = R2 * 0.6;
-          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-          ctx.strokeStyle = "rgba(0,0,0,.12)"; ctx.lineWidth = R2 * 0.12;
-          ctx.beginPath(); ctx.moveTo(a[0] - R2 * 0.36, a[1]); ctx.lineTo(b[0] - R2 * 0.36, b[1]); ctx.stroke();
+        if (tEnd > from) {
+          var pts = [];
+          for (var s = from; s < tEnd; s += step) pts.push(pos(s));
+          pts.push(pos(tEnd));
+          var bands = 5, per2 = Math.max(1, Math.ceil((pts.length - 1) / bands));
+          for (var bi = 0; bi * per2 < pts.length - 1; bi++) {
+            var i0 = bi * per2, i1 = Math.min(pts.length - 1, i0 + per2);
+            var dryA = 1 - (tau - (from + (i0 + i1) / 2 * step)) / 4;
+            if (dryA <= 0) continue;
+            ctx.globalAlpha = dryA * 0.35;
+            ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.lineWidth = R2 * 0.6;
+            ctx.beginPath(); ctx.moveTo(pts[i0][0], pts[i0][1]);
+            for (var j = i0 + 1; j <= i1; j++) ctx.lineTo(pts[j][0], pts[j][1]);
+            ctx.stroke();
+            ctx.strokeStyle = "rgba(0,0,0,.12)"; ctx.lineWidth = R2 * 0.12;
+            ctx.beginPath(); ctx.moveTo(pts[i0][0] - R2 * 0.36, pts[i0][1]);
+            for (j = i0 + 1; j <= i1; j++) ctx.lineTo(pts[j][0] - R2 * 0.36, pts[j][1]);
+            ctx.stroke();
+          }
         }
         // Tiny drops left behind.
         for (var i = Math.ceil(from / 0.3); i * 0.3 < tEnd; i++) {
@@ -1517,9 +1563,10 @@
       airplane(x, y, u, t);
     }
 
-    function frame() {
+    function frame(ts) {
+      pace(ts, work); var w0 = performance.now();
       var t = now() / 1000;
-      ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+      ctx.setTransform(R, 0, 0, R, 0, 0);
       ctx.clearRect(0, 0, W, H);
       ctx.translate(-OX, -OY);
       if (type === "santa") { if (ef.snow) particles("snow", t, base, "#ffffff"); santa(t); }
@@ -1532,6 +1579,7 @@
       else if (type === "wiper") wiper(t);
       else if (type === "plane") plane(t);
       else particles(type, t, base, ef.color);
+      work = performance.now() - w0;
       raf = requestAnimationFrame(frame);
     }
     size();

@@ -105,6 +105,8 @@ class Overlay(private val activity: Activity, private val host: FrameLayout, pri
         // Draw the whole page at full resolution (no blurry low-resolution tiles while effects animate).
         if (android.os.Build.VERSION.SDK_INT >= 23) wv.settings.offscreenPreRaster = true
         wv.settings.textZoom = 100
+        // Lets the page remember settings on this box (e.g. a lower effects resolution on a slow box).
+        wv.settings.domStorageEnabled = true
         wv.addJavascriptInterface(object {
             @JavascriptInterface
             fun videos(json: String) { activity.runOnUiThread { if (web === wv) nativeVideos.update(json) } }
