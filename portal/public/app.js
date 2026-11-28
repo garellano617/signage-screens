@@ -3214,7 +3214,7 @@ async function renderBilling(main) {
         } catch (ex) { if (w) w.close(); toast(ex.message, true); }
         btn.disabled = false;
       } }, b ? "Continue to billing ↗" : "Choose screens & set up payment ↗"),
-      row.screenLimit != null ? h("p", { class: "small muted", style: "margin-top:.75rem" }, "Right now you can connect " + row.screenLimit + " TV" + (row.screenLimit === 1 ? "" : "s") + ". Once your payment is set up, this goes up to the number of screens you chose (it can take a few minutes).") : null) : null;
+      row.screenLimit != null ? h("p", { class: "small muted", style: "margin-top:.75rem" }, (row.screenLimit === 0 ? "You can connect your TVs once your monthly payment is set up." : "Right now you can connect " + row.screenLimit + " TV" + (row.screenLimit === 1 ? "" : "s") + ".") + " After you finish, the number of TVs you can connect matches the screens you chose (it can take a few minutes).") : null) : null;
     if (setupCard && !b) { main.replaceChildren(head, warn || "", setupCard); return; }
     main.replaceChildren(head, warn || "", setupCard || "",
       !b ? h("div", { class: "card empty" }, isStaff()

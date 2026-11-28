@@ -1359,7 +1359,10 @@ test("self sign-up client opens their billing setup page; screen limit follows w
     assert.equal(r.body.next, "billing");
     let b = await call("GET", "/api/billing");
     assert.equal(b.body.rows[0].canSetup, true);
-    assert.equal(b.body.rows[0].screenLimit, 1);
+    assert.equal(b.body.rows[0].screenLimit, 0, "no TV until they pay");
+    const blocked = await call("POST", "/api/screens/plan", { name: "Front" });
+    assert.equal(blocked.status, 400);
+    assert.match(blocked.body.error, /monthly payment under Billing/);
     const s = await call("POST", "/api/billing/setup", { lang: "es" });
     assert.equal(s.status, 200, JSON.stringify(s.body));
     assert.equal(s.body.url, "https://billing.test/s/TOKEN");

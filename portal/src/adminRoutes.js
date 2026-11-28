@@ -48,7 +48,8 @@ router.post("/auth/login", (req, res) => {
 
 // Self sign-up: a new client makes their own account (a client + its first admin login) and is logged in.
 // They only ever see their own client's pages. Turn it off with SIGNUP_OPEN=false. New accounts get
-// SIGNUP_SCREEN_LIMIT screens (default 1, empty = no limit); you can raise it on the Clients page.
+// SIGNUP_SCREEN_LIMIT screens (default 0: no TV until they pay; empty = no limit). Once their monthly payment
+// is running on the billing app, the limit rises to the screens they chose. You can also raise it on the Clients page.
 const signups = new Map(); // ip -> { count, until }
 const signupOpen = () => String(process.env.SIGNUP_OPEN || "true").toLowerCase() !== "false";
 router.get("/auth/signup", (req, res) => res.json({ open: signupOpen() }));
@@ -67,7 +68,7 @@ router.post("/auth/signup", (req, res) => {
   if (password.length < 8) throw bad("Password must be at least 8 characters.");
   if (password.length > 200) throw bad("Password is too long.");
   if (get("SELECT id FROM users WHERE email = ?", email)) throw bad("There is already an account with that email. Log in instead.");
-  const lim = process.env.SIGNUP_SCREEN_LIMIT === undefined ? "1" : String(process.env.SIGNUP_SCREEN_LIMIT).trim();
+  const lim = process.env.SIGNUP_SCREEN_LIMIT === undefined ? "0" : String(process.env.SIGNUP_SCREEN_LIMIT).trim();
   const screenLimit = lim === "" ? null : Math.max(0, Math.min(10000, parseInt(lim, 10) || 0));
   const uid = tx(() => {
     const c = run("INSERT INTO customers (name, contact_name, email, phone, notes, screen_limit, active, created_at, self_signup) VALUES (?,?,?,?,?,?,1,?,1)",
@@ -593,6 +594,7 @@ function checkScreenLimit(cid) {
   const c = loadCustomer(cid);
   if (c.screen_limit === null) return;
   const used = get("SELECT COUNT(*) n FROM screens WHERE customer_id = ? AND paired_at IS NOT NULL", cid).n;
+  if (c.screen_limit === 0 && c.self_signup) throw bad("Set up your monthly payment under Billing first. Then you can connect your TVs (it can take a few minutes after you finish).");
   if (used >= c.screen_limit) throw bad(`${c.name} already has ${used} of ${c.screen_limit} screens. To add more, choose more screens under Billing (or your provider can raise the limit).`);
 }
 
