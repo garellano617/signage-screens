@@ -1314,7 +1314,7 @@ async function renderLayers(main, id, kind) {
       Holidays.list().filter(o => !used.has(o.key)).map(o => h("option", { value: o.key }, o.emoji + " " + o.name)),
       h("option", { value: "custom" }, "🎉 Custom holiday or event…"));
     return [
-      h("div", { class: "layer-head", style: "margin-top:1.25rem" }, h("strong", {}, "🎉 Holiday backgrounds")),
+      h("div", { class: "layer-head", style: "margin-top:1.25rem" }, h("strong", {}, "🗓️ Scheduled Backgrounds")),
       h("p", { class: "small muted", style: "margin:0 0 .5rem" }, "Pick a holiday, its background and the dates. Your screens switch to it on the start date (locked at the bottom, under everything, like any background) and go back to your normal background after the last day. Save the design to turn it on."),
       h("p", { class: "small", style: "margin:0 0 .6rem" }, now ? "🎉 Showing on your screens today: " + now.name + "." : "Today your normal background is showing."),
       pvHoliday ? h("div", { class: "row", style: "gap:.5rem;align-items:center;margin-bottom:.6rem" }, h("span", { class: "small" }, "👁 Previewing " + pvHoliday.name),
