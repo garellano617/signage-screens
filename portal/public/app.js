@@ -1083,7 +1083,7 @@ async function renderLayers(main, id, kind) {
   }
   // A design slide has no video: its background colour fills the screen.
   let slideBg = isSlide ? s.bg || "#0f172a" : null;
-  // Holiday being previewed (Background tab): its picture / colour shows instead of the design's own background.
+  // Holiday being previewed (Scheduled Backgrounds tab): its picture / colour shows instead of the design's own background.
   let pvHoliday = null;
   const paintBg = () => {
     const hp = pvHoliday;
@@ -1774,7 +1774,7 @@ async function renderLayers(main, id, kind) {
   }
 
   // ---------- side panel ----------
-  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["shapes", "Shapes"], ["widgets", "Widgets"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Background"]];
+  const TABS = [["templates", "Templates"], ["ai", "✨ AI"], ["media", "Media"], ["shapes", "Shapes"], ["widgets", "Widgets"], ["text", "Text"], ["specials", "Specials"], ["effects", "Effects"], ["video", "Scheduled Backgrounds"]];
   let chainNext = true;
   // Effect for pictures when none is selected: applied to every picture in the design and to the ones added next.
   const firstPic = L.text.blocks.find(x => x.kind === "image" && x.fx && x.fx !== "none");

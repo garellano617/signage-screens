@@ -74,7 +74,7 @@ One big picture or video across several TVs hung next to each other (up to 6 × 
 ## The designer (menu → Design)
 
 A screen's design has four layers, bottom to top:
-1. **Background:** a colour behind everything (Background tab), or a picture from Media → Backgrounds.
+1. **Background:** a colour behind everything (Scheduled Backgrounds tab), or a picture from Media → Backgrounds. In the same tab, **Scheduled Backgrounds** switch the background by date: add an American holiday (Christmas, Thanksgiving, Fourth of July…) or a custom one, pick its picture and the start and end dates (every year or once). The screens show it from the start date, locked at the bottom like any background, and go back to the normal background after the last day.
 2. **Specials:** offers with title, price, description and an optional photo, taking turns every few seconds, each limited to certain days and times if wanted. Shown as a side panel (left/right) or a card.
 3. **Text & pictures:** text and pictures placed anywhere, plus a scrolling ticker at the top or bottom.
 4. **Effects:** an animation on top: snow, confetti, sparkles, bubbles, hearts, leaves, stars, Santa & reindeer, fireworks, shooting stars, balloons, a plane pulling a banner with your text or logo, Christmas lights around the edge of the screen (twinkle, always on, chase or flash), rain on the window (from drizzle to downpour), or rain with a car wiper that sweeps the screen clean every few seconds.
