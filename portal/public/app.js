@@ -880,7 +880,7 @@ const POSITION_LABELS = [["top-left", "Top left"], ["top", "Top"], ["top-right",
 const SPECIAL_POSITIONS = [["right", "Right panel"], ["left", "Left panel"], ["bottom-right", "Card, bottom right"], ["bottom-left", "Card, bottom left"],
   ["top-right", "Card, top right"], ["center", "Big card, center"]];
 const SIZE_LABELS = [["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Extra large"]];
-const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"], ["plane", "✈ Plane & banner"]];
+const SCENE_LABELS = [["santa", "🎅 Santa & reindeer"], ["fireworks", "🎆 Fireworks"], ["shooting", "🌠 Shooting stars"], ["balloons", "🎈 Balloons"], ["plane", "✈ Plane & banner"], ["lights", "🎄 Christmas lights"]];
 const ENTER_LABELS = [["none", "None (just appears)"], ["fade", "Fade in"], ["small", "Small → big (zoom in)"], ["big", "Big → small (zoom down)"],
   ["left", "Slide in from the left"], ["right", "Slide in from the right"], ["top", "Drop down from the top"], ["bottom", "Rise up from the bottom"], ["spin", "Spin in"], ["pop", "Pop in (bounce)"], ["flip", "Flip in"]];
 const EXIT_LABELS = [["none", "None (just disappears)"], ["fade", "Fade out"], ["small", "Big → small (shrink away)"], ["big", "Small → big (grow away)"],
@@ -890,6 +890,7 @@ const TEXT_FX_LABELS = [["none", "None"], ["glow", "✨ Glow"], ["neon", "💡 N
 const TEXT_FX_COLORS = { glow: "#facc15", neon: "#ec4899", shadow: "#000000", shine: "#fde047", grow: "#facc15" };
 const TD_OPTIONS = [[0.3, "0.3 s (fast)"], [0.5, "0.5 s"], [0.8, "0.8 s"], [1, "1 s"], [1.5, "1.5 s"], [2, "2 s"], [3, "3 s (slow)"]];
 const FIREWORK_SHAPES = [["mixed", "Random mix"], ["peony", "Classic round"], ["chrysanthemum", "Sparkling trails"], ["willow", "Golden willow"], ["palm", "Palm tree"], ["ring", "Ring"], ["heart", "Heart"], ["star", "Star"]];
+const LIGHT_PATTERNS = [["twinkle", "Twinkle"], ["steady", "Always on"], ["chase", "Chase"], ["flash", "Flash (every other bulb)"]];
 const EVERY_OPTIONS = [[15, "Every 15 seconds"], [20, "Every 20 seconds"], [30, "Every 30 seconds"], [45, "Every 45 seconds"], [60, "Every minute"], [120, "Every 2 minutes"], [300, "Every 5 minutes"]];
 const EFFECT_LABELS = [["snow", "❄ Snow"], ["confetti", "🎉 Confetti"], ["sparkles", "✨ Sparkles"], ["bubbles", "○ Bubbles"], ["hearts", "♥ Hearts"],
   ["leaves", "🍂 Falling leaves"], ["stars", "★ Twinkling stars"]];
@@ -1858,6 +1859,7 @@ async function renderLayers(main, id, kind) {
           field("Santa flies by", h("select", { onchange: e => { ef.every = Number(e.target.value); change(); } }, opts(EVERY_OPTIONS, ef.every))),
           h("label", { class: "check-row", style: "align-self:flex-end" }, h("input", { type: "checkbox", checked: ef.snow, onchange: e => { ef.snow = e.target.checked; change(); } }), "Falling snow too")) : null,
         ef.enabled && ef.type === "plane" ? planeFields(ef, images, change) : null,
+        ef.enabled && ef.type === "lights" ? field("How the lights blink", h("select", { onchange: e => { ef.pattern = e.target.value; change(); } }, opts(LIGHT_PATTERNS, ef.pattern || "twinkle"))) : null,
         ef.enabled && ef.type === "fireworks" ? field("Firework shape", h("select", { onchange: e => { ef.shape = e.target.value; change(); } }, opts(FIREWORK_SHAPES, ef.shape || "mixed"))) : null,
         ef.enabled && ef.type === "plane" ? null : field("Amount", h("select", { onchange: e => { ef.intensity = e.target.value; change(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], ef.intensity))),
         ef.enabled && ef.type === "plane" ? null : h("div", { class: "colors" }, colorIn(ef.color, v => { ef.color = v; change(); }, "Color (snow, sparkles, bubbles, hearts, stars)")),
@@ -2715,6 +2717,7 @@ async function renderWall(main, id) {
       fx.enabled && fx.type !== "plane" ? h("div", { class: "row" },
         field("Amount", h("select", { onchange: e => { fx.intensity = e.target.value; drawPreview(); } }, opts([["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]], fx.intensity))),
         fx.type === "santa" ? field("Santa flies by", h("select", { onchange: e => { fx.every = Number(e.target.value); drawPreview(); } }, opts(EVERY_OPTIONS, fx.every))) : null,
+        fx.type === "lights" ? field("How the lights blink", h("select", { onchange: e => { fx.pattern = e.target.value; drawPreview(); } }, opts(LIGHT_PATTERNS, fx.pattern || "twinkle"))) : null,
         fx.type === "fireworks" ? field("Firework shape", h("select", { onchange: e => { fx.shape = e.target.value; drawPreview(); } }, opts(FIREWORK_SHAPES, fx.shape || "mixed"))) : null) : null,
       fx.enabled && fx.type === "santa" ? h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: fx.snow, onchange: e => { fx.snow = e.target.checked; drawPreview(); } }), "Falling snow too") : null,
       fx.enabled && ["snow", "sparkles", "bubbles", "hearts", "stars", "shooting", "balloons"].includes(fx.type) ? h("div", { class: "colors" }, colorIn(fx.color, v => { fx.color = v; drawPreview(); }, "Color")) : null);
@@ -2763,6 +2766,7 @@ async function renderWall(main, id) {
 const WALL_FX_TEMPLATES = [
   { name: "🎅 Santa & reindeer", desc: "Santa's sleigh and reindeer fly across every screen, with falling snow.", fx: { type: "santa", intensity: "medium", every: 20, snow: true, color: "#ffffff" } },
   { name: "✈ Plane with banner", desc: "A small plane pulls your message or logo across every screen.", fx: { type: "plane", intensity: "medium", every: 30, banner: "Grand opening this Saturday!", bannerBg: "#ffffff", bannerColor: "#b91c1c", color: "#ffffff" } },
+  { name: "🎄 Christmas lights", desc: "Coloured Christmas lights strung around the edge of the whole wall.", fx: { type: "lights", intensity: "medium", pattern: "twinkle", color: "#ffffff" } },
   { name: "🎆 New Year fireworks", desc: "Fireworks bursting all over the wall.", fx: { type: "fireworks", intensity: "medium", color: "#ffffff" } },
   { name: "🌠 Starry night", desc: "Shooting stars streak from screen to screen over twinkling stars.", fx: { type: "shooting", intensity: "medium", color: "#ffffff" } },
   { name: "🎈 Party balloons", desc: "Colorful balloons float up across the wall.", fx: { type: "balloons", intensity: "medium", color: "#ffffff" } },

@@ -607,7 +607,48 @@
   // ---- clock-driven effects: the same on every screen of a video wall ----
   // Every position is worked out from the time alone (no randomness that differs between screens), in the
   // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
-  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1, snow: 1, bubbles: 1 };
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1, snow: 1, bubbles: 1, lights: 1 };
+
+  // Christmas lights: big glass bulbs (red, green, blue, yellow, orange in turn, like a real string), each drawn
+  // once lit and unlit, plus a coloured glow.
+  var XMAS = ["#ff2626", "#16d24a", "#2f6bff", "#ffc21a", "#ff6a10"];
+  var bulbSprites = null;
+  function makeBulbSprites() {
+    bulbSprites = XMAS.map(function (col) {
+      var rgb = hexRgb(col);
+      function body(lit) {
+        var Wd = 64, Ht = 128, cv = document.createElement("canvas"); cv.width = Wd; cv.height = Ht;
+        var g = cv.getContext("2d"), cx = Wd / 2;
+        // Glass: a teardrop hanging from the socket, pointed at the bottom.
+        g.beginPath(); g.moveTo(cx - 9, 34);
+        g.bezierCurveTo(cx - 30, 52, cx - 26, 92, cx, 124);
+        g.bezierCurveTo(cx + 26, 92, cx + 30, 52, cx + 9, 34); g.closePath();
+        var gr = g.createRadialGradient(cx - 4, 70, 2, cx, 72, 44);
+        if (lit) { gr.addColorStop(0, "#fffbe8"); gr.addColorStop(0.25, "rgba(" + rgb + ",1)"); gr.addColorStop(1, "rgba(" + rgb + ",.85)"); }
+        else { gr.addColorStop(0, "rgba(" + rgb + ",.55)"); gr.addColorStop(1, "rgba(" + rgb + ",.28)"); }
+        g.fillStyle = gr; g.fill();
+        g.save(); g.clip();
+        // Facets and a glass reflection.
+        g.strokeStyle = lit ? "rgba(255,255,255,.25)" : "rgba(255,255,255,.12)"; g.lineWidth = 1.5;
+        [-12, 0, 12].forEach(function (dx) { g.beginPath(); g.moveTo(cx + dx * 0.5, 36); g.quadraticCurveTo(cx + dx * 1.6, 80, cx, 124); g.stroke(); });
+        g.fillStyle = "rgba(255,255,255," + (lit ? 0.55 : 0.35) + ")";
+        g.beginPath(); g.ellipse(cx - 10, 62, 4, 14, 0.25, 0, 7); g.fill();
+        g.restore();
+        // Socket: dark green plastic with ridges.
+        var sg = g.createLinearGradient(cx - 11, 0, cx + 11, 0);
+        sg.addColorStop(0, "#06210f"); sg.addColorStop(0.45, "#1f5a32"); sg.addColorStop(1, "#04170a");
+        g.fillStyle = sg; g.beginPath(); g.moveTo(cx - 8, 4); g.lineTo(cx + 8, 4); g.lineTo(cx + 11, 37); g.lineTo(cx - 11, 37); g.closePath(); g.fill();
+        g.strokeStyle = "rgba(0,0,0,.45)"; g.lineWidth = 1.2;
+        for (var y = 12; y < 36; y += 6) { g.beginPath(); g.moveTo(cx - 9, y); g.lineTo(cx + 9, y); g.stroke(); }
+        return cv;
+      }
+      var gl = document.createElement("canvas"); gl.width = gl.height = 128;
+      var g = gl.getContext("2d"), r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      r.addColorStop(0, "rgba(" + rgb + ",.9)"); r.addColorStop(0.18, "rgba(" + rgb + ",.45)"); r.addColorStop(0.5, "rgba(" + rgb + ",.12)"); r.addColorStop(1, "rgba(" + rgb + ",0)");
+      g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+      return { on: body(true), off: body(false), glow: gl };
+    });
+  }
 
   function hexRgb(color) {
     var m = /^#([0-9a-f]{6})$/i.exec(color || ""), n = m ? parseInt(m[1], 16) : 0xffffff;
@@ -884,6 +925,64 @@
         ctx.globalAlpha = (b - 0.6) / 0.4 * 0.9;
         var gs = u * 0.12 * (1 + rnd(k, 15));
         ctx.beginPath(); ctx.arc(gx, gy, gs, 0, 7); ctx.fill();
+      }
+      ctx.restore();
+    }
+    // Christmas lights strung around the edge of the screen (on a video wall, around the whole wall). The green
+    // wire droops between clips, a bulb hangs from every dip pointing inwards, and each bulb glows and lights up
+    // the screen around it. ef.pattern: twinkle (now and then a bulb dims), steady, chase, or flash (alternate bulbs).
+    function lights(t) {
+      if (!bulbSprites) makeBulbSprites();
+      var u = W / 100, gap = u * (ef.intensity === "heavy" ? 3.6 : ef.intensity === "light" ? 6.2 : 4.6);
+      var inset = u * 0.9, x0 = inset, y0 = inset, x1 = VW - inset, y1 = VH - inset;
+      var cxw = VW / 2, cyw = VH / 2, pattern = ef.pattern || "twinkle";
+      var sides = [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]];
+      var bulbs = [], idx = 0;
+      ctx.save();
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      for (var e = 0; e < 4; e++) {
+        var sd = sides[e], len = Math.hypot(sd[2] - sd[0], sd[3] - sd[1]), segs = Math.max(1, Math.round(len / gap));
+        var dx = (sd[2] - sd[0]) / segs, dy = (sd[3] - sd[1]) / segs;
+        // Inwards: towards the middle of the screen.
+        var nx = -dy / Math.hypot(dx, dy), ny = dx / Math.hypot(dx, dy);
+        if ((cxw - sd[0]) * nx + (cyw - sd[1]) * ny < 0) { nx = -nx; ny = -ny; }
+        var sag = Math.min(gap * 0.32, u * 1.6);
+        for (var s2 = 0; s2 < segs; s2++) {
+          var ax = sd[0] + dx * s2, ay = sd[1] + dy * s2, bx = ax + dx, by = ay + dy;
+          var qx = (ax + bx) / 2 + nx * sag * 2, qy = (ay + by) / 2 + ny * sag * 2;
+          // Wire: dark green, slightly glossy, plus a second twisted strand.
+          ctx.strokeStyle = "#0b3519"; ctx.lineWidth = u * 0.2;
+          ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(qx, qy, bx, by); ctx.stroke();
+          ctx.strokeStyle = "rgba(120,200,140,.25)"; ctx.lineWidth = u * 0.06;
+          ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(qx + nx * u * 0.15, qy + ny * u * 0.15, bx, by); ctx.stroke();
+          // Clip holding the wire at the top of each droop.
+          ctx.fillStyle = "#0e2a16"; ctx.beginPath(); ctx.arc(ax, ay, u * 0.22, 0, 7); ctx.fill();
+          if (s2 < segs - 1 || segs === 1) bulbs.push({ x: (ax + bx) / 4 + qx / 2, y: (ay + by) / 4 + qy / 2, a: Math.atan2(ny, nx) - Math.PI / 2, i: idx++ });
+        }
+      }
+      var bl = u * 2.6, bw = bl / 2;
+      for (var j = 0; j < bulbs.length; j++) {
+        var b = bulbs[j], i = b.i;
+        if (b.x < OX - bl * 2 || b.x > OX + W + bl * 2 || b.y < OY - bl * 2 || b.y > OY + H + bl * 2) continue;
+        var lit;
+        if (pattern === "steady") lit = 0.93 + 0.07 * Math.sin(t * 9 + i * 2.1);
+        else if (pattern === "chase") { var c = Math.cos(((i - t * 4) % 3) / 3 * 6.283); lit = 0.12 + 0.88 * Math.pow(Math.max(0, c), 1.5); }
+        else if (pattern === "flash") { var f = Math.sin(t * 2.2 + (i % 2) * Math.PI); lit = 0.1 + 0.9 * Math.min(1, Math.max(0, f * 1.6 + 0.5)); }
+        else {
+          var per = 3 + rnd(i, 1) * 6, ph = (t / per + rnd(i, 2)) % 1;
+          lit = (ph < 0.14 ? 1 - 0.92 * Math.sin(ph / 0.14 * Math.PI) : 1) * (0.92 + 0.08 * Math.sin(t * 11 + i * 1.7));
+        }
+        var spr = bulbSprites[i % bulbSprites.length];
+        ctx.save(); ctx.translate(b.x, b.y);
+        ctx.rotate(b.a + (rnd(i, 3) - 0.5) * 0.5 + Math.sin(t * 0.7 + i) * 0.02);
+        ctx.globalAlpha = 1; ctx.drawImage(spr.off, -bw / 2, -bl * 0.06, bw, bl);
+        ctx.globalAlpha = lit; ctx.drawImage(spr.on, -bw / 2, -bl * 0.06, bw, bl);
+        ctx.globalCompositeOperation = "lighter";
+        var gs = bl * 2.6; ctx.globalAlpha = lit * 0.9;
+        ctx.drawImage(spr.glow, -gs / 2, bl * 0.55 - gs / 2, gs, gs);
+        var hs = bl * 6; ctx.globalAlpha = lit * 0.22;
+        ctx.drawImage(spr.glow, -hs / 2, bl * 0.6 - hs / 2, hs, hs);
+        ctx.restore();
       }
       ctx.restore();
     }
@@ -1248,6 +1347,7 @@
       else if (type === "shooting") shooting(t);
       else if (type === "balloons") particles("balloons", t, base * 0.35, ef.color);
       else if (type === "leaves") leaves(t, base);
+      else if (type === "lights") lights(t);
       else if (type === "plane") plane(t);
       else particles(type, t, base, ef.color);
       raf = requestAnimationFrame(frame);

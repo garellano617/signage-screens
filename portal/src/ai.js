@@ -62,7 +62,7 @@ A design has four layers, bottom to top:
 1. video: the business's own playlist (photos and videos). "region" is the part of the screen it fills: full, left70, right70, top85 (room for a ticker), left70top85.
 2. specials: offers that take turns every "seconds" seconds, each with title, price and short description, shown as a side panel (right/left) or a card (bottom-right, bottom-left, top-right, center).
 3. text: text blocks and pictures placed at a position, plus a scrolling ticker at the top or bottom. With "cycle" > 0, a block shows only from "from" to "to" seconds of each cycle (to = 0 means until the end), so messages can take turns.
-4. effects: an animated overlay (snow, confetti, sparkles, bubbles, hearts, leaves, stars, santa = Santa's sleigh and reindeer flying across, fireworks, shooting = shooting stars, balloons, plane = a small plane pulling a banner; put the banner words in effects.banner). Use one only when it fits the occasion.
+4. effects: an animated overlay (snow, confetti, sparkles, bubbles, hearts, leaves, stars, santa = Santa's sleigh and reindeer flying across, fireworks, shooting = shooting stars, balloons, plane = a small plane pulling a banner; put the banner words in effects.banner; lights = coloured Christmas lights around the edge of the screen). Use one only when it fits the occasion.
 
 Rules:
 - Few words, big text. Headings 5 to 9, prices 4 to 8, body 2 to 3.5 (font size in % of the screen width). At most about 5 text blocks.

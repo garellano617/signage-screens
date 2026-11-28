@@ -7,7 +7,7 @@ const POSITIONS = ["top-left", "top", "top-right", "left", "center", "right", "b
 const SIZES = ["s", "m", "l", "xl"];
 // The last four are animated scenes (Santa's sleigh, fireworks…). On a video wall every effect spans all its screens.
 const FIREWORK_SHAPES = ["mixed", "peony", "chrysanthemum", "willow", "palm", "ring", "heart", "star"];
-const EFFECTS = ["snow", "confetti", "sparkles", "bubbles", "hearts", "leaves", "stars", "santa", "fireworks", "shooting", "balloons", "plane"];
+const EFFECTS = ["snow", "confetti", "sparkles", "bubbles", "hearts", "leaves", "stars", "santa", "fireworks", "shooting", "balloons", "plane", "lights"];
 const SPECIAL_POSITIONS = ["right", "left", "bottom-right", "bottom-left", "top-right", "center"];
 
 const clip = (v, n) => String(v == null ? "" : v).slice(0, n);
@@ -28,7 +28,7 @@ function defaultLayers() {
     video: { enabled: true, region: "full" },
     specials: { enabled: false, heading: "Today's specials", position: "right", seconds: 8, accent: "#f59e0b", bg: "#111827", color: "#ffffff", items: [] },
     text: { enabled: false, cycle: 0, blocks: [], ticker: { enabled: false, text: "", position: "bottom", speed: "normal", size: "m", color: "#ffffff", bg: "#111827" } },
-    effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff", every: 30, snow: true, shape: "mixed", banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c" }
+    effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff", every: 30, snow: true, shape: "mixed", pattern: "twinkle", banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c" }
   };
 }
 
@@ -167,6 +167,8 @@ function sanitizeLayers(input, checkImage) {
       snow: ef.snow === undefined ? true : !!ef.snow,
       // Fireworks: one kind of burst, or a random kind for every burst.
       shape: pick(ef.shape, FIREWORK_SHAPES, "mixed"),
+      // Christmas lights: how they blink.
+      pattern: pick(ef.pattern, ["twinkle", "steady", "chase", "flash"], "twinkle"),
       // Plane: the banner it pulls (text and/or a small logo picture) and its colors.
       banner: clip(ef.banner, 60),
       mediaId: ef.mediaId && Number.isInteger(Number(ef.mediaId)) && checkImage(Number(ef.mediaId)) ? Number(ef.mediaId) : null,
