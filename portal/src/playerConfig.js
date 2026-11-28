@@ -1,7 +1,17 @@
 "use strict";
 const crypto = require("node:crypto");
 const { all, get, now } = require("./db");
-const { parseLayers, withImages, sanitizeLayers, attachImage } = require("./layers");
+const { parseLayers, withImages, sanitizeLayers, attachImage, applyHolidays } = require("./layers");
+const Holidays = require("../public/holidays");
+
+/** Today's date on this TV: its own time zone (from its check-ins), or BUSINESS_TZ, or US Eastern. */
+function screenToday(screen) {
+  let zone = "";
+  try { zone = String(JSON.parse(screen.status_json || "{}").timeZone || "").split(" (")[0]; } catch (_) {}
+  return Holidays.today(zone, process.env.BUSINESS_TZ || "America/New_York");
+}
+/** The saved design as it shows today (a holiday background swapped in while one is on). */
+const designToday = (json, screen) => applyHolidays(parseLayers(json), screenToday(screen));
 
 /** A video wall's effects layer (snow, Santa's sleigh…), cleaned like any layers. */
 const wallEffects = w => {
@@ -37,7 +47,7 @@ const designOnly = layers => ({ ...layers, video: { enabled: false, region: "ful
  * pictures / videos underneath only if it has some.
  */
 function wallLayers(wall, screen) {
-  const d = withImages(parseLayers(wall.layers_json), imageMedia, widgetMedia, videoMedia);
+  const d = withImages(designToday(wall.layers_json, screen), imageMedia, widgetMedia, videoMedia);
   // Video sound only from the top-left TV (the others would echo it).
   if (screen.wall_col !== 0 || screen.wall_row !== 0) d.text.blocks.forEach(b => { if (b.kind === "video") b.sound = false; });
   const fx = wallEffects(wall);
@@ -102,10 +112,10 @@ function buildConfig(screen) {
     screen: { id: screen.id, name: screen.name, orientation: screen.orientation, volume: screen.volume },
     defaultPlaylist: null,
     schedules,
-    layers: muteIfSilent(designOnly(withImages(parseLayers(channel ? channel.layers_json : screen.layers_json), imageMedia, widgetMedia, videoMedia)), screen)
+    layers: muteIfSilent(designOnly(withImages(designToday(channel ? channel.layers_json : screen.layers_json, screen), imageMedia, widgetMedia, videoMedia)), screen)
   };
   cfg.version = crypto.createHash("sha1").update(JSON.stringify(cfg)).digest("hex");
   return cfg;
 }
 
-module.exports = { buildConfig, isOnline, ONLINE_WINDOW_MS, imageMedia, wallEffects };
+module.exports = { screenToday, buildConfig, isOnline, ONLINE_WINDOW_MS, imageMedia, wallEffects };

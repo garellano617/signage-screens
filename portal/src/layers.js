@@ -27,6 +27,7 @@ function defaultLayers() {
   return {
     video: { enabled: true, region: "full" },
     specials: { enabled: false, heading: "Today's specials", position: "right", seconds: 8, accent: "#f59e0b", bg: "#111827", color: "#ffffff", items: [] },
+    holidays: [],
     text: { enabled: false, cycle: 0, blocks: [], ticker: { enabled: false, text: "", position: "bottom", speed: "normal", size: "m", color: "#ffffff", bg: "#111827" } },
     effects: { enabled: false, type: "snow", intensity: "medium", color: "#ffffff", every: 30, snow: true, shape: "mixed", pattern: "twinkle", rain: 3, wipe: 10, banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c" }
   };
@@ -38,6 +39,56 @@ function defaultLayers() {
  */
 /** Vector shapes (drawn by overlay.js). */
 const SHAPE_NAMES = ["square", "rect", "rounded", "circle", "oval", "triangle", "rtriangle", "diamond", "wave", "waves", "waveline", "star", "burst", "arrow", "banner", "bubble", "heart", "line"];
+
+const Holidays = require("../public/holidays");
+const HOLIDAY_KEYS = Holidays.list().map(h => h.key);
+const MAX_HOLIDAYS = 40;
+
+/** Holiday backgrounds: cleaned list (see public/holidays.js). */
+function sanitizeHolidays(list, checkImage) {
+  const ymd = v => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) && !isNaN(Holidays.parse(v)) ? String(v) : "");
+  return (Array.isArray(list) ? list : []).slice(0, MAX_HOLIDAYS).map(raw => {
+    const x = raw && typeof raw === "object" ? raw : {};
+    const key = HOLIDAY_KEYS.includes(x.key) ? x.key : "";
+    let start = ymd(x.start), end = ymd(x.end);
+    if (!start) return null;
+    if (!end || end < start) end = start;
+    // At most a year long.
+    if (Holidays.parse(end) - Holidays.parse(start) > 365 * 864e5) end = Holidays.fmt(Holidays.parse(start) + 365 * 864e5);
+    const mediaId = x.mediaId ? Number(x.mediaId) : null;
+    return {
+      key,
+      name: clip(x.name, 40) || (key ? Holidays.info(key).name : "Holiday"),
+      start, end,
+      yearly: !!x.yearly,
+      // Background picture (the client's own) and/or background colour while it's on.
+      mediaId: mediaId && Number.isInteger(mediaId) && checkImage(mediaId) ? mediaId : null,
+      color: /^#[0-9a-f]{6}$/i.test(String(x.color || "")) ? String(x.color) : "",
+      enabled: x.enabled !== false
+    };
+  }).filter(Boolean);
+}
+
+/**
+ * The design as it shows on date ymd: when a holiday is on, its picture replaces the design's own background
+ * (the locked pictures at the bottom), locked at the bottom the same way, and its colour replaces the background
+ * colour. Once the holiday is over, the design's own background is back (nothing is changed in the saved design).
+ */
+function applyHolidays(layers, ymd) {
+  const h = Holidays.active(layers.holidays, ymd);
+  if (!h) return layers;
+  const out = JSON.parse(JSON.stringify(layers));
+  if (h.color) out.background = h.color;
+  if (h.mediaId) {
+    const keep = out.text.enabled ? out.text.blocks.filter(b => !b.locked) : [];
+    const bg = sanitizeLayers({ text: { blocks: [{ kind: "image", mediaId: h.mediaId, w: 100, x: 0, y: 0, locked: true, bgOpacity: 0 }] } }, () => true).text.blocks[0];
+    bg.track = 0;
+    if (!out.text.enabled) out.text = { ...out.text, enabled: true, cycle: 0, ticker: { ...out.text.ticker, enabled: false } };
+    out.text.blocks = [bg, ...keep];
+  }
+  out.holiday = { name: h.name, key: h.key };
+  return out;
+}
 
 function sanitizeLayers(input, checkImage) {
   const d = defaultLayers();
@@ -134,6 +185,8 @@ function sanitizeLayers(input, checkImage) {
     video: { enabled: v.enabled !== false, region: pick(v.region, REGIONS, d.video.region) },
     // Background colour of the design (screens show only their design now). "" = none (black on the TV).
     background: /^#[0-9a-f]{6}$/i.test(String(i.background || "")) ? String(i.background) : "",
+    // Holiday backgrounds: switch the background automatically between a start and an end date.
+    holidays: sanitizeHolidays(i.holidays, checkImage),
     specials: {
       enabled: !!sp.enabled,
       heading: clip(sp.heading !== undefined ? sp.heading : d.specials.heading, 60),
@@ -216,4 +269,4 @@ function withImages(layers, getMedia, getWidget, getVideo) {
   return out;
 }
 
-module.exports = { TEXT_FX, TRANSITIONS, defaultLayers, sanitizeLayers, parseLayers, withImages, attachImage, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };
+module.exports = { applyHolidays, sanitizeHolidays, TEXT_FX, TRANSITIONS, defaultLayers, sanitizeLayers, parseLayers, withImages, attachImage, REGIONS, POSITIONS, SIZES, EFFECTS, SPECIAL_POSITIONS, FONTS };

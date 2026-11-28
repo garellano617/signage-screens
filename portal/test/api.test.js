@@ -757,7 +757,7 @@ test("layout templates and the AI designer (fake AI client, no paid calls)", asy
   for (const t of tpl) {
     assert.ok(t.id && t.name && t.category && t.description);
     assert.ok(t.layers.specials.enabled || t.layers.text.enabled, t.id + " has content");
-    assert.deepEqual(Object.keys(t.layers), ["video", "background", "specials", "text", "effects"]);
+    assert.deepEqual(Object.keys(t.layers), ["video", "background", "holidays", "specials", "text", "effects"]);
   }
   assert.equal(new Set(tpl.map(t => t.id)).size, tpl.length);
 
@@ -1386,4 +1386,72 @@ test("self sign-up client opens their billing setup page; screen limit follows w
     delete process.env.BILLING_URL; delete process.env.BILLING_KEY; billing.resetCache();
     fake.close();
   }
+});
+
+test("holiday backgrounds: American dates, yearly repeat, and the TV's design switches and switches back", async () => {
+  const H = require("../public/holidays");
+  const { sanitizeLayers, applyHolidays } = require("../src/layers");
+  // American holiday dates.
+  assert.deepEqual(H.create("thanksgiving", "2026-01-05"), { key: "thanksgiving", name: "Thanksgiving", start: "2026-11-20", end: "2026-11-27", yearly: true, mediaId: null, color: "", enabled: true });
+  assert.equal(H.create("easter", "2027-01-01").end, "2027-03-29"); // Easter 2027 is March 28
+  assert.equal(H.create("memorial", "2026-01-01").end, "2026-05-25");
+  assert.equal(H.create("christmas", "2026-12-27").start, "2027-12-01", "already over this year: next year's");
+  // Every year: Thanksgiving follows the 4th Thursday; New Year's crosses the new year.
+  const L = sanitizeLayers({ holidays: [{ ...H.create("thanksgiving", "2026-01-01"), color: "#ff8800" }, { key: "newyear", start: "2026-12-31", end: "2027-01-01", yearly: true, color: "#112233" }] }, () => true);
+  const on = d => (applyHolidays(L, d).holiday || {}).name || "";
+  assert.equal(on("2027-11-18"), ""); assert.equal(on("2027-11-19"), "Thanksgiving"); assert.equal(on("2027-11-26"), "Thanksgiving"); assert.equal(on("2027-11-27"), "");
+  assert.equal(on("2029-12-31"), "New Year's"); assert.equal(on("2030-01-01"), "New Year's"); assert.equal(on("2030-01-02"), "");
+  // One-time custom dates; nothing to show = ignored; switched off = ignored.
+  const once = sanitizeLayers({ holidays: [{ name: "Anniversary", start: "2026-03-01", end: "2026-03-03", color: "#00ff00" }, { name: "Empty", start: "2026-01-01", end: "2026-12-31" }] }, () => true);
+  assert.equal((applyHolidays(once, "2026-03-03").holiday || {}).name, "Anniversary");
+  assert.equal(applyHolidays(once, "2027-03-02").holiday, undefined);
+  assert.equal(applyHolidays(once, "2026-06-01").holiday, undefined);
+  assert.equal(applyHolidays(sanitizeLayers({ holidays: [{ name: "X", start: "2026-03-01", end: "2026-03-03", color: "#00ff00", enabled: false }] }, () => true), "2026-03-02").holiday, undefined);
+
+  // On a real screen: the holiday picture replaces the locked background (locked too), then the normal one is back.
+  const { get, run } = require("../src/db");
+  const { buildConfig } = require("../src/playerConfig");
+  const saved = { scopeId };
+  const cust = await call("POST", "/api/customers", { name: "Holiday Cafe" });
+  scopeId = cust.body.id;
+  try {
+    const png = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000a49444154789c6300010000050001" + "0d0a2db40000000049454e44ae426082", "hex");
+    const up = async name => { const fd = new FormData(); fd.append("files", new Blob([png], { type: "image/png" }), name); return (await call("POST", "/api/media", fd)).body[0].id; };
+    const normalBg = await up("normal.png"), xmasBg = await up("xmas.png");
+    const scr = await call("POST", "/api/screens/plan", { name: "Front TV" });
+    assert.equal(scr.status, 201, JSON.stringify(scr.body));
+    const id = scr.body.id;
+    run("UPDATE screens SET paired_at = ?, planned = 0, status_json = ? WHERE id = ?", Date.now(), JSON.stringify({ timeZone: "America/Chicago (UTC-06:00)" }), id);
+    const today = H.today("America/Chicago"), DAY = 864e5;
+    const d = n => H.fmt(H.parse(today) + n * DAY);
+    const design = holidays => call("PUT", "/api/screens/" + id + "/layers", {
+      background: "#000000",
+      text: { enabled: true, blocks: [{ kind: "image", mediaId: normalBg, w: 100, x: 0, y: 0, locked: true }, { kind: "text", text: "Open late" }] },
+      holidays
+    });
+    let r = await design([{ name: "Big Sale", start: d(-1), end: d(1), mediaId: xmasBg, color: "#aa0000" }]);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal((await call("GET", "/api/screens/" + id + "/layers")).body.holidays[0].name, "Big Sale");
+    let cfg = buildConfig(get("SELECT * FROM screens WHERE id = ?", id));
+    const bgs = cfg.layers.text.blocks.filter(b => b.locked);
+    assert.equal(bgs.length, 1);
+    assert.equal(bgs[0].mediaId, xmasBg, "holiday picture shows");
+    assert.ok(bgs[0].image && bgs[0].image.src, "with its file for the TV");
+    assert.equal(cfg.layers.background, "#aa0000");
+    assert.ok(cfg.layers.text.blocks.some(b => b.text === "Open late"), "the rest of the design stays");
+    const holidayVersion = cfg.version;
+    // It ended yesterday: the normal background is back.
+    await design([{ name: "Big Sale", start: d(-5), end: d(-1), mediaId: xmasBg, color: "#aa0000" }]);
+    cfg = buildConfig(get("SELECT * FROM screens WHERE id = ?", id));
+    assert.equal(cfg.layers.text.blocks.find(b => b.locked).mediaId, normalBg);
+    assert.equal(cfg.layers.background, "#000000");
+    assert.notEqual(cfg.version, holidayVersion, "the TV sees a new version and reloads");
+    // Someone else's picture can't be used.
+    const other = await call("POST", "/api/customers", { name: "Other Client" });
+    scopeId = other.body.id;
+    const foreign = await up("theirs.png");
+    scopeId = cust.body.id;
+    await design([{ name: "Sneaky", start: d(-1), end: d(1), mediaId: foreign }]);
+    assert.equal((await call("GET", "/api/screens/" + id + "/layers")).body.holidays[0].mediaId, null);
+  } finally { scopeId = saved.scopeId; }
 });

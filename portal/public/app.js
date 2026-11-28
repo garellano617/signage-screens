@@ -1083,7 +1083,20 @@ async function renderLayers(main, id, kind) {
   }
   // A design slide has no video: its background colour fills the screen.
   let slideBg = isSlide ? s.bg || "#0f172a" : null;
-  const paintBg = () => { preview.querySelector(".pv-bg").style.background = isSlide ? slideBg : L.background || "#000"; };
+  // Holiday being previewed (Background tab): its picture / colour shows instead of the design's own background.
+  let pvHoliday = null;
+  const paintBg = () => {
+    const hp = pvHoliday;
+    preview.querySelector(".pv-bg").style.background = isSlide ? slideBg : (hp && hp.color) || L.background || "#000";
+    preview.classList.toggle("hol-preview", !!hp);
+  };
+  /** Previewing a holiday: its colour and picture on the design layer itself (under the texts and pictures). */
+  const paintHoliday = () => {
+    const hp = pvHoliday, m = hp && hp.mediaId ? images.find(p => p.id === hp.mediaId) : null;
+    if (!hp) return;
+    if (hp.color) pvOverlay.style.backgroundColor = hp.color;
+    if (m) Object.assign(pvOverlay.style, { backgroundImage: "url(\"" + String(m.src).replace(/"/g, "%22") + "\")", backgroundSize: "100% auto", backgroundRepeat: "no-repeat", backgroundPosition: "left top" });
+  };
   paintBg();
   // (the resize frame is added to the preview below, once it exists)
   preview.addEventListener("pointerdown", e => { if (!e.target.closest(".so-text") && !e.target.closest(".ed-frame")) select(e.target.closest(".pv-video") ? { type: "video" } : null); });
@@ -1111,7 +1124,12 @@ async function renderLayers(main, id, kind) {
   function hookBlock(node, b, i) {
     blockNodes[i] = node;
     // Locked at the bottom (backgrounds): not clickable on the screen; pick it from its timeline bar to unlock it.
-    if (b.locked) { node.style.pointerEvents = "none"; node.classList.toggle("ed-selected", isSelB(i)); return; }
+    if (b.locked) {
+      node.style.pointerEvents = "none"; node.classList.toggle("ed-selected", isSelB(i));
+      // Previewing a holiday with a picture: the design's own background is hidden, as on the TV.
+      node.style.visibility = pvHoliday && pvHoliday.mediaId ? "hidden" : "";
+      return;
+    }
     node.style.pointerEvents = "auto";
     node.style.cursor = "move";
     node.classList.toggle("ed-selected", isSelB(i));
@@ -1169,6 +1187,7 @@ async function renderLayers(main, id, kind) {
     if (overlay) overlay.destroy();
     blockNodes = [];
     overlay = SignageOverlay.render(pvOverlay, L, { time: () => playhead, onBlock: hookBlock, widgetData: widgetDataFor });
+    paintHoliday();
     placeFrame();
   }
   const refresh = () => { clearTimeout(rt); rt = setTimeout(renderOverlay, 80); };
@@ -1244,6 +1263,66 @@ async function renderLayers(main, id, kind) {
   function addVideo(m) {
     addBlock({ kind: "video", mediaId: m.id, image: { src: m.src, name: m.name }, text: "", w: 40, h: 22.5, x: 30, y: 25, fit: "cover", sound: false, bgOpacity: 0, fx: "none" });
   }
+  // ---------- holiday backgrounds ----------
+  // Between a start and an end date the screens show the holiday's picture (locked at the bottom, like any
+  // background) and/or colour; after the end date the design's own background comes back by itself.
+  function holidaysPanel() {
+    if (!Array.isArray(L.holidays)) L.holidays = [];
+    const today = Holidays.today(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // Every-year holidays show their current or next dates.
+    L.holidays.forEach(x => { if (x.yearly) { const n = Holidays.next(x, today); if (n) { x.start = n.start; x.end = n.end; } } });
+    const pics = images.slice().sort((a, b) => (b.category === "background") - (a.category === "background"));
+    const day = d => new Date(d + "T12:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    const now = Holidays.active(L.holidays, today);
+    const redraw = () => { paintBg(); renderOverlay(); drawSide(); };
+    const card = (x, i) => {
+      const inf = x.key ? Holidays.info(x.key) : null, n = Holidays.next(x, today), on = Holidays.isActive(x, today);
+      const m = x.mediaId ? images.find(p => p.id === x.mediaId) : null;
+      return h("div", { class: "sub-item hol-item" + (on ? " on" : "") },
+        h("div", { class: "layer-head" }, h("strong", { class: "small" }, (inf ? inf.emoji : "🎉") + " " + (x.name || "Holiday")),
+          sw(x.enabled !== false, v => { x.enabled = v; change(); drawSide(); })),
+        x.key ? null : field("Name", h("input", { value: x.name, maxlength: 40, placeholder: "Store anniversary", oninput: e => { x.name = e.target.value; change(); } })),
+        h("div", { class: "row" },
+          field("Starts", h("input", { type: "date", value: x.start, required: true, onchange: e => { if (!e.target.value) return; x.start = e.target.value; if (x.end < x.start) x.end = x.start; change(); drawSide(); } })),
+          field("Ends (last day)", h("input", { type: "date", value: x.end, min: x.start, required: true, onchange: e => { if (!e.target.value) return; x.end = e.target.value < x.start ? x.start : e.target.value; change(); drawSide(); } }))),
+        h("label", { class: "check-row" }, h("input", { type: "checkbox", checked: !!x.yearly, onchange: e => { x.yearly = e.target.checked; change(); drawSide(); } }),
+          x.key ? "Every year (follows the holiday's date)" : "Every year on these dates"),
+        field("Background picture", h("select", { onchange: e => { x.mediaId = Number(e.target.value) || null; change(); if (pvHoliday === x) redraw(); else drawSide(); } },
+          h("option", { value: "" }, pics.length ? "— No picture —" : "— Upload pictures in Media first —"),
+          pics.map(p => h("option", { value: p.id, selected: p.id === x.mediaId }, (p.category === "background" ? "🖼 " : "") + p.name)))),
+        m ? h("img", { class: "hol-thumb", src: m.src, alt: "" }) : null,
+        h("div", { class: "row", style: "gap:.6rem;align-items:center" },
+          colorIn(x.color || L.background || "#000000", v => { x.color = v; change(); if (pvHoliday === x) paintBg(); }, "Background colour"),
+          x.color ? h("button", { type: "button", class: "small", onclick: () => { x.color = ""; change(); if (pvHoliday === x) paintBg(); drawSide(); } }, "Keep my colour") : h("span", { class: "small muted" }, "(optional)")),
+        !x.mediaId && !x.color ? h("p", { class: "small", style: "color:var(--danger);margin:.25rem 0" }, "Choose a picture or a colour, or nothing changes.") : null,
+        h("p", { class: "small muted", style: "margin:.35rem 0" },
+          x.enabled === false ? "Off." : on ? (now === x ? "✅ Showing now, until " + day(n ? n.end : x.end) + "." : "Another holiday higher in the list is showing now.")
+            : n ? "Next: " + day(n.start) + " – " + day(n.end) + "." : "These dates have passed."),
+        h("div", { class: "row", style: "gap:.4rem;flex-wrap:wrap" },
+          x.mediaId || x.color ? h("button", { type: "button", class: "small" + (pvHoliday === x ? " primary" : ""), onclick: () => { pvHoliday = pvHoliday === x ? null : x; redraw(); } }, pvHoliday === x ? "Stop preview" : "👁 Preview") : null,
+          i > 0 ? h("button", { type: "button", class: "small", title: "If two holidays overlap, the higher one shows", onclick: () => { L.holidays.splice(i - 1, 0, L.holidays.splice(i, 1)[0]); change(); drawSide(); } }, "↑ Move up") : null,
+          h("button", { type: "button", class: "small danger", onclick: () => { L.holidays.splice(i, 1); if (pvHoliday === x) pvHoliday = null; change(); redraw(); } }, "Remove")));
+    };
+    const used = new Set(L.holidays.map(x => x.key).filter(Boolean));
+    const add = h("select", { "aria-label": "Add a holiday", onchange: e => {
+      const k = e.target.value; if (!k) return;
+      const x = Holidays.create(k === "custom" ? "" : k, today);
+      if (k === "custom") x.name = "";
+      L.holidays.push(x); change(); drawSide();
+      toast("Added. Now choose its background picture" + (k === "custom" ? ", name" : "") + " and dates.");
+    } }, h("option", { value: "" }, "+ Add a holiday…"),
+      Holidays.list().filter(o => !used.has(o.key)).map(o => h("option", { value: o.key }, o.emoji + " " + o.name)),
+      h("option", { value: "custom" }, "🎉 Custom holiday or event…"));
+    return [
+      h("div", { class: "layer-head", style: "margin-top:1.25rem" }, h("strong", {}, "🎉 Holiday backgrounds")),
+      h("p", { class: "small muted", style: "margin:0 0 .5rem" }, "Pick a holiday, its background and the dates. Your screens switch to it on the start date (locked at the bottom, under everything, like any background) and go back to your normal background after the last day. Save the design to turn it on."),
+      h("p", { class: "small", style: "margin:0 0 .6rem" }, now ? "🎉 Showing on your screens today: " + now.name + "." : "Today your normal background is showing."),
+      pvHoliday ? h("div", { class: "row", style: "gap:.5rem;align-items:center;margin-bottom:.6rem" }, h("span", { class: "small" }, "👁 Previewing " + pvHoliday.name),
+        h("button", { type: "button", class: "small", onclick: () => { pvHoliday = null; redraw(); } }, "Stop preview")) : null,
+      ...L.holidays.map(card),
+      add];
+  }
+
   function addBackground(m) {
     addBlock({ kind: "image", mediaId: m.id, image: { src: m.src, name: m.name }, w: 100, x: 0, y: 0, text: "", fx: "none" });
     const bg = L.text.blocks.pop();
@@ -1975,7 +2054,8 @@ async function renderLayers(main, id, kind) {
       kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Background")),
         h("div", { class: "row", style: "gap:.6rem;align-items:center" }, colorIn(L.background || "#000000", v => { L.background = v; paintBg(); change(); }, "Background colour"),
           L.background ? h("button", { type: "button", class: "small", onclick: () => { L.background = ""; paintBg(); change(); drawSide(); } }, "Black (none)") : null),
-        h("p", { class: "small muted" }, "The design fills the whole screen on this colour. For a picture behind everything, use Media → Backgrounds."));
+        h("p", { class: "small muted" }, "The design fills the whole screen on this colour. For a picture behind everything, use Media → Backgrounds."),
+        ...holidaysPanel());
     } else if (isSlide) {
       kids.push(h("div", { class: "layer-head" }, h("strong", {}, "Slide background")),
         field("Background colour", colorIn(slideBg, v => { slideBg = v; paintBg(); change(); }, "Background")),
