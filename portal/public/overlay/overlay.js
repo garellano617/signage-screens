@@ -607,7 +607,34 @@
   // ---- clock-driven effects: the same on every screen of a video wall ----
   // Every position is worked out from the time alone (no randomness that differs between screens), in the
   // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
-  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1 };
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1 };
+
+  // A sparkle (glint of light): white-hot centre, a soft glow in the chosen colour, four long thin rays
+  // that taper to nothing and four short diagonal ones. Drawn once per colour, then stamped.
+  var sparkleSprites = {};
+  function sparkleSprite(color) {
+    if (sparkleSprites[color]) return sparkleSprites[color];
+    var S = 192, c = S / 2, cv = document.createElement("canvas"); cv.width = cv.height = S;
+    var g = cv.getContext("2d"), m = /^#([0-9a-f]{6})$/i.exec(color || ""), n = m ? parseInt(m[1], 16) : 0xffffff;
+    var rgb = (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255);
+    g.globalCompositeOperation = "lighter";
+    var gl = g.createRadialGradient(c, c, 0, c, c, S * 0.22);
+    gl.addColorStop(0, "rgba(" + rgb + ",.55)"); gl.addColorStop(0.4, "rgba(" + rgb + ",.18)"); gl.addColorStop(1, "rgba(" + rgb + ",0)");
+    g.fillStyle = gl; g.fillRect(0, 0, S, S);
+    function ray(ang, len, wid, alpha) {
+      g.save(); g.translate(c, c); g.rotate(ang);
+      var lg = g.createLinearGradient(0, 0, len, 0);
+      lg.addColorStop(0, "rgba(255,255,255," + alpha + ")"); lg.addColorStop(0.25, "rgba(" + rgb + "," + alpha * 0.6 + ")"); lg.addColorStop(1, "rgba(" + rgb + ",0)");
+      g.fillStyle = lg; g.beginPath(); g.moveTo(0, -wid); g.quadraticCurveTo(len * 0.15, -wid * 0.25, len, 0); g.quadraticCurveTo(len * 0.15, wid * 0.25, 0, wid); g.closePath(); g.fill();
+      g.restore();
+    }
+    for (var i = 0; i < 4; i++) ray(i * Math.PI / 2, S * 0.5, S * 0.022, 1);
+    for (i = 0; i < 4; i++) ray(Math.PI / 4 + i * Math.PI / 2, S * 0.2, S * 0.014, 0.7);
+    var core = g.createRadialGradient(c, c, 0, c, c, S * 0.07);
+    core.addColorStop(0, "rgba(255,255,255,1)"); core.addColorStop(0.45, "rgba(255,255,255,.85)"); core.addColorStop(1, "rgba(" + rgb + ",0)");
+    g.fillStyle = core; g.fillRect(0, 0, S, S);
+    return (sparkleSprites[color] = cv);
+  }
 
   // Autumn maple leaves: each colour pair is [centre, edge]. Pictures are drawn once, front and (duller) back.
   var LEAF_COLORS = [["#fde047", "#ea580c"], ["#fb923c", "#b91c1c"], ["#dc2626", "#7f1d1d"], ["#fbbf24", "#b45309"],
@@ -701,7 +728,8 @@
     function particles(kind, t, count, color) {
       var u = W / 100, n = Math.min(900, Math.round(count * v.cols * v.rows));
       var rising = kind === "bubbles" || kind === "hearts" || kind === "balloons";
-      var twinkle = kind === "sparkles" || kind === "stars";
+      if (kind === "sparkles") return sparkles(t, count, color);
+      var twinkle = kind === "stars";
       for (var k = 0; k < n; k++) {
         var s = (0.4 + rnd(k, 1)) * u * (kind === "snow" ? 0.5 : kind === "confetti" ? 0.7 : kind === "bubbles" ? 1.4 : kind === "balloons" ? 2.2 : 1);
         ctx.save();
@@ -766,6 +794,42 @@
         ctx.drawImage(sp, -s, -s, 2 * s, 2 * s);
         ctx.restore();
       }
+    }
+    // Sparkles, worked out from the clock alone (a video wall stays in step). Each glint flashes on fast, flickers,
+    // then fades more slowly while its rays shrink and turn a little; then it appears somewhere else. Most are
+    // small, a few are big, and tiny glitter specks twinkle between them.
+    function sparkles(t, count, color, small) {
+      var u = W / 100, n = Math.min(500, Math.round(count * v.cols * v.rows)), sp = sparkleSprite(color || "#ffffff");
+      ctx.save(); ctx.globalCompositeOperation = "lighter";
+      for (var k = 0; k < n; k++) {
+        var dur = 1.1 + rnd(k, 1) * 1.8, life = t / dur + rnd(k, 2), round = Math.floor(life), p = life - round;
+        var g = k * 31 + round, x = rnd(g, 3) * VW, y = rnd(g, 4) * VH;
+        var z = rnd(g, 5), s = u * (0.8 + z * z * z * 5.5) * (small ? 0.45 : 1);
+        if (x < OX - s || x > OX + W + s || y < OY - s || y > OY + H + s) continue;
+        var e = p < 0.12 ? p / 0.12 : Math.pow(1 - (p - 0.12) / 0.88, 1.6);
+        e *= 0.8 + 0.2 * Math.sin(t * (18 + rnd(k, 6) * 14) + k);
+        if (e <= 0.02) continue;
+        var r = s * (0.35 + 0.65 * e);
+        ctx.globalAlpha = Math.min(1, e * 1.15);
+        var dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.translate(-OX + x, -OY + y);
+        ctx.rotate((rnd(g, 7) - 0.5) * 0.6 + (rnd(k, 8) - 0.5) * 0.8 * p);
+        ctx.drawImage(sp, -r, -r, r * 2, r * 2);
+      }
+      // Glitter: tiny specks that blink.
+      var dpr2 = window.devicePixelRatio || 1;
+      ctx.setTransform(dpr2, 0, 0, dpr2, 0, 0); ctx.translate(-OX, -OY);
+      ctx.fillStyle = color || "#ffffff";
+      for (k = 0; k < (small ? 0 : n * 1.5); k++) {
+        var b = Math.sin(t * (2 + rnd(k, 11) * 3) + rnd(k, 12) * 6.28);
+        if (b < 0.6) continue;
+        var gx = rnd(k, 13) * VW, gy = rnd(k, 14) * VH;
+        if (gx < OX || gx > OX + W || gy < OY || gy > OY + H) continue;
+        ctx.globalAlpha = (b - 0.6) / 0.4 * 0.9;
+        var gs = u * 0.12 * (1 + rnd(k, 15));
+        ctx.beginPath(); ctx.arc(gx, gy, gs, 0, 7); ctx.fill();
+      }
+      ctx.restore();
     }
     function heart(s) {
       ctx.beginPath(); ctx.moveTo(0, s * 0.3);
@@ -954,7 +1018,7 @@
     }
     // Shooting stars streaking across the wall over a field of twinkling stars.
     function shooting(t) {
-      particles("sparkles", t, base * 0.4, ef.color);
+      sparkles(t, base * 0.4, ef.color, true);
       var slot = ef.intensity === "heavy" ? 0.9 : ef.intensity === "light" ? 3 : 1.7;
       var cur = Math.floor(t / slot), u = W / 100;
       for (var b = cur - 3; b <= cur; b++) {
