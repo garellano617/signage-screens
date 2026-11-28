@@ -1080,7 +1080,7 @@
     var WIPE_DROPS = [70, 160, 300, 480, 750];
     function wiper(t) {
       if (!dropSprite) makeDropSprite();
-      var u = W / 100, C = Math.max(4, ef.wipe || 10), Dw = 1.5;
+      var u = W / 100, C = Math.max(4, ef.wipe || 10), Dw = 3, bw = u * 2.2; // sweep seconds (up and back); blade thickness unit
       var N = Math.min(2500, Math.round(WIPE_DROPS[Math.min(5, Math.max(1, ef.rain || 3)) - 1] * v.cols * v.rows));
       var px = VW / 2, py = VH + u * 3, L = Math.hypot(VW / 2, py) * 1.03, r0 = L * 0.06;
       var TMAX = Math.PI + 0.06, TMIN = -0.06;
@@ -1125,27 +1125,27 @@
           var nx = -sy * dir, ny = cx * dir; // side the blade is moving towards
           ctx.save(); ctx.translate(px, py);
           // Wave of water pushed ahead of the blade.
-          var wg = ctx.createLinearGradient(0, 0, nx * u * 1.6, ny * u * 1.6);
+          var wg = ctx.createLinearGradient(0, 0, nx * bw * 1.6, ny * bw * 1.6);
           wg.addColorStop(0, "rgba(230,240,250," + 0.45 * fill + ")"); wg.addColorStop(1, "rgba(230,240,250,0)");
           ctx.globalAlpha = 1; ctx.fillStyle = wg;
-          ctx.beginPath(); ctx.moveTo(cx * r0, sy * r0); ctx.lineTo(cx * L, sy * L); ctx.lineTo(cx * L + nx * u * 1.6, sy * L + ny * u * 1.6); ctx.lineTo(cx * r0 + nx * u * 1.6, sy * r0 + ny * u * 1.6); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(cx * r0, sy * r0); ctx.lineTo(cx * L, sy * L); ctx.lineTo(cx * L + nx * bw * 1.6, sy * L + ny * bw * 1.6); ctx.lineTo(cx * r0 + nx * bw * 1.6, sy * r0 + ny * bw * 1.6); ctx.closePath(); ctx.fill();
           ctx.rotate(-th);
           // Shadow on the glass.
           ctx.globalAlpha = 0.28; ctx.fillStyle = "#000";
-          ctx.fillRect(r0, u * 0.5, L - r0, u * 0.9);
+          ctx.fillRect(r0, bw * 0.5, L - r0, bw * 0.9);
           // Arm: from the pivot to the middle of the blade.
           ctx.globalAlpha = 1; ctx.strokeStyle = "#1b1d21"; ctx.lineCap = "round";
-          ctx.lineWidth = u * 0.9; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L * 0.5, -u * 0.9); ctx.stroke();
-          ctx.lineWidth = u * 0.5; ctx.beginPath(); ctx.moveTo(L * 0.5, -u * 0.9); ctx.lineTo(L * 0.62, -u * 0.55); ctx.stroke();
+          ctx.lineWidth = bw * 0.9; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L * 0.5, -bw * 0.9); ctx.stroke();
+          ctx.lineWidth = bw * 0.5; ctx.beginPath(); ctx.moveTo(L * 0.5, -bw * 0.9); ctx.lineTo(L * 0.62, -bw * 0.55); ctx.stroke();
           // Blade: metal frame with claws over a black rubber strip.
-          ctx.fillStyle = "#0b0c0e"; ctx.fillRect(r0, -u * 0.3, L - r0, u * 0.6);
-          ctx.strokeStyle = "#2c2f35"; ctx.lineWidth = u * 0.35;
-          ctx.beginPath(); ctx.moveTo(r0 + u, -u * 0.45);
-          ctx.lineTo(L * 0.35, -u * 0.95); ctx.lineTo(L * 0.62, -u * 0.55); ctx.lineTo(L * 0.85, -u * 0.95); ctx.lineTo(L - u, -u * 0.45); ctx.stroke();
+          ctx.fillStyle = "#0b0c0e"; ctx.fillRect(r0, -bw * 0.3, L - r0, bw * 0.6);
+          ctx.strokeStyle = "#2c2f35"; ctx.lineWidth = bw * 0.35;
+          ctx.beginPath(); ctx.moveTo(r0 + u, -bw * 0.45);
+          ctx.lineTo(L * 0.35, -bw * 0.95); ctx.lineTo(L * 0.62, -bw * 0.55); ctx.lineTo(L * 0.85, -bw * 0.95); ctx.lineTo(L - u, -bw * 0.45); ctx.stroke();
           ctx.fillStyle = "#3a3e45";
-          [0.2, 0.35, 0.5, 0.75, 0.9].forEach(function (f) { ctx.fillRect(r0 + (L - r0) * f - u * 0.25, -u * 0.6, u * 0.5, u * 0.35); });
-          ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = u * 0.08;
-          ctx.beginPath(); ctx.moveTo(r0, -u * 0.28); ctx.lineTo(L, -u * 0.28); ctx.stroke();
+          [0.2, 0.35, 0.5, 0.75, 0.9].forEach(function (f) { ctx.fillRect(r0 + (L - r0) * f - bw * 0.25, -bw * 0.6, bw * 0.5, bw * 0.35); });
+          ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = bw * 0.08;
+          ctx.beginPath(); ctx.moveTo(r0, -bw * 0.28); ctx.lineTo(L, -bw * 0.28); ctx.stroke();
           ctx.restore();
         }
       }
