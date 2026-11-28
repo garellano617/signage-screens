@@ -46,6 +46,41 @@ router.post("/auth/login", (req, res) => {
   res.json({ user: auth.publicUser(user) });
 });
 
+// Self sign-up: a new client makes their own account (a client + its first admin login) and is logged in.
+// They only ever see their own client's pages. Turn it off with SIGNUP_OPEN=false. New accounts get
+// SIGNUP_SCREEN_LIMIT screens (default 1, empty = no limit); you can raise it on the Clients page.
+const signups = new Map(); // ip -> { count, until }
+const signupOpen = () => String(process.env.SIGNUP_OPEN || "true").toLowerCase() !== "false";
+router.get("/auth/signup", (req, res) => res.json({ open: signupOpen() }));
+router.post("/auth/signup", (req, res) => {
+  if (!signupOpen()) throw new HttpError(403, "New accounts are closed. Please contact us.");
+  const key = req.ip || "?", s = signups.get(key);
+  if (s && s.count >= 5 && s.until > now()) throw new HttpError(429, "Too many new accounts from here. Try again later.");
+  const business = str(req.body.business, 120, "Business name");
+  const name = str(req.body.name, 100, "Your name");
+  const email = str(req.body.email, 200, "Email").toLowerCase();
+  const phone = str(req.body.phone, 40, "Phone");
+  const password = String(req.body.password || "");
+  if (!business) throw bad("Enter your business name.");
+  if (!name) throw bad("Enter your name.");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad("Enter a valid email.");
+  if (password.length < 8) throw bad("Password must be at least 8 characters.");
+  if (password.length > 200) throw bad("Password is too long.");
+  if (get("SELECT id FROM users WHERE email = ?", email)) throw bad("There is already an account with that email. Log in instead.");
+  const lim = process.env.SIGNUP_SCREEN_LIMIT === undefined ? "1" : String(process.env.SIGNUP_SCREEN_LIMIT).trim();
+  const screenLimit = lim === "" ? null : Math.max(0, Math.min(10000, parseInt(lim, 10) || 0));
+  const uid = tx(() => {
+    const c = run("INSERT INTO customers (name, contact_name, email, phone, notes, screen_limit, active, created_at) VALUES (?,?,?,?,?,?,1,?)",
+      business, name, email, phone, "Signed up online " + new Date().toISOString().slice(0, 10) + ".", screenLimit, now());
+    return run("INSERT INTO users (email, name, password_hash, role, customer_id, created_at) VALUES (?, ?, ?, 'admin', ?, ?)",
+      email, name, auth.hashPassword(password), c.lastInsertRowid, now()).lastInsertRowid;
+  });
+  signups.set(key, { count: s && s.until > now() ? s.count + 1 : 1, until: now() + 60 * 60e3 });
+  const user = get("SELECT u.*, c.name AS customer_name FROM users u JOIN customers c ON c.id = u.customer_id WHERE u.id = ?", uid);
+  res.cookie("sid", auth.createSession(user.id), auth.sessionCookieOptions(req));
+  res.status(201).json({ user: auth.publicUser(user) });
+});
+
 router.post("/auth/logout", (req, res) => {
   auth.destroySession(req.cookies && req.cookies.sid);
   res.clearCookie("sid", { path: "/" });

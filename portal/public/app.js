@@ -36,7 +36,7 @@ async function api(method, url, body, headers) {
   const res = await fetch("/api" + url, opt);
   let data = null;
   try { data = await res.json(); } catch (_) {}
-  if (res.status === 401 && url !== "/auth/login") { state.user = null; renderLogin(); throw new Error("Please log in."); }
+  if (res.status === 401 && url !== "/auth/login" && url !== "/auth/signup") { state.user = null; renderLogin(); throw new Error("Please log in."); }
   if (!res.ok) throw new Error((data && data.error) || "Request failed (" + res.status + ")");
   return data;
 }
@@ -319,7 +319,7 @@ function shell(section, inClient) {
 async function route() {
   clearInterval(state.timer); state.timer = null;
   window.onbeforeunload = null;
-  if (!state.user) return renderLogin();
+  if (!state.user) return location.hash === "#/signup" ? renderSignup() : renderLogin();
   let path = location.hash.replace(/^#/, "") || "/";
   // The QR code on a TV's pairing screen opens #/pair/CODE: open Add screen with the code filled in.
   const pm = path.match(/^(\/c\/\d+)?\/pair\/([A-Za-z0-9]{6})$/);
@@ -511,13 +511,46 @@ function renderLogin() {
     brandMark(state.brand.name === "Signage" ? " Portal" : ""),
     field("Email", h("input", { name: "email", type: "email", autocomplete: "username", required: true })),
     field("Password", h("input", { name: "password", type: "password", autocomplete: "current-password", required: true })),
-    err, btn);
+    err, btn,
+    h("p", { class: "small muted signup-link", style: "text-align:center", hidden: true }, "New here? ", h("a", { href: "#/signup", onclick: e => { e.preventDefault(); location.hash = "#/signup"; renderSignup(); } }, "Create an account")));
+  api("GET", "/auth/signup").then(r => { if (r && r.open) form.querySelector(".signup-link").hidden = false; }).catch(() => {});
   form.addEventListener("submit", async e => {
     e.preventDefault(); err.textContent = ""; btn.disabled = true;
     const f = new FormData(form);
     try {
       const r = await api("POST", "/auth/login", { email: f.get("email"), password: f.get("password") });
       state.user = r.user; await loadCustomers(); route(); refreshIcons();
+    } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+  });
+  app().replaceChildren(h("div", { class: "login-wrap" }, form, I18N.switcher()));
+  form.querySelector("input").focus();
+}
+
+// ---------- sign up (a new client makes their own account) ----------
+function renderSignup() {
+  clearInterval(state.timer);
+  helpRemove();
+  const err = h("div", { class: "form-error" });
+  const btn = h("button", { type: "submit", class: "primary", style: "width:100%;justify-content:center" }, "Create my account");
+  const toLogin = e => { e.preventDefault(); location.hash = "#/"; renderLogin(); };
+  const form = h("form", { class: "card login" },
+    brandMark(state.brand.name === "Signage" ? " Portal" : ""),
+    h("h2", { style: "margin:0 0 .25rem;font-size:1.1rem;text-align:center" }, "Create your account"),
+    h("p", { class: "small muted", style: "text-align:center;margin:0 0 1rem" }, "Put your own pictures, videos and messages on your TV screens."),
+    field("Business name", h("input", { name: "business", autocomplete: "organization", required: true, maxlength: 120 })),
+    field("Your name", h("input", { name: "name", autocomplete: "name", required: true, maxlength: 100 })),
+    field("Email", h("input", { name: "email", type: "email", autocomplete: "email", required: true, maxlength: 200 })),
+    field("Phone (optional)", h("input", { name: "phone", type: "tel", autocomplete: "tel", maxlength: 40 })),
+    field("Password (at least 8 characters)", h("input", { name: "password", type: "password", autocomplete: "new-password", required: true, minlength: 8 })),
+    err, btn,
+    h("p", { class: "small muted", style: "text-align:center" }, "Already have an account? ", h("a", { href: "#/", onclick: toLogin }, "Log in")));
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); err.textContent = ""; btn.disabled = true;
+    const f = new FormData(form);
+    try {
+      const r = await api("POST", "/auth/signup", Object.fromEntries(["business", "name", "email", "phone", "password"].map(k => [k, f.get(k)])));
+      state.user = r.user; location.hash = "#/"; await loadCustomers(); route(); refreshIcons();
+      toast("Welcome! Your account is ready.");
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
   });
   app().replaceChildren(h("div", { class: "login-wrap" }, form, I18N.switcher()));

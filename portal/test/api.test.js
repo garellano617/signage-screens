@@ -1269,3 +1269,26 @@ test("wall design: one design across the wall, each screen gets the whole design
   assert.equal((await call("PUT", "/api/screens/" + bs.id + "/layers", { text: { enabled: true, blocks: [{ kind: "video", mediaId: vid.id }] } })).body.text.blocks.length, 0);
   scopeId = null;
 });
+
+test("sign up: a new client makes their own account and only sees their own side", async () => {
+  const saved = { cookie, scopeId };
+  cookie = ""; scopeId = null;
+  try {
+    assert.equal((await call("GET", "/api/auth/signup")).body.open, true);
+    assert.equal((await call("POST", "/api/auth/signup", { business: "Cafe Sol", name: "Ana", email: "bad", password: "longenough1" })).status, 400);
+    assert.equal((await call("POST", "/api/auth/signup", { business: "Cafe Sol", name: "Ana", email: "ana@cafesol.test", password: "short" })).status, 400);
+    assert.equal((await call("POST", "/api/auth/signup", { business: "Cafe Sol", name: "Ana", email: "admin@test.local", password: "longenough1" })).status, 400, "email already used");
+    const r = await call("POST", "/api/auth/signup", { business: "Cafe Sol", name: "Ana", email: "Ana@CafeSol.test", phone: "555-0100", password: "longenough1" });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.user.isStaff, false);
+    assert.equal(r.body.user.role, "admin");
+    assert.equal(r.body.user.customerName, "Cafe Sol");
+    assert.ok(cookie, "logged in right away");
+    assert.equal((await call("GET", "/api/auth/me")).body.user.email, "ana@cafesol.test");
+    assert.equal((await call("GET", "/api/customers")).status, 403, "no staff pages");
+    assert.equal((await call("GET", "/api/dashboard")).status, 200);
+    cookie = "";
+    const again = await call("POST", "/api/auth/login", { email: "ana@cafesol.test", password: "longenough1" });
+    assert.equal(again.status, 200);
+  } finally { cookie = saved.cookie; scopeId = saved.scopeId; }
+});
