@@ -1064,7 +1064,7 @@ test("wall effects: saved, cleaned, sent to each screen with its part of the wal
   await call("PUT", "/api/walls/" + w.id + "/screens", { tiles: [{ screenId: a.s.id, col: 0, row: 0 }, { screenId: b.s.id, col: 1, row: 0 }] });
   // Unknown values are cleaned: bad type -> default, "every" kept within 10..300 seconds.
   const saved = (await call("PATCH", "/api/walls/" + w.id, { effects: { enabled: true, type: "santa", every: 5, snow: false, intensity: "loud" } })).body;
-  assert.deepEqual(saved.effects, { enabled: true, type: "santa", intensity: "medium", color: "#ffffff", every: 10, snow: false, shape: "mixed", pattern: "twinkle", banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c", image: null });
+  assert.deepEqual(saved.effects, { enabled: true, type: "santa", intensity: "medium", color: "#ffffff", every: 10, snow: false, shape: "mixed", pattern: "twinkle", rain: 3, banner: "", mediaId: null, bannerBg: "#ffffff", bannerColor: "#b91c1c", image: null });
   const cb = (await call("GET", "/api/player/config", undefined, b.auth)).body;
   assert.equal(cb.layers.effects.type, "santa");
   assert.deepEqual(cb.layers.view, { cols: 2, rows: 1, col: 1, row: 0, gap: 0.015, design: false }); // no wall design yet

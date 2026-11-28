@@ -607,7 +607,36 @@
   // ---- clock-driven effects: the same on every screen of a video wall ----
   // Every position is worked out from the time alone (no randomness that differs between screens), in the
   // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
-  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1, snow: 1, bubbles: 1, lights: 1 };
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1, snow: 1, bubbles: 1, lights: 1, rain: 1 };
+
+  // A water drop on glass, drawn once. A drop works like a tiny lens that shows the world upside down, so it is
+  // dark along the top edge and bright along the bottom, with a sharp light reflection near the top and a faint
+  // shadow below it on the glass.
+  var dropSprite = null;
+  function makeDropSprite() {
+    var S = 128, c = S / 2, R = S * 0.36, cv = document.createElement("canvas"); cv.width = cv.height = S;
+    var g = cv.getContext("2d");
+    var sh = g.createRadialGradient(c + R * 0.12, c + R * 0.22, R * 0.6, c + R * 0.12, c + R * 0.22, R * 1.15);
+    sh.addColorStop(0, "rgba(0,0,0,.18)"); sh.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = sh; g.fillRect(0, 0, S, S);
+    var lens = document.createElement("canvas"); lens.width = lens.height = S;
+    var l = lens.getContext("2d");
+    var lg = l.createLinearGradient(0, c - R, 0, c + R);
+    lg.addColorStop(0, "rgba(10,20,30,.55)"); lg.addColorStop(0.35, "rgba(40,60,80,.18)"); lg.addColorStop(0.62, "rgba(255,255,255,.08)"); lg.addColorStop(1, "rgba(255,255,255,.6)");
+    l.fillStyle = lg; l.beginPath(); l.arc(c, c, R, 0, 7); l.fill();
+    // Clearer in the middle, strongest at the rim.
+    l.globalCompositeOperation = "destination-in";
+    var m = l.createRadialGradient(c, c, 0, c, c, R);
+    m.addColorStop(0, "rgba(0,0,0,.45)"); m.addColorStop(0.7, "rgba(0,0,0,.7)"); m.addColorStop(1, "rgba(0,0,0,1)");
+    l.fillStyle = m; l.fillRect(0, 0, S, S);
+    g.drawImage(lens, 0, 0);
+    g.strokeStyle = "rgba(0,0,0,.22)"; g.lineWidth = S * 0.012; g.beginPath(); g.arc(c, c, R, Math.PI * 1.05, Math.PI * 1.95); g.stroke();
+    g.strokeStyle = "rgba(255,255,255,.35)"; g.beginPath(); g.arc(c, c, R * 0.97, Math.PI * 0.15, Math.PI * 0.85); g.stroke();
+    g.fillStyle = "rgba(255,255,255,.95)"; g.save(); g.translate(c - R * 0.38, c - R * 0.45); g.rotate(-0.6); g.scale(1, 0.6);
+    g.beginPath(); g.arc(0, 0, R * 0.17, 0, 7); g.fill(); g.restore();
+    g.fillStyle = "rgba(255,255,255,.5)"; g.beginPath(); g.arc(c + R * 0.3, c + R * 0.55, R * 0.07, 0, 7); g.fill();
+    dropSprite = { img: cv, k: S / (2 * R) };
+  }
 
   // Christmas lights: big glass bulbs (red, green, blue, yellow, orange in turn, like a real string), each drawn
   // once lit and unlit, plus a coloured glow.
@@ -986,6 +1015,64 @@
       }
       ctx.restore();
     }
+    // Rain on a window, worked out from the clock alone (a video wall stays in step). Drops land on the glass
+    // and bead up in all sizes, then slowly dry. Now and then a big drop runs down: it sticks, then slips, wanders
+    // a little left and right, stretches when it moves fast, and leaves a wet streak with a line of tiny drops
+    // behind it. ef.rain: 1 drizzle … 5 downpour.
+    var RAIN = [[50, 1], [130, 3], [250, 6], [420, 10], [650, 16]];
+    function drop(x, y, r, a, sy) {
+      var d = r * dropSprite.k; ctx.globalAlpha = a;
+      if (sy && sy !== 1) { ctx.save(); ctx.translate(x, y); ctx.scale(1 / Math.sqrt(sy), sy); ctx.drawImage(dropSprite.img, -d, -d, 2 * d, 2 * d); ctx.restore(); }
+      else ctx.drawImage(dropSprite.img, x - d, y - d, 2 * d, 2 * d);
+    }
+    function rain(t) {
+      if (!dropSprite) makeDropSprite();
+      var u = W / 100, lv = RAIN[Math.min(5, Math.max(1, ef.rain || 3)) - 1], area = v.cols * v.rows;
+      var n = Math.min(2000, Math.round(lv[0] * area)), runners = Math.round(lv[1] * area);
+      ctx.save();
+      // Beaded drops.
+      for (var k = 0; k < n; k++) {
+        var per = 7 + rnd(k, 1) * 16, life = t / per + rnd(k, 2), round = Math.floor(life), p = life - round, g = k * 13.1 + round * 71.7;
+        var x = rnd(g, 3) * VW, y = rnd(g, 4) * VH, z = rnd(g, 5), r = u * (0.12 + z * z * z * 1.3);
+        if (x < OX - r * 2 || x > OX + W + r * 2 || y < OY - r * 2 || y > OY + H + r * 2) continue;
+        var age = p * per, grow = age < 0.15 ? 0.4 + 0.6 * (age / 0.15) : 1, dry = p > 0.82 ? 1 - (p - 0.82) / 0.18 : 1;
+        drop(x, y, r * grow * (0.6 + 0.4 * dry), 0.9 * dry, 1 + z * 0.12);
+      }
+      // Running drops.
+      for (k = 0; k < runners; k++) {
+        var R2 = u * (0.9 + rnd(k, 11) * 0.9), sp = u * (5 + rnd(k, 12) * 6), T = 1.1 + rnd(k, 13) * 1.6;
+        var run = (VH * 1.2) / sp + 2, pc = run + 1 + rnd(k, 14) * 4;
+        var ph = t / pc + rnd(k, 15), rd = Math.floor(ph), tau = (ph - rd) * pc, g2 = k * 17.3 + rd * 53.9;
+        var x0 = rnd(g2, 16) * VW, y0 = rnd(g2, 17) * VH * 0.6 - VH * 0.15, f1 = rnd(g2, 18) * 6.28, f2 = rnd(g2, 19) * 6.28;
+        if (x0 < OX - u * 8 || x0 > OX + W + u * 8) continue;
+        var pos = function (s) {
+          return [x0 + u * (0.7 * Math.sin(s * 1.1 + f1) + 0.25 * Math.sin(s * 3.7 + f2)), y0 + sp * (s - 0.9 * T / 6.283 * Math.sin(6.283 * s / T))];
+        };
+        var tEnd = Math.min(tau, run), from = Math.max(0, tau - 4), step = 0.06;
+        // Wet streak, fading as it dries.
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
+        for (var s = from; s < tEnd; s += step) {
+          var a = pos(s), b = pos(Math.min(tEnd, s + step)), dryA = 1 - (tau - s) / 4;
+          if (dryA <= 0) continue;
+          ctx.globalAlpha = dryA * 0.35;
+          ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.lineWidth = R2 * 0.6;
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+          ctx.strokeStyle = "rgba(0,0,0,.12)"; ctx.lineWidth = R2 * 0.12;
+          ctx.beginPath(); ctx.moveTo(a[0] - R2 * 0.36, a[1]); ctx.lineTo(b[0] - R2 * 0.36, b[1]); ctx.stroke();
+        }
+        // Tiny drops left behind.
+        for (var i = Math.ceil(from / 0.3); i * 0.3 < tEnd; i++) {
+          var s3 = i * 0.3, bornAgo = tau - s3, q = pos(s3);
+          if (bornAgo > 5) continue;
+          drop(q[0] + (rnd(g2 + i, 20) - 0.5) * R2 * 0.5, q[1], R2 * (0.12 + rnd(g2 + i, 21) * 0.22), 0.85 * (1 - bornAgo / 5));
+        }
+        if (tau < run) {
+          var h = pos(tau), speed = 1 - 0.9 * Math.cos(6.283 * tau / T);
+          drop(h[0], h[1], R2, 0.95, 1 + speed * 0.18);
+        }
+      }
+      ctx.restore();
+    }
     // Far-away flakes first, near ones on top.
     var depthOrder = {};
     function byDepth(name, n) {
@@ -1348,6 +1435,7 @@
       else if (type === "balloons") particles("balloons", t, base * 0.35, ef.color);
       else if (type === "leaves") leaves(t, base);
       else if (type === "lights") lights(t);
+      else if (type === "rain") rain(t);
       else if (type === "plane") plane(t);
       else particles(type, t, base, ef.color);
       raf = requestAnimationFrame(frame);
