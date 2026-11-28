@@ -607,7 +607,61 @@
   // ---- clock-driven effects: the same on every screen of a video wall ----
   // Every position is worked out from the time alone (no randomness that differs between screens), in the
   // coordinates of the whole wall. Each screen then draws only its own part. One screen = a 1 × 1 wall.
-  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1 };
+  var SCENES = { santa: 1, fireworks: 1, shooting: 1, balloons: 1, plane: 1, leaves: 1, sparkles: 1, snow: 1, bubbles: 1 };
+
+  function hexRgb(color) {
+    var m = /^#([0-9a-f]{6})$/i.exec(color || ""), n = m ? parseInt(m[1], 16) : 0xffffff;
+    return (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255);
+  }
+  function spriteCanvas(S) { var cv = document.createElement("canvas"); cv.width = cv.height = S; return cv; }
+  // Snow pictures per colour: a soft flake, a big out-of-focus flake (close to the camera) and an ice crystal.
+  var snowSprites = {};
+  function snowSprite(color) {
+    if (snowSprites[color]) return snowSprites[color];
+    var rgb = hexRgb(color), S = 128, c = S / 2;
+    var soft = spriteCanvas(S), g = soft.getContext("2d"), gr = g.createRadialGradient(c, c, 0, c, c, c);
+    gr.addColorStop(0, "rgba(" + rgb + ",1)"); gr.addColorStop(0.35, "rgba(" + rgb + ",.9)"); gr.addColorStop(0.7, "rgba(" + rgb + ",.25)"); gr.addColorStop(1, "rgba(" + rgb + ",0)");
+    g.fillStyle = gr; g.fillRect(0, 0, S, S);
+    var bokeh = spriteCanvas(S); g = bokeh.getContext("2d"); gr = g.createRadialGradient(c, c, 0, c, c, c);
+    gr.addColorStop(0, "rgba(" + rgb + ",.35)"); gr.addColorStop(0.75, "rgba(" + rgb + ",.45)"); gr.addColorStop(0.88, "rgba(" + rgb + ",.3)"); gr.addColorStop(1, "rgba(" + rgb + ",0)");
+    g.fillStyle = gr; g.fillRect(0, 0, S, S);
+    var cry = spriteCanvas(S); g = cry.getContext("2d");
+    g.translate(c, c); g.strokeStyle = "rgba(" + rgb + ",.95)"; g.lineCap = "round";
+    g.shadowColor = "rgba(" + rgb + ",.8)"; g.shadowBlur = S * 0.04;
+    for (var i = 0; i < 6; i++) {
+      g.save(); g.rotate(i * Math.PI / 3);
+      g.lineWidth = S * 0.035; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -S * 0.44); g.stroke();
+      g.lineWidth = S * 0.024;
+      [[0.18, 0.11], [0.29, 0.09], [0.38, 0.05]].forEach(function (b) {
+        g.beginPath(); g.moveTo(0, -S * b[0]); g.lineTo(-S * b[1], -S * (b[0] + b[1] * 0.9)); g.moveTo(0, -S * b[0]); g.lineTo(S * b[1], -S * (b[0] + b[1] * 0.9)); g.stroke();
+      });
+      g.restore();
+    }
+    g.fillStyle = "rgba(" + rgb + ",1)"; g.beginPath(); g.arc(0, 0, S * 0.05, 0, 7); g.fill();
+    return (snowSprites[color] = { soft: soft, bokeh: bokeh, crystal: cry });
+  }
+  // Soap bubble pictures: a thin rainbow film (turned per bubble) and a fixed window-light reflection.
+  var bubbleSprites = {};
+  function bubbleSprite(color) {
+    if (bubbleSprites[color]) return bubbleSprites[color];
+    var rgb = hexRgb(color), S = 256, c = S / 2, R = S * 0.47;
+    var film = spriteCanvas(S), g = film.getContext("2d");
+    var inner = g.createRadialGradient(c, c, R * 0.5, c, c, R);
+    inner.addColorStop(0, "rgba(" + rgb + ",.03)"); inner.addColorStop(0.8, "rgba(" + rgb + ",.08)"); inner.addColorStop(1, "rgba(" + rgb + ",.3)");
+    g.fillStyle = inner; g.beginPath(); g.arc(c, c, R, 0, 7); g.fill();
+    var lg = g.createLinearGradient(0, 0, S, S);
+    ["rgba(255,80,200,.55)", "rgba(80,200,255,.5)", "rgba(255,240,90,.5)", "rgba(90,255,160,.45)", "rgba(170,90,255,.55)"].forEach(function (col, i, a) { lg.addColorStop(i / (a.length - 1), col); });
+    g.strokeStyle = lg; g.lineWidth = S * 0.035; g.beginPath(); g.arc(c, c, R - S * 0.02, 0, 7); g.stroke();
+    g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = S * 0.008; g.beginPath(); g.arc(c, c, R, 0, 7); g.stroke();
+    var shine = spriteCanvas(S); g = shine.getContext("2d");
+    g.save(); g.translate(c - R * 0.42, c - R * 0.45); g.rotate(-0.7);
+    var hg = g.createRadialGradient(0, 0, 0, 0, 0, R * 0.26);
+    hg.addColorStop(0, "rgba(255,255,255,.95)"); hg.addColorStop(0.6, "rgba(255,255,255,.5)"); hg.addColorStop(1, "rgba(255,255,255,0)");
+    g.scale(1, 0.55); g.fillStyle = hg; g.beginPath(); g.arc(0, 0, R * 0.26, 0, 7); g.fill(); g.restore();
+    g.fillStyle = "rgba(255,255,255,.45)"; g.beginPath(); g.arc(c + R * 0.5, c + R * 0.5, R * 0.06, 0, 7); g.fill();
+    g.strokeStyle = "rgba(255,255,255,.3)"; g.lineWidth = S * 0.012; g.beginPath(); g.arc(c, c, R * 0.88, 0.2, 1.3); g.stroke();
+    return (bubbleSprites[color] = { film: film, shine: shine });
+  }
 
   // A sparkle (glint of light): white-hot centre, a soft glow in the chosen colour, four long thin rays
   // that taper to nothing and four short diagonal ones. Drawn once per colour, then stamped.
@@ -729,6 +783,8 @@
       var u = W / 100, n = Math.min(900, Math.round(count * v.cols * v.rows));
       var rising = kind === "bubbles" || kind === "hearts" || kind === "balloons";
       if (kind === "sparkles") return sparkles(t, count, color);
+      if (kind === "snow") return snow(t, count, color);
+      if (kind === "bubbles") return bubbles(t, count, color);
       var twinkle = kind === "stars";
       for (var k = 0; k < n; k++) {
         var s = (0.4 + rnd(k, 1)) * u * (kind === "snow" ? 0.5 : kind === "confetti" ? 0.7 : kind === "bubbles" ? 1.4 : kind === "balloons" ? 2.2 : 1);
@@ -830,6 +886,78 @@
         ctx.beginPath(); ctx.arc(gx, gy, gs, 0, 7); ctx.fill();
       }
       ctx.restore();
+    }
+    // Far-away flakes first, near ones on top.
+    var depthOrder = {};
+    function byDepth(name, n) {
+      var o = depthOrder[name];
+      if (!o || o.length !== n) {
+        o = depthOrder[name] = []; for (var i = 0; i < n; i++) o.push(i);
+        o.sort(function (a, b) { return rnd(a, 1) - rnd(b, 1); });
+      }
+      return o;
+    }
+    // Snow, worked out from the clock alone (a video wall stays in step). Flakes at different distances: far ones
+    // are tiny, faint and slow; near ones bigger and faster; a few right in front of the camera are big and out
+    // of focus. Some mid-distance flakes are ice crystals that turn slowly. They drift and sway on a gusty breeze.
+    function snow(t, count, color) {
+      var u = W / 100, n = Math.min(1200, Math.round(count * 1.6 * v.cols * v.rows)), sp = snowSprite(color || "#ffffff");
+      var wind = u * (0.5 * t + 4 * Math.sin(t * 0.13) + 2 * Math.sin(t * 0.37 + 2));
+      var order = byDepth("snow", n);
+      for (var j = 0; j < n; j++) {
+        var k = order[j], z = rnd(k, 1);
+        var near = z > 0.96, s = near ? u * (2.5 + rnd(k, 2) * 2.5) : u * (0.22 + z * z * z * 1.6);
+        var vy = u * (1.2 + z * 4) * (0.85 + rnd(k, 3) * 0.3);
+        var m = 2 * s + 10, travel = VH + 2 * m, q = t * vy + rnd(k, 4) * travel, round = Math.floor(q / travel);
+        var y = q - round * travel - m, g = k * 7.7 + round * 97.3, spanX = VW + 2 * m;
+        var w = 0.5 + rnd(k, 5) * 1.2, A = u * (0.4 + rnd(k, 6) * 1.6) * (0.5 + z);
+        var x = mod(rnd(g, 7) * spanX + wind * (0.4 + z * 0.8) + A * Math.sin(w * t + rnd(k, 8) * 6.28), spanX) - m;
+        if (x < OX - m || x > OX + W + m || y < OY - m || y > OY + H + m) continue;
+        ctx.save(); ctx.translate(x, y);
+        if (near) { ctx.globalAlpha = 0.45; ctx.drawImage(sp.bokeh, -s, -s, 2 * s, 2 * s); }
+        else if (z > 0.55 && rnd(g, 9) < 0.22) {
+          var cs = s * 1.6; ctx.globalAlpha = 0.6 + z * 0.4;
+          ctx.rotate(rnd(g, 10) * 6.28 + t * (rnd(g, 11) - 0.5) * 1.2);
+          ctx.scale(0.7 + 0.3 * Math.abs(Math.cos(t * (0.6 + rnd(g, 12)) + k)), 1);
+          ctx.drawImage(sp.crystal, -cs, -cs, 2 * cs, 2 * cs);
+        } else { ctx.globalAlpha = 0.35 + 0.6 * z; ctx.drawImage(sp.soft, -s, -s, 2 * s, 2 * s); }
+        ctx.restore();
+      }
+    }
+    // Soap bubbles, worked out from the clock alone. Each one floats up, sways and wobbles, its rainbow film
+    // swirls, the light reflection stays on the same side, and most pop somewhere on the way up.
+    function bubbles(t, count, color) {
+      var u = W / 100, n = Math.min(300, Math.round(count * 0.55 * v.cols * v.rows)), sp = bubbleSprite(color || "#ffffff");
+      var order = byDepth("bubbles", n);
+      for (var j = 0; j < n; j++) {
+        var k = order[j], z = rnd(k, 1), s = u * (1 + z * z * 4.5);
+        var vy = u * (2.2 + rnd(k, 2) * 2.5);
+        var m = s * 3 + 10, travel = VH + 2 * m, q = t * vy + rnd(k, 3) * travel, round = Math.floor(q / travel);
+        var prog = (q - round * travel) / travel, y = VH + m - prog * travel, g = k * 5.3 + round * 61.1, spanX = VW + 2 * m;
+        var w = 0.6 + rnd(g, 4) * 1.1, A = u * (1 + rnd(g, 5) * 3);
+        var x = mod(rnd(g, 6) * spanX + u * 0.3 * t + A * Math.sin(w * t + rnd(g, 7) * 6.28), spanX) - m;
+        if (x < OX - m || x > OX + W + m || y < OY - m || y > OY + H + m) continue;
+        var pop = 0.35 + rnd(g, 8) * 0.8;
+        ctx.save(); ctx.translate(x, y);
+        if (prog > pop) {
+          var since = (prog - pop) * travel / vy;
+          if (since < 0.3) {
+            var f = since / 0.3;
+            ctx.globalAlpha = (1 - f) * 0.8; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = Math.max(1, s * 0.05);
+            ctx.beginPath(); ctx.arc(0, 0, s * (1 + f * 0.6), 0, 7); ctx.stroke();
+            ctx.fillStyle = "#ffffff";
+            for (var d = 0; d < 7; d++) { var a = d / 7 * 6.28 + rnd(g, 9); ctx.beginPath(); ctx.arc(Math.cos(a) * s * (1 + f * 1.4), Math.sin(a) * s * (1 + f * 1.4) + f * f * s * 0.8, Math.max(0.8, s * 0.06), 0, 7); ctx.fill(); }
+          }
+          ctx.restore(); continue;
+        }
+        var wob = 1 + 0.05 * Math.sin(t * (3 + rnd(k, 10) * 2) + k);
+        ctx.globalAlpha = 0.75 + z * 0.25;
+        ctx.save(); ctx.scale(wob, 1 / wob); ctx.rotate(rnd(g, 11) * 6.28 + t * (rnd(k, 12) - 0.5) * 1.5);
+        ctx.drawImage(sp.film, -s * 1.064, -s * 1.064, s * 2.128, s * 2.128); ctx.restore();
+        ctx.scale(wob, 1 / wob);
+        ctx.drawImage(sp.shine, -s * 1.064, -s * 1.064, s * 2.128, s * 2.128);
+        ctx.restore();
+      }
     }
     function heart(s) {
       ctx.beginPath(); ctx.moveTo(0, s * 0.3);
